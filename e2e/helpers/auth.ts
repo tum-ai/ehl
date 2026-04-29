@@ -118,55 +118,55 @@ export const SEED = {
   jury: [
     {
       id: "b0000000-0000-0000-0000-000000000001",
-      email: "jury1@test.com",
+      email: "jury1@example.com",
       name: "Jury Alpha",
     },
     {
       id: "b0000000-0000-0000-0000-000000000002",
-      email: "jury2@test.com",
+      email: "jury2@example.com",
       name: "Jury Beta",
     },
   ],
   teams: {
-    tum: {
+    alpha: {
       id: "d0000000-0000-0000-0000-000000000001",
-      name: "TUM.ai Innovators",
-      slug: "tum-ai-innovators",
+      name: "Alpha Innovators",
+      slug: "alpha-innovators",
       points: 8,
       bestFinish: 1,
     },
-    eth: {
+    beta: {
       id: "d0000000-0000-0000-0000-000000000002",
-      name: "ETH Zurich Hackers",
-      slug: "eth-zurich-hackers",
+      name: "Beta Hackers",
+      slug: "beta-hackers",
       points: 7,
       bestFinish: 2,
     },
-    kit: {
+    gamma: {
       id: "d0000000-0000-0000-0000-000000000003",
-      name: "KIT Coders",
-      slug: "kit-coders",
+      name: "Gamma Coders",
+      slug: "gamma-coders",
       points: 6,
       bestFinish: 3,
     },
-    lmu: {
+    delta: {
       id: "d0000000-0000-0000-0000-000000000004",
-      name: "LMU Builders",
-      slug: "lmu-builders",
+      name: "Delta Builders",
+      slug: "delta-builders",
       points: 4,
       bestFinish: 4,
     },
-    tuBerlin: {
+    epsilon: {
       id: "d0000000-0000-0000-0000-000000000005",
-      name: "TU Berlin Devs",
-      slug: "tu-berlin-devs",
+      name: "Epsilon Devs",
+      slug: "epsilon-devs",
       points: 2,
       bestFinish: null,
     },
-    rwth: {
+    zeta: {
       id: "d0000000-0000-0000-0000-000000000006",
-      name: "RWTH Aachen Tech",
-      slug: "rwth-aachen-tech",
+      name: "Zeta Tech",
+      slug: "zeta-tech",
       points: 2,
       bestFinish: null,
     },

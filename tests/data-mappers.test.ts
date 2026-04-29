@@ -221,11 +221,11 @@ describe("toProfile", () => {
   });
 
   it("preserves role when set", () => {
-    const row = { id: "u1", name: "Admin", email: "admin@test.com", role: "admin" };
+    const row = { id: "u1", name: "Admin", email: "admin@example.com", role: "admin" };
     const profile = toProfile(row);
     expect(profile.role).toBe("admin");
     expect(profile.name).toBe("Admin");
-    expect(profile.email).toBe("admin@test.com");
+    expect(profile.email).toBe("admin@example.com");
   });
 });
 
@@ -234,7 +234,7 @@ describe("toProfile", () => {
 describe("toApplication", () => {
   it("defaults formData to empty object", () => {
     const row = {
-      id: "a1", chapter_id: "c1", email: "test@test.com",
+      id: "a1", chapter_id: "c1", email: "test@example.com",
       first_name: "John", last_name: "Doe", status: "pending",
       check_in_token: "tok123",
       consent_attendance: true, consent_privacy: true,
@@ -258,7 +258,7 @@ describe("toApplication", () => {
 
   it("preserves consent flags when true", () => {
     const row = {
-      id: "a1", chapter_id: "c1", email: "test@test.com",
+      id: "a1", chapter_id: "c1", email: "test@example.com",
       first_name: "John", last_name: "Doe", status: "accepted",
       check_in_token: "tok123",
       consent_attendance: true, consent_privacy: true,

@@ -68,6 +68,9 @@ screenshots/
 Bildschirmfoto*
 image-*.png
 
+# Claude Code context (operator-specific, may contain credentials)
+.claude/
+
 # Tooling
 .playwright-mcp/
 supabase/.temp/

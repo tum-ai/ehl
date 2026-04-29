@@ -61,7 +61,7 @@ export const emailLimiter = redis
 
 const memoryStore = new Map<string, number[]>();
 const MEMORY_WINDOW_MS = 60_000; // 1 minute
-const MEMORY_MAX_REQUESTS = 30; // generous: prevents abuse, doesn't block normal use
+const MEMORY_MAX_REQUESTS = 5; // match strictest Redis limiter (auth/register/reset)
 
 function checkMemoryLimit(identifier: string): boolean {
   const now = Date.now();

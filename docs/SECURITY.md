@@ -285,7 +285,7 @@ External service limits that affect the platform. If you hit unexplained errors 
 ### Cloudflare Turnstile (Free)
 - 1M siteverify calls/mo (effectively unlimited for our scale)
 
-### Google Cloud (TUM.ai account)
+### Google Cloud
 - OAuth: Unlimited in production mode (100 in testing mode)
 - Gmail API: 250 quota units/second
 

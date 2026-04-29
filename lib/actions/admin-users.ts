@@ -47,7 +47,7 @@ export async function getAdminUsers() {
 export async function addAdminEmail(email: string) {
   const normalized = email.toLowerCase().trim();
 
-  const domain = process.env.ADMIN_EMAIL_DOMAIN || "tum-ai.com";
+  const domain = process.env.ADMIN_EMAIL_DOMAIN || "example.com";
   if (!normalized.endsWith(`@${domain}`)) {
     return { error: `Only @${domain} emails can be added as admins.` };
   }

@@ -12,8 +12,8 @@
  *
  * Example:
  *   npx tsx scripts/import-team-members.ts \
- *     "Final Submission_ Makeathon 2026_Submissions_2026-04-23.csv" \
- *     "Application for TUM.ai Makeathon 2026_Submissions_2026-04-24.csv"
+ *     "Final Submission_ Hackathon_Submissions_2026-04-23.csv" \
+ *     "Application for Hackathon_Submissions_2026-04-24.csv"
  */
 
 import { readFileSync } from "fs";

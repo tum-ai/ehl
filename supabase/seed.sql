@@ -45,45 +45,45 @@ INSERT INTO profiles (id, name, email, role) VALUES
 
 -- Jury
 INSERT INTO profiles (id, name, email, role) VALUES
-  ('b0000000-0000-0000-0000-000000000001', 'Jury Alpha', 'jury1@test.com', 'jury'),
-  ('b0000000-0000-0000-0000-000000000002', 'Jury Beta', 'jury2@test.com', 'jury');
+  ('b0000000-0000-0000-0000-000000000001', 'Jury Alpha', 'jury1@example.com', 'jury'),
+  ('b0000000-0000-0000-0000-000000000002', 'Jury Beta', 'jury2@example.com', 'jury');
 
 -- Participants (presidents + members)
 INSERT INTO profiles (id, name, email, role) VALUES
-  -- Team 1: TUM.ai Innovators
-  ('c0000000-0000-0000-0000-000000000001', 'Alice Mueller', 'alice@tum.de', 'participant'),
-  ('c0000000-0000-0000-0000-000000000002', 'Bob Schmidt', 'bob@tum.de', 'participant'),
-  ('c0000000-0000-0000-0000-000000000003', 'Clara Weber', 'clara@tum.de', 'participant'),
-  -- Team 2: ETH Zurich Hackers
-  ('c0000000-0000-0000-0000-000000000004', 'David Chen', 'david@ethz.ch', 'participant'),
-  ('c0000000-0000-0000-0000-000000000005', 'Eva Rossi', 'eva@ethz.ch', 'participant'),
-  ('c0000000-0000-0000-0000-000000000006', 'Felix Braun', 'felix@ethz.ch', 'participant'),
-  -- Team 3: KIT Coders
-  ('c0000000-0000-0000-0000-000000000007', 'Gina Park', 'gina@kit.edu', 'participant'),
-  ('c0000000-0000-0000-0000-000000000008', 'Hiro Tanaka', 'hiro@kit.edu', 'participant'),
-  -- Team 4: LMU Builders
-  ('c0000000-0000-0000-0000-000000000009', 'Isla Martin', 'isla@lmu.de', 'participant'),
-  ('c0000000-0000-0000-0000-000000000010', 'Jan Novak', 'jan@lmu.de', 'participant'),
-  ('c0000000-0000-0000-0000-000000000011', 'Kira Sokolov', 'kira@lmu.de', 'participant'),
-  -- Team 5: TU Berlin Devs
-  ('c0000000-0000-0000-0000-000000000012', 'Leo Hoffmann', 'leo@tu-berlin.de', 'participant'),
-  ('c0000000-0000-0000-0000-000000000013', 'Mia Becker', 'mia@tu-berlin.de', 'participant'),
-  -- Team 6: RWTH Aachen Tech
-  ('c0000000-0000-0000-0000-000000000014', 'Nina Wagner', 'nina@rwth.de', 'participant'),
-  ('c0000000-0000-0000-0000-000000000015', 'Oscar Lehmann', 'oscar@rwth.de', 'participant'),
-  ('c0000000-0000-0000-0000-000000000016', 'Paula Fischer', 'paula@rwth.de', 'participant');
+  -- Team 1: Alpha Innovators
+  ('c0000000-0000-0000-0000-000000000001', 'Alice Mueller', 'alice@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000002', 'Bob Schmidt', 'bob@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000003', 'Clara Weber', 'clara@example.com', 'participant'),
+  -- Team 2: Beta Hackers
+  ('c0000000-0000-0000-0000-000000000004', 'David Chen', 'david@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000005', 'Eva Rossi', 'eva@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000006', 'Felix Braun', 'felix@example.com', 'participant'),
+  -- Team 3: Gamma Coders
+  ('c0000000-0000-0000-0000-000000000007', 'Gina Park', 'gina@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000008', 'Hiro Tanaka', 'hiro@example.com', 'participant'),
+  -- Team 4: Delta Builders
+  ('c0000000-0000-0000-0000-000000000009', 'Isla Martin', 'isla@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000010', 'Jan Novak', 'jan@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000011', 'Kira Sokolov', 'kira@example.com', 'participant'),
+  -- Team 5: Epsilon Devs
+  ('c0000000-0000-0000-0000-000000000012', 'Leo Hoffmann', 'leo@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000013', 'Mia Becker', 'mia@example.com', 'participant'),
+  -- Team 6: Zeta Tech
+  ('c0000000-0000-0000-0000-000000000014', 'Nina Wagner', 'nina@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000015', 'Oscar Lehmann', 'oscar@example.com', 'participant'),
+  ('c0000000-0000-0000-0000-000000000016', 'Paula Fischer', 'paula@example.com', 'participant');
 
 -- ═══════════════════════════════════════════════════════════════
 -- TEAMS
 -- ═══════════════════════════════════════════════════════════════
 
 INSERT INTO teams (id, name, slug, university, city, president_user_id) VALUES
-  ('d0000000-0000-0000-0000-000000000001', 'TUM.ai Innovators', 'tum-ai-innovators', 'TU Munich', 'Munich', 'c0000000-0000-0000-0000-000000000001'),
-  ('d0000000-0000-0000-0000-000000000002', 'ETH Zurich Hackers', 'eth-zurich-hackers', 'ETH Zurich', 'Zurich', 'c0000000-0000-0000-0000-000000000004'),
-  ('d0000000-0000-0000-0000-000000000003', 'KIT Coders', 'kit-coders', 'KIT', 'Karlsruhe', 'c0000000-0000-0000-0000-000000000007'),
-  ('d0000000-0000-0000-0000-000000000004', 'LMU Builders', 'lmu-builders', 'LMU Munich', 'Munich', 'c0000000-0000-0000-0000-000000000009'),
-  ('d0000000-0000-0000-0000-000000000005', 'TU Berlin Devs', 'tu-berlin-devs', 'TU Berlin', 'Berlin', 'c0000000-0000-0000-0000-000000000012'),
-  ('d0000000-0000-0000-0000-000000000006', 'RWTH Aachen Tech', 'rwth-aachen-tech', 'RWTH Aachen', 'Aachen', 'c0000000-0000-0000-0000-000000000014');
+  ('d0000000-0000-0000-0000-000000000001', 'Alpha Innovators', 'alpha-innovators', 'University of Munich', 'Munich', 'c0000000-0000-0000-0000-000000000001'),
+  ('d0000000-0000-0000-0000-000000000002', 'Beta Hackers', 'beta-hackers', 'University of Zurich', 'Zurich', 'c0000000-0000-0000-0000-000000000004'),
+  ('d0000000-0000-0000-0000-000000000003', 'Gamma Coders', 'gamma-coders', 'University of Karlsruhe', 'Karlsruhe', 'c0000000-0000-0000-0000-000000000007'),
+  ('d0000000-0000-0000-0000-000000000004', 'Delta Builders', 'delta-builders', 'University of Munich South', 'Munich', 'c0000000-0000-0000-0000-000000000009'),
+  ('d0000000-0000-0000-0000-000000000005', 'Epsilon Devs', 'epsilon-devs', 'University of Berlin', 'Berlin', 'c0000000-0000-0000-0000-000000000012'),
+  ('d0000000-0000-0000-0000-000000000006', 'Zeta Tech', 'zeta-tech', 'University of Aachen', 'Aachen', 'c0000000-0000-0000-0000-000000000014');
 
 -- ═══════════════════════════════════════════════════════════════
 -- TEAM MEMBERS
@@ -245,35 +245,35 @@ INSERT INTO pitch_orders (challenge_id, order_list, generated_by) VALUES
 
 INSERT INTO applications (id, chapter_id, email, first_name, last_name, status, form_data, consent_attendance, consent_privacy, consent_newsletter) VALUES
   ('40000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002',
-   'applicant1@test.com', 'Anna', 'Schneider', 'accepted',
+   'applicant1@example.com', 'Anna', 'Schneider', 'accepted',
    '{"dateOfBirth":"2000-05-15","gender":"female","nationality":"German","city":"Zurich","country":"Switzerland","currentlyStudying":true,"university":"ETH Zurich","degree":"MSc","fieldOfStudy":"Computer Science","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"3 hackathons","tshirtCut":"womens","tshirtSize":"M","dietaryRestrictions":"none","discoverySource":["instagram"]}',
    true, true, true),
   ('40000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000002',
-   'applicant2@test.com', 'Ben', 'Keller', 'accepted',
+   'applicant2@example.com', 'Ben', 'Keller', 'accepted',
    '{"dateOfBirth":"2001-03-22","gender":"male","nationality":"Swiss","city":"Zurich","country":"Switzerland","currentlyStudying":true,"university":"ETH Zurich","degree":"BSc","fieldOfStudy":"Electrical Engineering","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"1 hackathon","tshirtCut":"mens","tshirtSize":"L","dietaryRestrictions":"vegetarian","discoverySource":["friend"]}',
    true, true, false),
   ('40000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000002',
-   'applicant3@test.com', 'Carla', 'Meyer', 'pending',
+   'applicant3@example.com', 'Carla', 'Meyer', 'pending',
    '{"dateOfBirth":"1999-11-08","gender":"female","nationality":"German","city":"Munich","country":"Germany","currentlyStudying":true,"university":"TU Munich","degree":"MSc","fieldOfStudy":"Data Science","hasProgrammingSkills":true,"isTumaiMember":true,"hackathonExperience":"5+ hackathons","tshirtCut":"womens","tshirtSize":"S","dietaryRestrictions":"vegan","discoverySource":["tumai","instagram"]}',
    true, true, true),
   ('40000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000002',
-   'applicant4@test.com', 'Daniel', 'Roth', 'pending',
+   'applicant4@example.com', 'Daniel', 'Roth', 'pending',
    '{"dateOfBirth":"2002-07-30","gender":"male","nationality":"Austrian","city":"Vienna","country":"Austria","currentlyStudying":true,"university":"TU Vienna","degree":"BSc","fieldOfStudy":"Software Engineering","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"none","tshirtCut":"mens","tshirtSize":"M","dietaryRestrictions":"none","discoverySource":["linkedin"]}',
    true, true, false),
   ('40000000-0000-0000-0000-000000000005', 'e0000000-0000-0000-0000-000000000002',
-   'applicant5@test.com', 'Elena', 'Popov', 'rejected',
+   'applicant5@example.com', 'Elena', 'Popov', 'rejected',
    '{"dateOfBirth":"2000-01-12","gender":"female","nationality":"Romanian","city":"Bucharest","country":"Romania","currentlyStudying":false,"hasProgrammingSkills":false,"isTumaiMember":false,"hackathonExperience":"none","tshirtCut":"womens","tshirtSize":"M","dietaryRestrictions":"none","discoverySource":["other"],"discoverySourceOther":"University bulletin"}',
    true, true, false),
   ('40000000-0000-0000-0000-000000000006', 'e0000000-0000-0000-0000-000000000002',
-   'applicant6@test.com', 'Florian', 'Jung', 'waitlisted',
+   'applicant6@example.com', 'Florian', 'Jung', 'waitlisted',
    '{"dateOfBirth":"2001-09-05","gender":"male","nationality":"German","city":"Berlin","country":"Germany","currentlyStudying":true,"university":"TU Berlin","degree":"MSc","fieldOfStudy":"AI","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"2 hackathons","tshirtCut":"mens","tshirtSize":"XL","dietaryRestrictions":"none","discoverySource":["instagram","linkedin"]}',
    true, true, true),
   ('40000000-0000-0000-0000-000000000007', 'e0000000-0000-0000-0000-000000000002',
-   'applicant7@test.com', 'Greta', 'Lindberg', 'checked_in',
+   'applicant7@example.com', 'Greta', 'Lindberg', 'checked_in',
    '{"dateOfBirth":"2000-06-18","gender":"female","nationality":"Swedish","city":"Stockholm","country":"Sweden","currentlyStudying":true,"university":"KTH","degree":"MSc","fieldOfStudy":"Machine Learning","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"4 hackathons","tshirtCut":"womens","tshirtSize":"S","dietaryRestrictions":"gluten-free","discoverySource":["friend"]}',
    true, true, false),
   ('40000000-0000-0000-0000-000000000008', 'e0000000-0000-0000-0000-000000000002',
-   'applicant8@test.com', 'Hugo', 'Fernandez', 'pending',
+   'applicant8@example.com', 'Hugo', 'Fernandez', 'pending',
    '{"dateOfBirth":"2001-12-01","gender":"male","nationality":"Spanish","city":"Madrid","country":"Spain","currentlyStudying":true,"university":"UPM","degree":"BSc","fieldOfStudy":"Telecommunications","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"1 hackathon","tshirtCut":"mens","tshirtSize":"L","dietaryRestrictions":"none","discoverySource":["instagram"]}',
    true, true, false);
 

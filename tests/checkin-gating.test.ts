@@ -44,17 +44,17 @@ describe("getCheckinStatusForUsers", () => {
     const profilesChain = setupChain(null);
     profilesChain.in.mockResolvedValue({
       data: [
-        { id: "user-1", email: "alice@test.com" },
-        { id: "user-2", email: "bob@test.com" },
-        { id: "user-3", email: "charlie@test.com" },
+        { id: "user-1", email: "alice@example.com" },
+        { id: "user-2", email: "bob@example.com" },
+        { id: "user-3", email: "charlie@example.com" },
       ],
     });
 
     const applicationsChain = setupChain(null);
     applicationsChain.in.mockResolvedValue({
       data: [
-        { email: "alice@test.com", status: "checked_in" },
-        { email: "bob@test.com", status: "accepted" },
+        { email: "alice@example.com", status: "checked_in" },
+        { email: "bob@example.com", status: "accepted" },
         // charlie has no application at all
       ],
     });
@@ -99,7 +99,7 @@ describe("getCheckinStatusForUsers", () => {
   it("marks user as false when profile exists but no application", async () => {
     const profilesChain = setupChain(null);
     profilesChain.in.mockResolvedValue({
-      data: [{ id: "user-1", email: "alice@test.com" }],
+      data: [{ id: "user-1", email: "alice@example.com" }],
     });
 
     const applicationsChain = setupChain(null);

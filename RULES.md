@@ -211,7 +211,7 @@ External service limits that affect the platform. If you hit unexplained errors 
 - Turnstile: 1M siteverify calls/mo (effectively unlimited for our scale)
 - No bandwidth limits on siteverify API
 
-### Google Cloud (TUM.ai account)
+### Google Cloud
 - OAuth consent screen: 100 users in testing mode, unlimited in production
 - Gmail API (for Google Drive): 250 quota units/second
 
@@ -220,7 +220,7 @@ External service limits that affect the platform. If you hit unexplained errors 
 - Code review pipeline: ~$0.10-0.30 per review (depends on repo size + models)
 - Budget for 100 reviews/chapter: ~$10-30
 
-### GitHub (TUM.ai org)
+### GitHub
 - API rate limit: 5,000 requests/hour (authenticated)
 - Actions: 2,000 minutes/mo (free for public repos)
 - Snapshot fork repos count toward org limits

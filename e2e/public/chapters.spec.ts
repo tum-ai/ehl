@@ -55,8 +55,8 @@ test.describe("Chapter detail pages", () => {
     await expect(page.getByText("Completed").first()).toBeVisible();
 
     // Check that team names from the seed data appear in results
-    // (Munich has scores for TUM, ETH, KIT, LMU)
-    await expect(page.getByText(SEED.teams.tum.name)).toBeVisible();
+    // (Munich has scores for Alpha, Beta, Gamma, Delta)
+    await expect(page.getByText(SEED.teams.alpha.name)).toBeVisible();
   });
 
   test("registration_open chapter detail page (Zurich) loads correctly", async ({ page }) => {

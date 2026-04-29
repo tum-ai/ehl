@@ -6,7 +6,7 @@
   --font-sans: var(--font-satoshi), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
 
-  /* Surfaces — deep purple-black à la TUM.ai (#0d0214) */
+  /* Surfaces — deep purple-black */
   --color-surface-deep: #0a0118;
   --color-surface: #110724;
   --color-surface-card: #1a0f30;
@@ -22,7 +22,7 @@
   --color-gold-500: #e8b84b;
   --color-gold-700: #c9952e;
 
-  /* Purple (Secondary — TUM.ai brand alignment) */
+  /* Purple (Secondary Accent) */
   --color-purple: #9a64d9;
   --color-purple-light: #c9a5f0;
   --color-purple-dark: #6b3fa0;

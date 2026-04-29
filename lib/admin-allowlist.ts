@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 
-const ADMIN_EMAIL_DOMAIN = process.env.ADMIN_EMAIL_DOMAIN || "tum-ai.com";
+const ADMIN_EMAIL_DOMAIN = process.env.ADMIN_EMAIL_DOMAIN || "example.com";
 
 export function getAdminEmailDomain(): string {
   return ADMIN_EMAIL_DOMAIN;

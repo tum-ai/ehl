@@ -112,7 +112,7 @@ export async function signInAdminWithGoogle() {
     options: {
       redirectTo: `${getSiteUrl()}/auth/callback?next=/admin`,
       queryParams: {
-        hd: "tum-ai.com",
+        ...(process.env.ADMIN_EMAIL_DOMAIN ? { hd: process.env.ADMIN_EMAIL_DOMAIN } : {}),
       },
     },
   });

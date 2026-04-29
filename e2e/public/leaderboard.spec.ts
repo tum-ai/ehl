@@ -24,15 +24,15 @@ test.describe("Leaderboard page", () => {
     const rows = page.locator("table tbody tr");
     await expect(rows).toHaveCount(6);
 
-    // Expected order by points: TUM(8), ETH(7), KIT(6), LMU(4), TU Berlin(2), RWTH(2)
+    // Expected order by points: Alpha(8), Beta(7), Gamma(6), Delta(4), Epsilon(2), Zeta(2)
     const expectedOrder = [
-      SEED.teams.tum.name,
-      SEED.teams.eth.name,
-      SEED.teams.kit.name,
-      SEED.teams.lmu.name,
-      // TU Berlin and RWTH both have 2 points, tied at rank 5
-      SEED.teams.tuBerlin.name,
-      SEED.teams.rwth.name,
+      SEED.teams.alpha.name,
+      SEED.teams.beta.name,
+      SEED.teams.gamma.name,
+      SEED.teams.delta.name,
+      // Epsilon and Zeta both have 2 points, tied at rank 5
+      SEED.teams.epsilon.name,
+      SEED.teams.zeta.name,
     ];
 
     for (let i = 0; i < expectedOrder.length; i++) {
@@ -50,9 +50,9 @@ test.describe("Leaderboard page", () => {
     // Podium shows the top 3 team names
     // These appear outside the table, in the podium component
     const beforeTable = page.locator("section");
-    await expect(beforeTable.getByText(SEED.teams.tum.name).first()).toBeVisible();
-    await expect(beforeTable.getByText(SEED.teams.eth.name).first()).toBeVisible();
-    await expect(beforeTable.getByText(SEED.teams.kit.name).first()).toBeVisible();
+    await expect(beforeTable.getByText(SEED.teams.alpha.name).first()).toBeVisible();
+    await expect(beforeTable.getByText(SEED.teams.beta.name).first()).toBeVisible();
+    await expect(beforeTable.getByText(SEED.teams.gamma.name).first()).toBeVisible();
   });
 
   test("points values are correct for each team", async ({ page }) => {
