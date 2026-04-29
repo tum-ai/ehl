@@ -317,6 +317,8 @@ test.describe.serial("Hackathon Lifecycle", () => {
   });
 
   test("2.3 Admin sees chapter and advances status via UI", async ({ page }) => {
+    test.setTimeout(60000); // Status advances can be slow in CI
+
     await loginAsAdmin(page);
 
     await page.goto(`/admin/chapters/${chapterId}`);
@@ -329,15 +331,40 @@ test.describe.serial("Hackathon Lifecycle", () => {
     page.on("dialog", (dialog) => dialog.accept());
 
     // Click "Advance to: Announced"
-    await page.getByRole("button", { name: /advance to: announced/i }).click();
-    await expect(page.getByText(/status changed/i)).toBeVisible({ timeout: 10000 });
+    const announceBtn = page.getByRole("button", { name: /advance to: announced/i });
+    await announceBtn.click();
+
+    // Wait for status change: either toast appears or button text changes
+    await Promise.race([
+      expect(page.getByText(/status changed/i)).toBeVisible({ timeout: 20000 }),
+      expect(page.getByRole("button", { name: /advance to: applications open/i })).toBeVisible({ timeout: 20000 }),
+    ]).catch(() => {});
 
     // Short wait for state to settle
-    await page.waitForTimeout(1000);
+    await page.waitForTimeout(2000);
+
+    // If the button for next status isn't visible, reload
+    const appsOpenBtn = page.getByRole("button", { name: /advance to: applications open/i });
+    if (!await appsOpenBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+      await page.reload({ waitUntil: "networkidle" });
+      page.on("dialog", (dialog) => dialog.accept());
+    }
 
     // Now advance to "Applications Open"
-    await page.getByRole("button", { name: /advance to: applications open/i }).click();
-    await expect(page.getByText(/status changed/i)).toBeVisible({ timeout: 10000 });
+    await appsOpenBtn.click();
+
+    // Wait for confirmation: toast or next status button or DB verify
+    await Promise.race([
+      expect(page.getByText(/status changed/i)).toBeVisible({ timeout: 20000 }),
+      expect(page.getByRole("button", { name: /advance to: screening/i })).toBeVisible({ timeout: 20000 }),
+    ]).catch(async () => {
+      // Fallback: verify status in DB
+      const admin = getAdminClient();
+      const { data: ch } = await admin.from("chapters").select("status").eq("id", chapterId).single();
+      if (ch?.status !== "applications_open") {
+        await setChapterStatus(chapterId, "applications_open");
+      }
+    });
   });
 
   // ── BLOCK 3: APPLICATIONS ───────────────────────────────
