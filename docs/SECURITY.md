@@ -108,9 +108,9 @@ Powered by Upstash Redis. All limiters use sliding window algorithm.
 | `apiLimiter` | 1,000 requests | 60 seconds | General API endpoints (high: 500+ participants share one WiFi) |
 | `certLimiter` | 10 requests | 60 seconds | Certificate PDF generation (CPU-intensive) |
 
-### Fail-open behavior with in-memory fallback
+### In-memory fallback (per-limiter limits)
 
-If Redis is unavailable (connection error, quota exceeded), an **in-memory sliding window** takes over (30 requests per minute per identifier). This provides basic protection even without Redis, though it is not shared across serverless instances. The system never fully disables rate limiting.
+If Redis is unavailable (connection error, quota exceeded), an **in-memory sliding window** takes over with per-limiter fallback limits that match the Redis configuration. Auth-sensitive endpoints (login, registration, password reset) use the same strict limits as Redis (3-5/min). The API limiter uses a reduced limit (100/min instead of 1000/min). Fallback activation is logged via `console.warn` for monitoring. The in-memory store is not shared across serverless instances, so it provides best-effort protection only.
 
 ### Monitoring
 
@@ -312,7 +312,10 @@ External service limits that affect the platform. If you hit unexplained errors 
 | Clickjacking | X-Frame-Options: DENY |
 | Open redirect | Redirect targets validated (must start with `/`, not `//`) |
 | Privilege escalation | RLS on all tables + server-side auth checks + separated auth flows + DB trigger blocks role changes (migration 00030) |
-| Late submission | `is_locked` enforced at RLS level (migration 00031) + application-level deadline check |
+| Late submission | `is_locked` + real-time deadline check enforced at RLS level (migrations 00031, 00035) + application-level deadline check |
+| Multi-team during active chapter | DB trigger serializes concurrent inserts via row locks (migration 00035) + application-level pre-check |
+| Team membership enumeration | RLS restricted to authenticated users (migration 00035), server-side queries use admin client |
+| Code review prompt injection | User code wrapped in XML tags with explicit untrusted data warnings in system prompts |
 | Data scraping | Rate limiting on API + query limits on all queries |
 | Email enumeration | Rate limiting on account/team lookup server actions |
 | Email bombing | 3 emails/hour per address rate limit |

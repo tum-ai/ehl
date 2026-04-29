@@ -54,18 +54,42 @@ export const emailLimiter = redis
   ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(3, "3600 s"), prefix: "rl:email" })
   : null;
 
+// ─── Per-limiter in-memory fallback configuration ────────────
+// When Redis is unavailable, each limiter uses its own fallback limits
+// instead of a single generous default. This prevents auth-sensitive
+// endpoints from being more permissive than their Redis configuration.
+
+interface MemoryFallbackConfig {
+  limit: number;
+  windowMs: number;
+}
+
+const DEFAULT_FALLBACK: MemoryFallbackConfig = { limit: 5, windowMs: 60_000 };
+
+const memoryFallbackConfig = new Map<Ratelimit | null, MemoryFallbackConfig>();
+if (authLimiter) memoryFallbackConfig.set(authLimiter, { limit: 5, windowMs: 60_000 });
+if (registerLimiter) memoryFallbackConfig.set(registerLimiter, { limit: 3, windowMs: 60_000 });
+if (resetLimiter) memoryFallbackConfig.set(resetLimiter, { limit: 3, windowMs: 60_000 });
+if (applicationLimiter) memoryFallbackConfig.set(applicationLimiter, { limit: 3, windowMs: 60_000 });
+if (uploadLimiter) memoryFallbackConfig.set(uploadLimiter, { limit: 2, windowMs: 60_000 });
+if (apiLimiter) memoryFallbackConfig.set(apiLimiter, { limit: 100, windowMs: 60_000 });
+if (certLimiter) memoryFallbackConfig.set(certLimiter, { limit: 10, windowMs: 60_000 });
+if (emailLimiter) memoryFallbackConfig.set(emailLimiter, { limit: 1, windowMs: 60_000 });
+
 // ─── In-memory fallback when Redis is unavailable ─────────
 // Simple sliding window: Map<identifier, timestamp[]>
 // Cleaned up on access. Not shared across serverless instances,
-// but provides basic protection when Redis is down.
+// but provides per-limiter protection when Redis is down.
 
 const memoryStore = new Map<string, number[]>();
-const MEMORY_WINDOW_MS = 60_000; // 1 minute
-const MEMORY_MAX_REQUESTS = 5; // match strictest Redis limiter (auth/register/reset)
 
-function checkMemoryLimit(identifier: string): boolean {
+export function checkMemoryLimit(
+  identifier: string,
+  maxRequests: number = DEFAULT_FALLBACK.limit,
+  windowMs: number = DEFAULT_FALLBACK.windowMs,
+): boolean {
   const now = Date.now();
-  const windowStart = now - MEMORY_WINDOW_MS;
+  const windowStart = now - windowMs;
 
   let timestamps = memoryStore.get(identifier);
   if (timestamps) {
@@ -74,7 +98,7 @@ function checkMemoryLimit(identifier: string): boolean {
     timestamps = [];
   }
 
-  if (timestamps.length >= MEMORY_MAX_REQUESTS) {
+  if (timestamps.length >= maxRequests) {
     memoryStore.set(identifier, timestamps);
     return false; // limited
   }
@@ -94,14 +118,22 @@ function checkMemoryLimit(identifier: string): boolean {
   return true; // allowed
 }
 
+// Exported for testing
+export function _resetMemoryStore() {
+  memoryStore.clear();
+}
+
 // Helper to check rate limit and return error if exceeded
 export async function checkRateLimit(
   limiter: Ratelimit | null,
   identifier: string
 ): Promise<{ limited: boolean; error?: string }> {
+  const config = memoryFallbackConfig.get(limiter) ?? DEFAULT_FALLBACK;
+
   if (!limiter) {
-    // No Redis available: use in-memory fallback
-    if (!checkMemoryLimit(identifier)) {
+    // No Redis available: use in-memory fallback with per-limiter limits
+    console.warn(`[rate-limit] Redis unavailable, using in-memory fallback for: ${identifier}`);
+    if (!checkMemoryLimit(identifier, config.limit, config.windowMs)) {
       return { limited: true, error: "Too many requests. Please try again later." };
     }
     return { limited: false };
@@ -114,9 +146,10 @@ export async function checkRateLimit(
     }
     return { limited: false };
   } catch (err) {
-    // Redis error: fall back to in-memory limiter
-    console.error("Rate limit check failed, using in-memory fallback:", err);
-    if (!checkMemoryLimit(identifier)) {
+    // Redis error: fall back to in-memory limiter with per-limiter limits
+    console.error("[rate-limit] Redis error, falling back to in-memory:", err);
+    console.warn(`[rate-limit] Fallback active for: ${identifier} (limit: ${config.limit}/${config.windowMs}ms)`);
+    if (!checkMemoryLimit(identifier, config.limit, config.windowMs)) {
       return { limited: true, error: "Too many requests. Please try again later." };
     }
     return { limited: false };

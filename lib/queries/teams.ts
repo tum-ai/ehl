@@ -1,4 +1,5 @@
 import { createClient as createServerClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import type { Team, TeamMember, Profile, TeamJoinRequest, TeamInvite } from "../types";
 import { getClient } from "./client";
 import { toTeam, toTeamMember, toProfile, toJoinRequest, toTeamInvite } from "./mappers";
@@ -29,7 +30,9 @@ export async function getTeamBySlug(slug: string): Promise<Team | null> {
 export async function getTeamForUser(
   userId: string
 ): Promise<{ team: Team; role: "president" | "member" } | null> {
-  const supabase = getClient();
+  // Uses admin client: team_members RLS requires auth, but this runs
+  // server-side for public/participant pages. Read-only, no write risk.
+  const supabase = createAdminClient();
   const { data: membership } = await supabase
     .from("team_members")
     .select("team_id, role")
@@ -69,7 +72,9 @@ export async function searchTeams(
 export async function getTeamMembers(
   teamId: string
 ): Promise<TeamMember[]> {
-  const supabase = getClient();
+  // Uses admin client: team_members RLS requires auth, but this runs
+  // server-side for public team pages. Read-only, no write risk.
+  const supabase = createAdminClient();
   const { data } = await supabase
     .from("team_members")
     .select("*")
@@ -81,7 +86,9 @@ export async function getTeamMembers(
 export async function getTeamMembersWithProfiles(
   teamId: string
 ): Promise<(TeamMember & { profile?: Profile })[]> {
-  const supabase = getClient();
+  // Uses admin client: team_members RLS requires auth, but this runs
+  // server-side for dashboard/API routes. Read-only, no write risk.
+  const supabase = createAdminClient();
   const { data } = await supabase
     .from("team_members")
     .select("*, profiles(*)")
@@ -96,7 +103,9 @@ export async function getTeamMembersWithProfiles(
 export async function getAllTeamMembers(): Promise<
   (TeamMember & { profile?: Profile })[]
 > {
-  const supabase = getClient();
+  // Uses admin client: team_members RLS requires auth, but this runs
+  // server-side for admin pages. Read-only, no write risk.
+  const supabase = createAdminClient();
   const { data } = await supabase
     .from("team_members")
     .select("*, profiles(*)")
@@ -116,7 +125,9 @@ export interface TeamLookingForMembers extends Team {
 }
 
 export async function getTeamsLookingForMembers(): Promise<TeamLookingForMembers[]> {
-  const supabase = getClient();
+  // Uses admin client: team_members RLS requires auth, but this runs
+  // server-side for dashboard. Read-only, no write risk.
+  const supabase = createAdminClient();
   const { data: teams } = await supabase
     .from("teams")
     .select("*")
