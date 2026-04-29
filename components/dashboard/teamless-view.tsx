@@ -1,0 +1,221 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { toggleLookingForTeam, acceptTeamInvite, declineTeamInvite, requestToJoinTeam } from "@/lib/actions/teams";
+import type { TeamInvite, TeamJoinRequest } from "@/lib/types";
+import type { TeamLookingForMembers } from "@/lib/queries";
+
+interface TeamlessViewProps {
+  lookingForTeam: boolean;
+  pendingInvites: TeamInvite[];
+  teamsLookingForMembers: TeamLookingForMembers[];
+  pendingJoinRequests: TeamJoinRequest[];
+}
+
+export function TeamlessView({
+  lookingForTeam: initialLooking,
+  pendingInvites: initialInvites,
+  teamsLookingForMembers,
+  pendingJoinRequests: initialJoinRequests,
+}: TeamlessViewProps) {
+  const router = useRouter();
+  const [lookingForTeam, setLookingForTeam] = useState(initialLooking);
+  const [invites, setInvites] = useState(initialInvites);
+  const [joinRequests, setJoinRequests] = useState(initialJoinRequests);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Track which teams the user has already requested to join
+  const requestedTeamIds = new Set(joinRequests.map((r) => r.teamId));
+
+  async function handleToggleLooking() {
+    const newValue = !lookingForTeam;
+    const result = await toggleLookingForTeam(newValue);
+    if (!result.error) {
+      setLookingForTeam(newValue);
+    }
+  }
+
+  async function handleAccept(token: string, inviteId: string) {
+    setActionLoading(inviteId);
+    const result = await acceptTeamInvite(token);
+    setActionLoading(null);
+    if (!result.error) {
+      router.refresh();
+    }
+  }
+
+  async function handleDecline(token: string, inviteId: string) {
+    setActionLoading(inviteId);
+    const result = await declineTeamInvite(token);
+    setActionLoading(null);
+    if (!result.error) {
+      setInvites((prev) => prev.filter((i) => i.id !== inviteId));
+    }
+  }
+
+  async function handleRequestJoin(teamId: string) {
+    setActionLoading(teamId);
+    const result = await requestToJoinTeam(teamId);
+    setActionLoading(null);
+    if (result.error) {
+      alert(result.error);
+    } else {
+      // Optimistic: add to local set
+      setJoinRequests((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          teamId,
+          userId: "",
+          chapterId: "",
+          status: "pending" as const,
+          createdAt: new Date().toISOString(),
+          resolvedAt: null,
+          resolvedBy: null,
+        },
+      ]);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Status */}
+      <Card>
+        <div className="py-4 text-center">
+          <div className="mb-4 flex justify-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-purple/10">
+              <svg className="h-7 w-7 text-purple-light" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+              </svg>
+            </div>
+          </div>
+          <p className="text-lg font-bold">You are not part of a team yet</p>
+          <p className="mt-1 text-sm text-text-muted">
+            Join an existing team or create your own
+          </p>
+          <div className="mt-6 flex justify-center gap-3">
+            <Button onClick={() => router.push("/register?mode=team")}>
+              Create a Team
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Looking for team toggle */}
+      <Card>
+        <label className="flex items-center gap-3">
+          <input
+            type="checkbox"
+            checked={lookingForTeam}
+            onChange={handleToggleLooking}
+            className="h-4 w-4 rounded border-white/20 bg-surface-deep"
+          />
+          <div>
+            <p className="text-sm font-medium">Looking for a team</p>
+            <p className="text-xs text-text-muted">
+              Other participants and team presidents can see that you are looking for a team
+            </p>
+          </div>
+        </label>
+      </Card>
+
+      {/* Pending invites */}
+      {invites.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-text-muted">
+            Team Invites
+          </h2>
+          <div className="space-y-2">
+            {invites.map((invite) => (
+              <Card key={invite.id}>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">
+                      {invite.teamName || "Team"}
+                    </p>
+                    <p className="text-xs text-text-muted">
+                      Invited to join as a member
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleDecline(invite.token, invite.id)}
+                      disabled={actionLoading === invite.id}
+                    >
+                      Decline
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => handleAccept(invite.token, invite.id)}
+                      disabled={actionLoading === invite.id}
+                    >
+                      {actionLoading === invite.id ? "..." : "Accept"}
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Teams looking for members */}
+      {teamsLookingForMembers.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-text-muted">
+            Teams Looking for Members
+          </h2>
+          <div className="space-y-2">
+            {teamsLookingForMembers.map((team) => {
+              const alreadyRequested = requestedTeamIds.has(team.id);
+              return (
+                <Card key={team.id}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-gold">{team.name}</p>
+                      <p className="mt-0.5 text-xs text-text-muted">
+                        {[team.university, team.city].filter(Boolean).join(", ") || "No origin set"}
+                        {" "}&middot; {team.memberCount}/5 members
+                      </p>
+                      {team.memberNames.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {team.memberNames.map((name, i) => (
+                            <span
+                              key={i}
+                              className="inline-flex items-center rounded-full bg-surface-deep px-2.5 py-0.5 text-xs text-text-secondary"
+                            >
+                              {name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-shrink-0">
+                      {alreadyRequested ? (
+                        <Badge variant="announced">Requested</Badge>
+                      ) : (
+                        <button
+                          onClick={() => handleRequestJoin(team.id)}
+                          disabled={actionLoading === team.id}
+                          className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-1.5 text-xs font-medium text-gold transition-colors hover:bg-gold/10 disabled:opacity-50"
+                        >
+                          {actionLoading === team.id ? "Sending..." : "Ask to Join"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

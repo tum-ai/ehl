@@ -1,0 +1,296 @@
+"use client";
+
+import { useState, useEffect, useRef } from "react";
+import Image from "next/image";
+import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { adminUpload } from "@/lib/upload";
+
+interface Partner {
+  id: string;
+  name: string;
+  logoUrl: string;
+  url: string;
+  tier: string;
+  description: string | null;
+  displayOrder: number;
+  chapterId: string | null;
+}
+
+const TIERS = ["challenge_partner", "tech_partner", "community_partner"];
+
+export default function AdminPartnersPage() {
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Form fields
+  const [name, setName] = useState("");
+  const [url, setUrl] = useState("");
+  const [tier, setTier] = useState("challenge_partner");
+  const [description, setDescription] = useState("");
+
+  useEffect(() => {
+    fetch("/api/admin/partners")
+      .then((r) => r.json())
+      .then(setPartners)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 50 * 1024 * 1024) {
+      setError("File size must be under 50MB.");
+      return;
+    }
+
+    setUploading(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("bucket", "partner-logos");
+
+    try {
+      const result = await adminUpload(formData);
+      if (result.error) {
+        setError(result.error);
+      } else if (result.url) {
+        setLogoUrl(result.url);
+        setLogoPreview(URL.createObjectURL(file));
+      }
+    } catch {
+      setError("Upload failed.");
+    }
+    setUploading(false);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name || !logoUrl) {
+      setError("Name and logo are required.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/admin/partners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, logoUrl, url, tier, description }),
+      });
+      const data = await res.json();
+
+      if (data.error) {
+        setError(data.error);
+      } else {
+        setPartners((prev) => [...prev, data.partner]);
+        resetForm();
+      }
+    } catch {
+      setError("Failed to create partner.");
+    }
+    setSaving(false);
+  }
+
+  function resetForm() {
+    setName("");
+    setUrl("");
+    setTier("challenge_partner");
+    setDescription("");
+    setLogoUrl("");
+    setLogoPreview(null);
+    setShowForm(false);
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function handleDelete(partnerId: string) {
+    if (!confirm("Remove this partner?")) return;
+
+    const res = await fetch(`/api/admin/partners?id=${partnerId}`, {
+      method: "DELETE",
+    });
+    const data = await res.json();
+
+    if (!data.error) {
+      setPartners((prev) => prev.filter((p) => p.id !== partnerId));
+    }
+  }
+
+  if (loading) {
+    return <div><p className="ad-text-muted">Loading...</p></div>;
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="ad-title text-2xl">Partners</h1>
+          <p className="mt-1 ad-text-secondary">
+            Manage sponsors and partners
+          </p>
+        </div>
+        <Button onClick={() => setShowForm(!showForm)}>
+          {showForm ? "Cancel" : "Add Partner"}
+        </Button>
+      </div>
+
+      {/* Add partner form */}
+      {showForm && (
+        <Card className="mt-6">
+          <h2 className="ad-heading text-lg">New Partner</h2>
+          <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm ad-text-muted">Name</label>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  placeholder="Partner name"
+                  className="mt-1 w-full rounded-lg border ad-border ad-bg-input px-4 py-2.5 ad-text focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm ad-text-muted">Website URL</label>
+                <input
+                  type="url"
+                  value={url}
+                  onChange={(e) => setUrl(e.target.value)}
+                  placeholder="https://partner.com"
+                  className="mt-1 w-full rounded-lg border ad-border ad-bg-input px-4 py-2.5 ad-text focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm ad-text-muted">Tier</label>
+                <select
+                  value={tier}
+                  onChange={(e) => setTier(e.target.value)}
+                  className="mt-1 w-full rounded-lg border ad-border ad-bg-input px-4 py-2.5 ad-text focus:outline-none"
+                >
+                  {TIERS.map((t) => (
+                    <option key={t} value={t}>
+                      {t.replace(/_/g, " ")}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm ad-text-muted">Description</label>
+                <input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  placeholder="Optional description"
+                  className="mt-1 w-full rounded-lg border ad-border ad-bg-input px-4 py-2.5 ad-text focus:outline-none"
+                />
+              </div>
+            </div>
+
+            {/* Logo upload */}
+            <div>
+              <label className="block text-sm ad-text-muted">Logo</label>
+              <div className="mt-1 flex items-center gap-4">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="rounded-lg border border-dashed ad-border px-4 py-3 text-sm ad-text-muted transition-colors"
+                >
+                  {uploading ? "Uploading..." : logoPreview ? "Change logo" : "Upload logo"}
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,.svg"
+                  onChange={handleLogoUpload}
+                  className="hidden"
+                />
+                {logoPreview && (
+                  <div className="flex h-12 w-24 items-center justify-center rounded-lg ad-bg-elevated p-2">
+                    <Image
+                      src={logoPreview}
+                      alt="Logo preview"
+                      width={80}
+                      height={40}
+                      className="h-8 w-auto object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {error && <p className="text-sm ad-text-error">{error}</p>}
+
+            <Button type="submit" disabled={saving || !logoUrl}>
+              {saving ? "Saving..." : "Add Partner"}
+            </Button>
+          </form>
+        </Card>
+      )}
+
+      {/* Partners list */}
+      <div className="mt-8 space-y-3">
+        {partners.map((partner) => (
+          <Card key={partner.id}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-20 items-center justify-center rounded-lg ad-bg-elevated p-2">
+                  <Image
+                    src={partner.logoUrl}
+                    alt={partner.name}
+                    width={80}
+                    height={40}
+                    className="h-8 w-auto object-contain"
+                  />
+                </div>
+                <div>
+                  <p className="font-medium">{partner.name}</p>
+                  {partner.url && (
+                    <a
+                      href={partner.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs ad-text-link transition-colors"
+                    >
+                      {partner.url}
+                    </a>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <Badge variant="default" light>{partner.tier.replace(/_/g, " ")}</Badge>
+                <button
+                  onClick={() => handleDelete(partner.id)}
+                  className="rounded-lg px-3 py-1.5 text-xs font-medium ad-text-error hover:bg-red-50 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          </Card>
+        ))}
+
+        {partners.length === 0 && (
+          <Card>
+            <p className="text-center ad-text-muted">No partners yet.</p>
+          </Card>
+        )}
+      </div>
+    </div>
+  );
+}

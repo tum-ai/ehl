@@ -1,0 +1,8 @@
+pnpm test
+
+# Block .only and .skip in test files
+if grep -rE '\.(only|skip)\(' tests/ e2e/ --include='*.ts' --include='*.spec.ts' 2>/dev/null; then
+  echo ""
+  echo "ERROR: .only or .skip found in test files. Remove before committing."
+  exit 1
+fi

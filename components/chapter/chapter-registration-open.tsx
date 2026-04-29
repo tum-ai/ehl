@@ -1,0 +1,279 @@
+"use client";
+
+import { useState } from "react";
+import { Badge } from "@/components/ui/badge";
+import { formatDateFull, formatDeadline } from "@/lib/utils";
+import { registerForChallenge } from "@/lib/actions/submissions";
+import { DeadlineCountdown } from "@/components/submission/deadline-countdown";
+import type { Chapter, Challenge } from "@/lib/types";
+
+interface ChapterRegistrationOpenProps {
+  chapter: Chapter;
+  challenges: Challenge[];
+  isUnlocked: boolean;
+  registeredChallengeId: string | null;
+  userRole: "president" | "member" | null;
+  teamId: string | null;
+}
+
+export function ChapterRegistrationOpen({
+  chapter,
+  challenges,
+  isUnlocked,
+  registeredChallengeId: initialRegisteredId,
+  userRole,
+  teamId,
+}: ChapterRegistrationOpenProps) {
+  const [registeredChallengeId, setRegisteredChallengeId] = useState(initialRegisteredId);
+  const [loading, setLoading] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRegister(challengeId: string) {
+    if (!teamId) return;
+    setLoading(challengeId);
+    setError(null);
+
+    const result = await registerForChallenge(chapter.id, challengeId, teamId, []);
+
+    setLoading(null);
+    if (result.error) {
+      setError(result.error);
+    } else {
+      setRegisteredChallengeId(challengeId);
+    }
+  }
+
+  return (
+    <div className="relative">
+      <div className="glow-blob glow-blob-purple absolute -right-60 -top-40 h-[500px] w-[500px] opacity-10" />
+
+      <div className="relative">
+        <Badge variant="announced">Challenge Selection</Badge>
+        <h1 className="mt-4 font-hero-display text-3xl font-black sm:text-4xl lg:text-5xl">
+          {chapter.name}
+        </h1>
+        <p className="mt-3 text-text-secondary">
+          {chapter.city}, {chapter.country} &middot; {formatDateFull(chapter.date, chapter.dateEnd)}
+        </p>
+        {chapter.description && (
+          <p className="mt-4 max-w-2xl font-hero-body leading-relaxed text-text-secondary">
+            {chapter.description}
+          </p>
+        )}
+      </div>
+
+      {/* Challenge selection deadline */}
+      {chapter.challengeSelectionDeadline && (
+        <DeadlineCountdown
+          deadline={chapter.challengeSelectionDeadline}
+          label="Challenge Selection Deadline"
+          expiredMessage="Challenge selection has closed."
+        />
+      )}
+
+      {/* Unlock status */}
+      {isUnlocked && userRole === "president" ? (
+        <div className="mt-8 rounded-2xl border border-gold/20 bg-gold/[0.03] p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10">
+              <svg className="h-5 w-5 text-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-bold text-gold">You are invited!</p>
+              <p className="text-sm text-text-secondary">
+                {registeredChallengeId
+                  ? "Your team is registered. You can switch challenges until selection closes."
+                  : "Choose a challenge below to register your team."}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : isUnlocked && userRole === "member" ? (
+        <div className="mt-8 rounded-2xl border border-gold/20 bg-gold/[0.03] p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10">
+              <svg className="h-5 w-5 text-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-bold text-gold">Your team is invited!</p>
+              <p className="text-sm text-text-secondary">
+                {registeredChallengeId
+                  ? "Your team president has selected a challenge."
+                  : "Your team president will select a challenge for your team."}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-8 rounded-2xl border border-white/[0.06] bg-surface-card/40 p-6">
+          <p className="text-text-muted">
+            Participation is managed by the organizers. If your team has been invited, log in to see your registration options.
+          </p>
+        </div>
+      )}
+
+      {error && (
+        <div className="mt-4 rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-400">
+          {error}
+        </div>
+      )}
+
+      {/* Challenges */}
+      <div className="mt-12">
+        <div className="mb-8 flex items-center gap-3">
+          <div className="h-px w-8 bg-gradient-to-r from-transparent to-purple/30" />
+          <h2 className="text-xs font-bold uppercase tracking-[0.2em] text-text-muted">
+            Challenges
+          </h2>
+          <div className="h-px w-8 bg-gradient-to-l from-transparent to-purple/30" />
+        </div>
+
+        <div className="space-y-6">
+          {challenges.map((challenge) => {
+            const isRegistered = registeredChallengeId === challenge.id;
+            const isOtherRegistered = registeredChallengeId !== null && !isRegistered;
+            const isLoading = loading === challenge.id;
+
+            return (
+              <div
+                key={challenge.id}
+                className={`overflow-hidden rounded-2xl border transition-all ${isRegistered ? "border-gold/30 bg-gold/[0.02]" : "border-white/[0.06] bg-surface-card/60"}`}
+              >
+                {/* Header */}
+                <div className="flex items-start justify-between gap-4 p-6 pb-0">
+                  <div className="flex items-start gap-4">
+                    {challenge.sponsorLogoUrl && (
+                      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/5 p-2">
+                        <img
+                          src={challenge.sponsorLogoUrl}
+                          alt={challenge.sponsorName || ""}
+                          className="h-full w-auto object-contain"
+                        />
+                      </div>
+                    )}
+                    <div>
+                      <h3 className="font-hero-heading text-xl font-bold">{challenge.title}</h3>
+                      {challenge.sponsorName && (
+                        <p className="mt-0.5 text-sm text-text-muted">by {challenge.sponsorName}</p>
+                      )}
+                    </div>
+                  </div>
+                  {isRegistered && (
+                    <Badge variant="completed">Your Challenge</Badge>
+                  )}
+                </div>
+
+                {/* Description */}
+                {challenge.description && (
+                  <div className="px-6 pt-4">
+                    <p className="whitespace-pre-line font-hero-body leading-relaxed text-text-secondary">
+                      {challenge.description}
+                    </p>
+                  </div>
+                )}
+
+                {/* Info grid */}
+                {(challenge.judgingCriteria || challenge.prizeDescription) && (
+                  <div className="mt-4 grid gap-px border-t border-white/[0.06] sm:grid-cols-2">
+                    {challenge.judgingCriteria && (
+                      <div className="border-b border-white/[0.06] p-6 sm:border-b-0 sm:border-r">
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.15em] text-purple-light/70">
+                          Judging Criteria
+                        </p>
+                        <p className="whitespace-pre-line text-sm leading-relaxed text-text-secondary">{challenge.judgingCriteria}</p>
+                      </div>
+                    )}
+                    {challenge.prizeDescription && (
+                      <div className="p-6">
+                        <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.15em] text-gold/70">
+                          Prize
+                        </p>
+                        <p className="whitespace-pre-line text-sm font-medium text-gold">{challenge.prizeDescription}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Submission requirements */}
+                {challenge.submissionFields.length > 0 && (
+                  <div className="border-t border-white/[0.06] p-6">
+                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.15em] text-text-muted">
+                      Submission Requirements
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {challenge.submissionFields.map((field) => (
+                        <span
+                          key={field.key}
+                          className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs ${field.required ? "border-purple/20 bg-purple/5 text-purple-light" : "border-white/10 bg-white/[0.03] text-text-secondary"}`}
+                        >
+                          {field.label}
+                          {field.required && (
+                            <span className="h-1 w-1 rounded-full bg-gold" />
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Challenge Brief PDF */}
+                {challenge.briefFileId && (
+                  <div className="border-t border-white/[0.06] p-6">
+                    <p className="mb-3 text-[10px] font-bold uppercase tracking-[0.15em] text-text-muted">
+                      Challenge Brief
+                    </p>
+                    <div className="overflow-hidden rounded-xl border border-white/10" style={{ height: "500px" }}>
+                      <iframe
+                        src={`/api/challenges/${challenge.id}/brief`}
+                        className="h-full w-full"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {/* Register / Switch / Status */}
+                {isUnlocked && userRole === "president" && (
+                  <div className="border-t border-white/[0.06] p-6">
+                    {isRegistered ? (
+                      <p className="text-sm text-text-secondary">
+                        Your team is registered for this challenge. You can switch to a different challenge until selection closes.
+                      </p>
+                    ) : (
+                      <button
+                        onClick={() => handleRegister(challenge.id)}
+                        disabled={isLoading}
+                        className="inline-flex items-center gap-2 rounded-xl bg-gold px-6 py-3 text-sm font-bold text-surface-deep transition-all hover:brightness-110 disabled:opacity-50"
+                      >
+                        {isLoading ? (
+                          "Registering..."
+                        ) : isOtherRegistered ? (
+                          <>
+                            Switch to this Challenge
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M7 16V4m0 0L3 8m4-4l4 4m6 0v12m0 0l4-4m-4 4l-4-4" />
+                            </svg>
+                          </>
+                        ) : (
+                          <>
+                            Register for this Challenge
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                            </svg>
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}

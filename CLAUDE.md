@@ -1,0 +1,252 @@
+# EHL Website
+
+European Hackathon League platform, Season 1. Built by Julian Sikora (TUM.ai).
+
+> **Extended docs**: See `docs/` for detailed guides:
+> - `docs/SETUP.md` — Full deployment guide from scratch (all services, env vars, scaling)
+> - `docs/TESTING.md` — E2E test architecture, extension guide, troubleshooting
+> - `docs/FEATURES.md` — Complete feature list by user role
+> - `docs/SECURITY.md` — Security architecture, defenses, limits
+> - `docs/ACCOUNTS.template.md` — Service account directory template (fill in for your deployment)
+
+## Tech Stack
+- **Framework**: Next.js 15 (App Router, TypeScript, Server Components)
+- **Styling**: Tailwind CSS v4 (CSS-based config in `globals.css`, NO `tailwind.config.ts`)
+- **Database**: Supabase (Postgres + Auth + Storage)
+- **File Storage**: Google Drive (CVs, submissions, briefs, photos) + Supabase Storage (partner logos only)
+- **Email**: Nodemailer + React Email templates (all EHL branded, never default Supabase templates)
+- **Code Reviews**: Multi-agent AI pipeline via OpenRouter, executed in GitHub Actions
+- **Rate Limiting**: Upstash Redis (Vercel Marketplace)
+- **CAPTCHA**: Cloudflare Turnstile
+- **Certificates**: @react-pdf/renderer (PDF generation)
+- **Package Manager**: pnpm
+- **Hosting**: Vercel (Pro plan, 60s function timeout)
+
+## Commands
+- `pnpm dev` — start dev server (Turbopack)
+- `pnpm build` — production build
+- `pnpm start` — serve production build
+- `pnpm test` — run unit tests (Vitest)
+- `pnpm test:e2e:lifecycle` — run full lifecycle E2E test (against test Supabase)
+- `pnpm test:e2e` — run all E2E tests (setup + lifecycle + smoke + cleanup)
+- `pnpm test:setup-db` — apply migrations + seed to test database
+- `pnpm test:setup-supabase` — full automated test Supabase setup (needs SUPABASE_ACCESS_TOKEN)
+
+## Architecture
+
+### Route Groups
+```
+app/
+  (public)/       — Public pages with Nav + Footer layout (landing, chapters, leaderboard, rules, partners, register, login, apply)
+  (participant)/  — Auth-required participant pages (dashboard, event hub)
+  admin/          — Admin panel (separate light-theme layout with sidebar)
+  jury/           — Jury evaluation interface (magic link auth)
+  api/            — REST API endpoints
+  auth/callback/  — OAuth/magic link callback handler
+```
+
+### Authentication (strictly separated, never cross)
+| Role | Auth Method | Login Page | Guard |
+|------|-------------|------------|-------|
+| Admin | Google OAuth only | `/admin/login` | `requireAdmin()` checks email allowlist |
+| Jury | Email magic link only | `/jury/login` | `jury_assignments` table check |
+| Participant | Email + password | `/login`, `/register` | Supabase session + RLS |
+
+Admin access: `admin_emails` DB table + `ADMIN_FALLBACK_EMAILS` env var.
+
+### Data Flow
+- **Read queries**: `lib/queries/` (split by domain: chapters, teams, challenges, submissions, jury, profiles)
+- **Write actions**: `lib/actions/` (Next.js server actions with `"use server"`)
+- **API routes**: `app/api/` (for non-form operations: file uploads, cron, external integrations)
+- **Mappers**: `lib/queries/mappers.ts` converts DB rows to domain types from `lib/types.ts`
+- **Re-export index**: `lib/queries/index.ts` re-exports everything so `import { ... } from "@/lib/queries"` works
+- **Query limits**: `lib/config/limits.ts` centralizes all query limits with env var overrides
+
+### Key Integrations
+- **GitHub** (`lib/github.ts`): Fork participant repos for snapshot, sync upstream, invite jury collaborators
+- **Google Drive** (`lib/gdrive.ts`): Upload/download files with folder hierarchy (Submissions/ChapterName/TeamName/)
+- **OpenRouter** (`lib/code-review/`): Multi-agent code review pipeline (tech desc, code quality, highlights, originality, coordinator)
+- **Email** (`lib/email.ts` + `lib/emails/`): SMTP with inline EHL logo, React Email templates for all transactional emails
+- **Turnstile** (`lib/turnstile.ts`): CAPTCHA verification on all public forms
+- **Rate Limiting** (`lib/ratelimit.ts`): 8 limiters via Upstash Redis, in-memory fallback when Redis unavailable
+
+### Chapter Status Flow
+```
+draft -> announced -> applications_open -> screening -> registration_open -> submissions_open -> pitching -> completed
+```
+Status transitions are controlled by admins via status control panel. Some transitions are automated by the cron endpoint (`/api/cron/deadline-check`).
+
+### Scoring
+Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, participated=2. Season leaderboard aggregates across matches.
+
+## Database
+
+32 sequential migrations in `supabase/migrations/`. Key tables:
+- `profiles` (users), `teams`, `team_members`, `team_invites`, `team_join_requests`
+- `chapters` (matches), `challenges`, `chapter_unlocks`, `challenge_registrations`
+- `submissions`, `code_reviews`
+- `jury_assignments`, `jury_rankings`, `jury_feedback`
+- `applications`, `screening_scores`, `verification_codes`, `participant_flags`
+- `scores`, `partners`, `media`
+- `admin_emails`, `app_settings`, `admin_audit_log`
+- `leaderboard` (Postgres VIEW, not a table)
+
+RLS is enabled on all tables. Admin operations use `createAdminClient()` which bypasses RLS.
+
+## Project Structure
+```
+lib/
+  actions/              — Server actions (registration, teams, submissions, jury, admin, applications, event, auth, screening, flags)
+  queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles)
+  emails/               — React Email templates (layout.tsx shared, 11 individual templates)
+  certificates/         — PDF certificate template (@react-pdf/renderer)
+  code-review/          — AI review pipeline (ingest, openrouter, pipeline, prompts)
+  config/               — Centralized configuration (limits.ts with env var overrides)
+  supabase/             — Client configs (client.ts, server.ts, admin.ts, middleware.ts)
+  crypto.ts             — AES-256-GCM encryption for verification code passwords
+  github.ts             — GitHub API integration
+  gdrive.ts             — Google Drive API integration
+  turnstile.ts          — Cloudflare Turnstile CAPTCHA verification
+  ratelimit.ts          — Upstash Redis rate limiters (8 limiters) + in-memory fallback
+  flag-utils.ts         — LinkedIn/GitHub username extraction, name normalization for flag matching
+  scoring.ts            — Point calculations
+  types.ts              — All domain types
+  utils.ts              — cn(), formatDate(), slugify(), getPlacementLabel()
+
+components/
+  ui/                   — Primitives: Button, Card, Badge, Section, Toggle, Accordion, BracketCard, LimitBanner
+  layout/               — Navbar, Footer, MobileNav
+  landing/              — Hero, HowItWorks, TourTimeline, LeaderboardPreview, PartnersBar, MediaTeaser
+  chapter/              — ChapterCard + status-specific detail views
+  leaderboard/          — Podium, Table, ScoringExplainer
+  dashboard/            — TeamManagement, TeamlessView
+  event/                — EventHub, TeamSelector, ChallengeSelector, JoinRequestManager
+  submission/           — SubmissionForm, DeadlineCountdown
+  code-review/          — ReportCard
+  admin/                — Sidebar, LimitBanner (light theme)
+
+public/
+  images/               — EHL logos (ehl-logo.svg, ehl-logo.png)
+  makeathon/            — Makeathon event images
+  partners/             — Partner logo source files (not used in code, stored in Supabase Storage)
+
+docs/
+  SETUP.md              — Full deployment guide from scratch
+  FEATURES.md           — Complete feature list
+  SECURITY.md           — Security architecture
+  ACCOUNTS.md           — Service account directory
+```
+
+## Critical Rules (read these before making any changes)
+
+### Security (breaking these creates vulnerabilities)
+1. **Never use `createAdminClient()` in participant-facing paths.** Use the authenticated server client so RLS applies. This is the #1 most dangerous mistake.
+2. **Admin actions must call `requireAdminAction()` or `requireAdmin()`** before any DB operation. No exceptions.
+3. **Three auth flows are strictly separated.** Admin = Google OAuth. Jury = magic link. Participant = email + password. Never cross them.
+4. **Never commit secrets.** No API keys, tokens, passwords in code. All credentials go in env vars. Run `git diff --cached` before every commit.
+5. **Validate all user input at the boundary.** Check types, lengths, allowed values. Don't trust `as` casts on user data.
+6. **File uploads: MIME whitelist only.** PNG, JPEG, WebP, AVIF. Never allow SVG (XSS risk).
+7. **Redirect validation:** Any redirect from user input must start with `/` and not `//` (open redirect prevention).
+8. **Jury votes are INSERT-only.** Once submitted, votes cannot be changed. This is enforced in code and by design.
+
+### Data Integrity (breaking these causes silent bugs)
+1. **All query limits must come from `QUERY_LIMITS`** in `lib/config/limits.ts`. Never hardcode limit numbers.
+2. **Every limited query must show a `LimitBanner`** when the limit is hit. Users must never see silently truncated data.
+3. **Null safety on Supabase results.** `.single()` returns null if no row. Don't chain `.property` on potentially null results.
+4. **Date handling:** Always append `T00:00:00` when creating `Date` objects from date-only strings to avoid timezone shifts.
+5. **The `leaderboard` is a VIEW**, not a table. You cannot insert/update it directly.
+
+### Code Style
+- Server Components by default. Only `"use client"` when interactive (forms, toggles, state)
+- No external UI libraries (no shadcn, no Radix). All components are custom.
+- Never use em dashes in user-visible text. Use colons, commas, or periods.
+- Size logos by equal height (`h-{size} w-auto object-contain`), never distort aspect ratio
+- Partners are per-match (linked via `chapter_id`), not global sponsors
+
+### Email
+- Every email must use the EHL branded layout from `lib/emails/layout.tsx`. Never send plain text or default Supabase templates.
+- Verification code emails are awaited (blocking). Invite/welcome emails are fire-and-forget with error logging.
+- Add new email templates to `lib/emails/`, add render function to `lib/emails/render.ts`.
+
+### Admin Panel
+- Admin dashboard uses a light theme. Never switch it to dark-only.
+- Admin components use `ad-*` class prefixes for light-theme styling.
+
+### Test Discipline (NON-NEGOTIABLE)
+
+**Workflow for every code change** (feature, bugfix, refactor):
+1. Identify the behavior guarantee to test. If unclear, ask.
+2. For bugfixes: write a test that reproduces the bug FIRST (must fail before the fix).
+3. Implement/change the code.
+4. Run ALL checks: `pnpm typecheck && pnpm test && pnpm build`
+5. Run E2E: `pnpm test:e2e:lifecycle` (pre-commit hook runs unit tests automatically)
+6. Report: which tests added, which pass, which edge cases covered/not covered.
+
+**Absolute prohibitions** (STOP and ask the user if you would violate these):
+1. **Never change a failing test to make it pass.** Default: the code is wrong, not the test. If the test is genuinely wrong, STOP and ask: "Test X seems wrong because [reason]. May I change it?"
+2. **Never weaken assertions** (`toBe` to `toBeTruthy`, specific values to "any non-null", `toEqual` to `toContain`).
+3. **Never commit `.skip`, `.only`, `xit`, `xdescribe`, or commented-out tests.** The pre-commit hook blocks this.
+4. **Never mark a feature as done without tests** when it introduces new behavior.
+5. **Never bypass the pre-commit hook** (`--no-verify`) without explicit user instruction.
+6. **Never delete tests** without explaining in the commit message why the tested behavior no longer exists.
+
+**E2E test specifics:**
+- Tests run against a separate test Supabase (`.env.test`), never production
+- Test cases are append-only. Add at the end of the relevant block in `hackathon-lifecycle.spec.ts`
+- Use `data-factory.ts` helpers and `auth.ts` constants, never hardcode IDs/emails
+- API fallbacks after UI actions are OK (check DB, insert via API if UI didn't save)
+- See `docs/TESTING.md` for the full architecture and extension guide
+
+**What to test per feature:**
+- Happy path: correct input produces correct result
+- Error path: invalid input shows correct error
+- Authorization: unauthorized user cannot access the feature
+- DB state: correct data is persisted
+
+### Documentation (keep docs in sync with code)
+When a code change affects any of the following, update the corresponding docs in the same commit:
+- **New feature/flow**: Update `docs/FEATURES.md` with what it does and which roles can use it
+- **New env var**: Add to `.env.local.example` and `docs/SETUP.md` Section 10
+- **New migration**: Update migration count in `CLAUDE.md` Database section
+- **Changed auth/security**: Update `docs/SECURITY.md`
+- **New/changed API route or action**: Update Architecture section in `CLAUDE.md` if it changes the data flow
+- **New test pattern**: Update `docs/TESTING.md` if it introduces a new testing approach
+- **New external service**: Add to `docs/ACCOUNTS.md` and `docs/SETUP.md`
+- **Changed project structure**: Update the Project Structure tree in `CLAUDE.md`
+
+### After Making Changes
+- The pre-commit hook runs typecheck + unit tests automatically
+- Always run `pnpm test:e2e:lifecycle` before considering work complete
+- Always run `pnpm build` to verify the build passes
+- Review your own changes for: potential bugs, performance issues, security vulnerabilities, correctness
+- Check if any documentation needs updating (see Documentation section above)
+- See `RULES.md` for the full review checklist
+- See `docs/SECURITY.md` for the security architecture if your changes touch auth, data access, or user input
+
+## Design System
+- **Public site**: Dark only. Background `#0B0B1A`, cards `#1A1A3A`
+- **Admin panel**: Light theme
+- **Gold** (`#E8B84B`): scores, CTAs, highlights, EHL logo accent
+- **Purple** (`#9B59B6`): structural elements, corner brackets, secondary accent
+- **Fonts**: Satoshi (sans-serif, self-hosted), JetBrains Mono (monospace for scores)
+- **Custom Tailwind classes**: `bg-surface-deep`, `bg-surface-card`, `text-gold`, `text-purple`, `text-text-secondary`
+
+## Operator Context (not in this repo)
+
+If you're developing for an existing deployment (not forking fresh), your org should provide these files which are gitignored:
+
+- `docs/ACCOUNTS.local.md` — Service account mapping (who owns what, credentials)
+- `.env.local` — Production credentials
+- `.env.test` — Test instance credentials
+- `.claude/CLAUDE.md` — Org-specific Claude Code context
+
+Your org's ops repo (if it exists) contains the filled-in versions of these files.
+
+## Test Discipline Reminder (these rules ALWAYS apply)
+
+- Failing tests are fixed by changing application code, never by changing the test
+- No assertion weakening without explicit user approval
+- No `.skip` / `.only` / commented-out tests (pre-commit hook blocks this)
+- No feature is done without tests for its new behavior
+- No `--no-verify` without explicit user instruction
+- Self-check before "done": which tests added? which pass? which edge cases covered?

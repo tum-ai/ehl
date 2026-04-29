@@ -1,0 +1,73 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js
+/.next/
+/out/
+/build
+
+# Env files
+.env
+.env.local
+.env.test
+.env*.local
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Testing
+/coverage
+playwright-report/
+test-results/
+.auth/
+
+# Vercel
+.vercel
+
+# OS
+.DS_Store
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Secrets and credentials
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+client_secret_*.json
+ehl-website-*.json
+credentials.json
+SECURITY-AUDIT.md
+docs/ACCOUNTS.local.md
+.env.production
+.env.staging
+.env.development
+
+# Data files (imports, exports, docs)
+*.pdf
+*.csv
+*.xlsx
+*.xls
+*.mov
+*.mp4
+
+# Screenshots
+screenshots/
+Bildschirmfoto*
+image-*.png
+
+# Tooling
+.playwright-mcp/
+supabase/.temp/

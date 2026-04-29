@@ -1,0 +1,609 @@
+@import "tailwindcss";
+
+/* ===== EHL Design System ===== */
+@theme inline {
+  /* Typography */
+  --font-sans: var(--font-satoshi), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* Surfaces — deep purple-black à la TUM.ai (#0d0214) */
+  --color-surface-deep: #0a0118;
+  --color-surface: #110724;
+  --color-surface-card: #1a0f30;
+  --color-surface-card-hover: #241542;
+
+  /* Gold (Primary Accent — EHL brand, stars, scores) */
+  --color-gold: #ffcc6a;
+  --color-gold-light: #fff4d6;
+  --color-gold-dark: #c9952e;
+  --color-gold-50: #fff9eb;
+  --color-gold-100: #fff4d6;
+  --color-gold-300: #ffcc6a;
+  --color-gold-500: #e8b84b;
+  --color-gold-700: #c9952e;
+
+  /* Purple (Secondary — TUM.ai brand alignment) */
+  --color-purple: #9a64d9;
+  --color-purple-light: #c9a5f0;
+  --color-purple-dark: #6b3fa0;
+  --color-purple-50: #f3ebfc;
+  --color-purple-100: #dcc8f5;
+  --color-purple-300: #b48ae5;
+  --color-purple-500: #9a64d9;
+  --color-purple-700: #6b3fa0;
+  --color-purple-900: #3d1f6e;
+
+  /* Text */
+  --color-text-primary: #f5f0ff;
+  --color-text-secondary: #b0a4c8;
+  --color-text-muted: #6e5f8a;
+
+  /* Borders */
+  --color-border-default: rgba(154, 100, 217, 0.15);
+  --color-border-accent: rgba(255, 204, 106, 0.2);
+
+  /* Semantic */
+  --color-success: #34d399;
+  --color-error: #f87171;
+  --color-warning: #fbbf24;
+  --color-info: #60a5fa;
+
+  /* Podium */
+  --color-silver: #c0c0c0;
+  --color-bronze: #cd7f32;
+
+  /* Hero CI Colors (coexist with existing design system) */
+  --color-ci-platinum: #EFEFEF;
+  --color-ci-lavender: #9A64D9;
+  --color-ci-dark-amethyst: #1B0049;
+  --color-ci-graphite: #393645;
+  --color-ci-jasmine: #FFCE77;
+  --color-ci-background: #0A0020;
+
+  /* Hero Fonts */
+  --font-hero-display: var(--font-horizon), var(--font-sans);
+  --font-hero-heading: var(--font-anton), var(--font-sans);
+  --font-hero-body: var(--font-manrope), var(--font-sans);
+
+  /* Animations */
+  --animate-fade-in: fade-in 0.6s ease-out both;
+  --animate-fade-in-up: fade-in-up 0.7s ease-out both;
+  --animate-glow-pulse: glow-pulse 4s ease-in-out infinite;
+  --animate-shimmer: shimmer 3s ease-in-out infinite;
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-scan-line: scan-line 8s linear infinite;
+  --animate-marquee: marquee 30s linear infinite;
+  --animate-border-glow: border-glow 3s ease-in-out infinite;
+  --animate-city-pulse: city-pulse 4s ease-in-out infinite;
+  --animate-arc-current: arc-current 8s linear infinite;
+  --animate-star-twinkle: star-twinkle 4s ease-in-out infinite;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes scan-line {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+@keyframes marquee {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes border-glow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+}
+
+/* ─── Hero-specific keyframes ────────────────────────────────── */
+@keyframes city-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; }
+  50% { transform: scale(1.04); opacity: 1; }
+}
+
+@keyframes arc-current {
+  0% { stroke-dashoffset: 20; }
+  100% { stroke-dashoffset: 0; }
+}
+
+@keyframes star-twinkle {
+  0%, 100% { opacity: 0.85; }
+  50% { opacity: 1; }
+}
+
+/* ─── Reduced motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .hero-animate,
+  .hero-animate * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Base ─────────────────────────────────────────────────── */
+body {
+  background-color: var(--color-surface-deep);
+  color: var(--color-text-primary);
+}
+
+/* ─── Gradient text utility ────────────────────────────────── */
+.gradient-text {
+  background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-light) 50%, var(--color-gold) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.gradient-text-purple {
+  background: linear-gradient(135deg, var(--color-purple) 0%, var(--color-purple-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Ambient glow blobs (Junction-inspired) ──────────────── */
+.glow-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  pointer-events: none;
+  will-change: opacity;
+}
+
+.glow-blob-gold {
+  background: radial-gradient(circle, rgba(255, 204, 106, 0.3) 0%, transparent 70%);
+}
+
+.glow-blob-purple {
+  background: radial-gradient(circle, rgba(154, 100, 217, 0.25) 0%, transparent 70%);
+}
+
+/* ─── Grid background pattern ─────────────────────────────── */
+.bg-grid {
+  background-image:
+    linear-gradient(rgba(154, 100, 217, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(154, 100, 217, 0.03) 1px, transparent 1px);
+  background-size: 60px 60px;
+}
+
+/* ─── Smooth scrolling ─────────────────────────────────────── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ─── Shimmer text utility ────────────────────────────────── */
+.shimmer-text {
+  color: var(--color-ci-jasmine);
+}
+
+/* ─── Glass card ──────────────────────────────────────────── */
+.glass {
+  background: rgba(26, 15, 48, 0.4);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* ─── Glass pillar (podium) ──────────────────────────────── */
+/* Usage: set --pillar-color inline, e.g. style={{ '--pillar-color': '#FFCE77' }} */
+.glass-pillar {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--pillar-color) 7%, transparent) 0%,
+    color-mix(in srgb, var(--pillar-color) 3%, transparent) 40%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid color-mix(in srgb, var(--pillar-color) 30%, transparent);
+  border-bottom: none;
+}
+
+.glass-pillar-spotlight {
+  background: radial-gradient(
+    ellipse 80% 60% at 50% -10%,
+    color-mix(in srgb, var(--pillar-color) 19%, transparent) 0%,
+    transparent 70%
+  );
+}
+
+.glass-pillar-beam {
+  background: linear-gradient(
+    90deg,
+    transparent 20%,
+    color-mix(in srgb, var(--pillar-color) 3%, transparent) 40%,
+    color-mix(in srgb, var(--pillar-color) 7%, transparent) 50%,
+    color-mix(in srgb, var(--pillar-color) 3%, transparent) 60%,
+    transparent 80%
+  );
+}
+
+.glass-pillar-edge {
+  background: linear-gradient(
+    90deg,
+    transparent 10%,
+    color-mix(in srgb, var(--pillar-color) 50%, transparent) 30%,
+    var(--pillar-color) 50%,
+    color-mix(in srgb, var(--pillar-color) 50%, transparent) 70%,
+    transparent 90%
+  );
+}
+
+.glass-pillar-corner {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--pillar-color) 44%, transparent),
+    transparent
+  );
+}
+
+/* ─── Stage spotlight (ambient glow above podium) ────────── */
+.stage-spotlight {
+  background: radial-gradient(
+    ellipse 60% 50% at 50% 0%,
+    color-mix(in srgb, var(--color-ci-jasmine) 8%, transparent) 0%,
+    transparent 70%
+  );
+}
+
+.stage-spotlight-wide {
+  background: radial-gradient(
+    ellipse 70% 50% at 50% 0%,
+    color-mix(in srgb, var(--color-ci-jasmine) 6%, transparent) 0%,
+    transparent 70%
+  );
+}
+
+/* ─── Timeline scroll-active highlight ────────────────────── */
+[data-scroll-active] .timeline-scroll-glow {
+  opacity: 1;
+}
+
+[data-scroll-active] .timeline-node {
+  border-color: var(--color-purple);
+  color: var(--color-purple-light);
+  box-shadow: 0 0 20px rgba(154, 100, 217, 0.3);
+}
+
+/* ─── Noise texture overlay ───────────────────────────────── */
+.noise {
+  pointer-events: none;
+}
+
+.noise::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* ─── Marquee container ───────────────────────────────────── */
+.marquee-track {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  gap: 3rem;
+  animation: marquee 30s linear infinite;
+}
+
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* ─── Force dark inputs (prevent browser autofill white bg) ── */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill,
+select:-webkit-autofill:hover,
+select:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--color-surface-deep) inset !important;
+  -webkit-text-fill-color: var(--color-text-primary) !important;
+  caret-color: var(--color-text-primary) !important;
+  transition: background-color 5000s ease-in-out 0s;
+}
+
+/* Prevent browsers from forcing light color scheme on inputs */
+input, textarea, select {
+  color-scheme: dark;
+}
+
+.admin-light input,
+.admin-light textarea,
+.admin-light select {
+  color-scheme: light;
+}
+
+/* ─── Selection ────────────────────────────────────────────── */
+::selection {
+  background: rgba(154, 100, 217, 0.3);
+  color: #fff;
+}
+
+/* ===== Admin Dual-Theme System ===== */
+
+/* ─── Light Theme ─────────────────────────────────────────── */
+.admin-light {
+  --admin-bg: #f8f7fc;
+  --admin-bg-card: #ffffff;
+  --admin-bg-card-hover: #f3f0fa;
+  --admin-bg-input: #f3f0fa;
+  --admin-bg-elevated: #f0ecf7;
+
+  --admin-text: #1a0f30;
+  --admin-text-secondary: #2d1f4e;
+  --admin-text-muted: #4a3b6b;
+  --admin-text-placeholder: #8a7da6;
+
+  --admin-border: rgba(154, 100, 217, 0.15);
+  --admin-border-strong: rgba(154, 100, 217, 0.25);
+  --admin-border-input: rgba(154, 100, 217, 0.2);
+  --admin-border-input-focus: #9a64d9;
+
+  --admin-link: #6d28d9;
+  --admin-link-hover: #5b21b6;
+
+  --admin-accent: #6d28d9;
+  --admin-accent-bg: rgba(109, 40, 217, 0.08);
+  --admin-accent-bg-hover: rgba(109, 40, 217, 0.12);
+
+  --admin-gold: #b8860b;
+  --admin-gold-bg: rgba(184, 134, 11, 0.1);
+
+  --admin-success: #15803d;
+  --admin-success-bg: rgba(21, 128, 61, 0.08);
+  --admin-success-border: rgba(21, 128, 61, 0.2);
+
+  --admin-error: #b91c1c;
+  --admin-error-bg: rgba(185, 28, 28, 0.08);
+  --admin-error-border: rgba(185, 28, 28, 0.2);
+
+  --admin-warning: #a16207;
+  --admin-warning-bg: rgba(161, 98, 7, 0.08);
+  --admin-warning-border: rgba(161, 98, 7, 0.2);
+
+  --admin-info: #1d4ed8;
+  --admin-info-bg: rgba(29, 78, 216, 0.08);
+  --admin-info-border: rgba(29, 78, 216, 0.2);
+
+  background-color: var(--admin-bg);
+  color: var(--admin-text);
+  color-scheme: light;
+}
+
+/* ─── Dark Theme ──────────────────────────────────────────── */
+.admin-dark {
+  --admin-bg: #0a0118;
+  --admin-bg-card: #1a0f30;
+  --admin-bg-card-hover: #241542;
+  --admin-bg-input: #110724;
+  --admin-bg-elevated: #241542;
+
+  --admin-text: #f5f0ff;
+  --admin-text-secondary: #b0a4c8;
+  --admin-text-muted: #6e5f8a;
+  --admin-text-placeholder: #6e5f8a;
+
+  --admin-border: rgba(154, 100, 217, 0.15);
+  --admin-border-strong: rgba(154, 100, 217, 0.25);
+  --admin-border-input: rgba(154, 100, 217, 0.2);
+  --admin-border-input-focus: #9a64d9;
+
+  --admin-link: #c9a5f0;
+  --admin-link-hover: #dcc8f5;
+
+  --admin-accent: #9a64d9;
+  --admin-accent-bg: rgba(154, 100, 217, 0.1);
+  --admin-accent-bg-hover: rgba(154, 100, 217, 0.15);
+
+  --admin-gold: #ffcc6a;
+  --admin-gold-bg: rgba(255, 204, 106, 0.1);
+
+  --admin-success: #34d399;
+  --admin-success-bg: rgba(52, 211, 153, 0.1);
+  --admin-success-border: rgba(52, 211, 153, 0.2);
+
+  --admin-error: #f87171;
+  --admin-error-bg: rgba(248, 113, 113, 0.1);
+  --admin-error-border: rgba(248, 113, 113, 0.2);
+
+  --admin-warning: #fbbf24;
+  --admin-warning-bg: rgba(251, 191, 36, 0.1);
+  --admin-warning-border: rgba(251, 191, 36, 0.2);
+
+  --admin-info: #60a5fa;
+  --admin-info-bg: rgba(96, 165, 250, 0.1);
+  --admin-info-border: rgba(96, 165, 250, 0.2);
+
+  background-color: var(--admin-bg);
+  color: var(--admin-text);
+  color-scheme: dark;
+}
+
+/* ─── Admin Utility Classes ───────────────────────────────── */
+
+/* Typography — CI guideline: Manrope for all admin text, element-level defaults */
+.admin-light,
+.admin-dark {
+  font-family: var(--font-hero-body);
+}
+.admin-light h1,
+.admin-dark h1 {
+  font-family: var(--font-hero-body);
+  font-weight: 700;
+}
+.admin-light h2,
+.admin-light h3,
+.admin-dark h2,
+.admin-dark h3 {
+  font-family: var(--font-hero-body);
+  font-weight: 600;
+}
+
+/* Utility classes for explicit overrides */
+.ad-title { font-family: var(--font-hero-body); font-weight: 700; }
+.ad-heading { font-family: var(--font-hero-body); font-weight: 600; }
+.ad-body { font-family: var(--font-hero-body); }
+
+/* Text */
+.ad-text { color: var(--admin-text); }
+.ad-text-secondary { color: var(--admin-text-secondary); }
+.ad-text-muted { color: var(--admin-text-muted); }
+.ad-text-link { color: var(--admin-link); }
+.ad-text-link:hover { color: var(--admin-link-hover); }
+.ad-text-accent { color: var(--admin-accent); }
+.ad-text-gold { color: var(--admin-gold); }
+.ad-text-success { color: var(--admin-success); }
+.ad-text-error { color: var(--admin-error); }
+.ad-text-warning { color: var(--admin-warning); }
+.ad-text-info { color: var(--admin-info); }
+
+/* Backgrounds */
+.ad-bg { background-color: var(--admin-bg); }
+.ad-bg-card { background-color: var(--admin-bg-card); }
+.ad-bg-card-hover:hover { background-color: var(--admin-bg-card-hover); }
+.ad-bg-input { background-color: var(--admin-bg-input); }
+.ad-bg-elevated { background-color: var(--admin-bg-elevated); }
+.ad-bg-accent { background-color: var(--admin-accent-bg); }
+.ad-bg-accent-hover:hover { background-color: var(--admin-accent-bg-hover); }
+.ad-bg-gold { background-color: var(--admin-gold-bg); }
+.ad-bg-success { background-color: var(--admin-success-bg); }
+.ad-bg-error { background-color: var(--admin-error-bg); }
+.ad-bg-warning { background-color: var(--admin-warning-bg); }
+.ad-bg-info { background-color: var(--admin-info-bg); }
+
+/* Borders */
+.ad-border { border-color: var(--admin-border); }
+.ad-border-strong { border-color: var(--admin-border-strong); }
+.ad-border-input { border-color: var(--admin-border-input); }
+.ad-border-input:focus { border-color: var(--admin-border-input-focus); }
+.ad-border-success { border-color: var(--admin-success-border); }
+.ad-border-error { border-color: var(--admin-error-border); }
+.ad-border-warning { border-color: var(--admin-warning-border); }
+.ad-border-info { border-color: var(--admin-info-border); }
+
+/* Toggle switch */
+.ad-toggle-track { background-color: var(--admin-border); }
+.ad-toggle-track-on { background-color: var(--admin-accent); }
+
+/* Buttons in admin context — override dark-theme button colors for light bg */
+.admin-light button[class*="bg-ci-platinum"],
+.admin-light a[class*="bg-ci-platinum"] {
+  background-color: var(--admin-accent);
+  color: #ffffff;
+}
+.admin-light button[class*="bg-ci-platinum"]:hover,
+.admin-light a[class*="bg-ci-platinum"]:hover {
+  background-color: var(--admin-link-hover);
+}
+.admin-light button[class*="border-ci-lavender"],
+.admin-light a[class*="border-ci-lavender"] {
+  border-color: var(--admin-border-strong);
+  color: var(--admin-accent);
+}
+.admin-light button[class*="border-ci-lavender"]:hover,
+.admin-light a[class*="border-ci-lavender"]:hover {
+  background-color: var(--admin-accent-bg);
+  border-color: var(--admin-accent);
+}
+
+/* Card in admin context */
+.admin-light .ui-card,
+.admin-dark .ui-card {
+  background-color: var(--admin-bg-card);
+  border-color: var(--admin-border);
+}
+
+/* Status-control card uses bg-surface-card/40 */
+.admin-light .ui-card-subtle,
+.admin-dark .ui-card-subtle {
+  background-color: var(--admin-bg-card);
+  border-color: var(--admin-border);
+}
+
+/* Inputs */
+.admin-light input,
+.admin-light textarea,
+.admin-light select {
+  background-color: var(--admin-bg-input);
+  border-color: var(--admin-border-input);
+  color: var(--admin-text);
+  border-radius: 9999px;
+  font-family: var(--font-hero-body);
+}
+.admin-light textarea,
+.admin-light select {
+  border-radius: 0.75rem; /* textareas and selects stay rounded-xl, not pill */
+}
+
+.admin-dark input,
+.admin-dark textarea,
+.admin-dark select {
+  background-color: var(--admin-bg-input);
+  border-color: var(--admin-border-input);
+  color: var(--admin-text);
+}
+
+.admin-light input::placeholder,
+.admin-light textarea::placeholder,
+.admin-dark input::placeholder,
+.admin-dark textarea::placeholder {
+  color: var(--admin-text-placeholder);
+}
+
+.admin-light input:focus,
+.admin-light textarea:focus,
+.admin-light select:focus,
+.admin-dark input:focus,
+.admin-dark textarea:focus,
+.admin-dark select:focus {
+  border-color: var(--admin-border-input-focus);
+}
+
+/* Autofill */
+.admin-light input:-webkit-autofill,
+.admin-light input:-webkit-autofill:hover,
+.admin-light input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--admin-bg-input) inset !important;
+  -webkit-text-fill-color: var(--admin-text) !important;
+  caret-color: var(--admin-text) !important;
+}
+
+.admin-dark input:-webkit-autofill,
+.admin-dark input:-webkit-autofill:hover,
+.admin-dark input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--admin-bg-input) inset !important;
+  -webkit-text-fill-color: var(--admin-text) !important;
+  caret-color: var(--admin-text) !important;
+}
