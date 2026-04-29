@@ -139,6 +139,15 @@ docs/
 
 ## Critical Rules (read these before making any changes)
 
+### Public Repo Awareness (THIS REPO IS PUBLIC)
+This is an **open-source public repository**. Every commit, branch name, PR title, PR description, and commit message is visible to the world. Treat accordingly:
+1. **Never include real credentials, API keys, tokens, internal URLs, or Supabase project refs** in code, commits, or PR descriptions.
+2. **Never include internal org details** (account emails, service mappings, infrastructure specifics) in commits or code.
+3. **Commit messages must be clean.** No references to internal tickets, personal emails, or org-specific context. Write them as if a stranger reads them.
+4. **PR descriptions are public.** Don't paste error logs containing env vars, database URLs, or user data.
+5. **Branch names are public.** Use descriptive feature names, not internal project codes.
+6. Org-specific context belongs in `.claude/CLAUDE.md` (gitignored) or the private `ehl-ops` repo, never in tracked files.
+
 ### Security (breaking these creates vulnerabilities)
 1. **Never use `createAdminClient()` in participant-facing paths.** Use the authenticated server client so RLS applies. This is the #1 most dangerous mistake.
 2. **Admin actions must call `requireAdminAction()` or `requireAdmin()`** before any DB operation. No exceptions.
