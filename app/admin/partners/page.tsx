@@ -18,10 +18,19 @@ interface Partner {
   chapterId: string | null;
 }
 
+interface Chapter {
+  id: string;
+  name: string;
+  city: string;
+  matchNumber: number;
+  isFinale: boolean;
+}
+
 const TIERS = ["challenge_partner", "tech_partner", "community_partner"];
 
 export default function AdminPartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -36,14 +45,33 @@ export default function AdminPartnersPage() {
   const [url, setUrl] = useState("");
   const [tier, setTier] = useState("challenge_partner");
   const [description, setDescription] = useState("");
+  const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
 
   useEffect(() => {
     fetch("/api/admin/partners")
       .then((r) => r.json())
-      .then(setPartners)
+      .then((data) => {
+        setPartners(data.partners ?? []);
+        setChapters(data.chapters ?? []);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  function getChapterLabel(chapterId: string | null): string {
+    if (!chapterId) return "Global";
+    const ch = chapters.find((c) => c.id === chapterId);
+    if (!ch) return "Unknown";
+    return ch.isFinale ? "Grand Finale" : ch.city;
+  }
+
+  function toggleChapter(chapterId: string) {
+    setSelectedChapterIds((prev) =>
+      prev.includes(chapterId)
+        ? prev.filter((id) => id !== chapterId)
+        : [...prev, chapterId]
+    );
+  }
 
   async function handleLogoUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -88,14 +116,21 @@ export default function AdminPartnersPage() {
       const res = await fetch("/api/admin/partners", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, logoUrl, url, tier, description }),
+        body: JSON.stringify({
+          name,
+          logoUrl,
+          url,
+          tier,
+          description,
+          chapterIds: selectedChapterIds.length > 0 ? selectedChapterIds : undefined,
+        }),
       });
       const data = await res.json();
 
       if (data.error) {
         setError(data.error);
       } else {
-        setPartners((prev) => [...prev, data.partner]);
+        setPartners((prev) => [...prev, ...(data.partners ?? [])]);
         resetForm();
       }
     } catch {
@@ -111,6 +146,7 @@ export default function AdminPartnersPage() {
     setDescription("");
     setLogoUrl("");
     setLogoPreview(null);
+    setSelectedChapterIds([]);
     setShowForm(false);
     setError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -201,6 +237,38 @@ export default function AdminPartnersPage() {
               </div>
             </div>
 
+            {/* Chapter assignment */}
+            <div>
+              <label className="block text-sm ad-text-muted">
+                Chapters <span className="text-xs">(leave empty for global partner)</span>
+              </label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {chapters.map((ch) => {
+                  const selected = selectedChapterIds.includes(ch.id);
+                  return (
+                    <button
+                      key={ch.id}
+                      type="button"
+                      onClick={() => toggleChapter(ch.id)}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                        selected
+                          ? "border-blue-500 bg-blue-50 text-blue-700"
+                          : "ad-border ad-text-muted hover:bg-gray-50"
+                      }`}
+                    >
+                      {ch.isFinale ? "Grand Finale" : `Match ${ch.matchNumber}: ${ch.city}`}
+                    </button>
+                  );
+                })}
+              </div>
+              {selectedChapterIds.length > 0 && (
+                <p className="mt-1.5 text-xs ad-text-muted">
+                  {selectedChapterIds.length} chapter{selectedChapterIds.length !== 1 ? "s" : ""} selected.
+                  One entry per chapter will be created. Deduplicated on public pages.
+                </p>
+              )}
+            </div>
+
             {/* Logo upload */}
             <div>
               <label className="block text-sm ad-text-muted">Logo</label>
@@ -260,16 +328,21 @@ export default function AdminPartnersPage() {
                 </div>
                 <div>
                   <p className="font-medium">{partner.name}</p>
-                  {partner.url && (
-                    <a
-                      href={partner.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs ad-text-link transition-colors"
-                    >
-                      {partner.url}
-                    </a>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {partner.url && (
+                      <a
+                        href={partner.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs ad-text-link transition-colors"
+                      >
+                        {partner.url}
+                      </a>
+                    )}
+                    <span className="text-xs ad-text-muted">
+                      {getChapterLabel(partner.chapterId)}
+                    </span>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-3">

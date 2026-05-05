@@ -2,13 +2,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { Section, SectionTitle } from "@/components/ui/section";
 import { CityIcon } from "@/components/ui/city-icon";
-import { getChapters, getPartners } from "@/lib/queries";
+import { getChapters, getAllPartners } from "@/lib/queries";
 import { formatDateRange, cn } from "@/lib/utils";
 
 export async function TourTimeline() {
   const [chapters, allPartners] = await Promise.all([
     getChapters(),
-    getPartners(),
+    getAllPartners(),
   ]);
 
   return (
@@ -55,8 +55,10 @@ export async function TourTimeline() {
                     const endColor = tEnd < 0.5
                       ? `rgba(255,206,119,${endOpacity / 100})`
                       : `rgba(154,100,217,${endOpacity / 100})`;
+                    // Center line on current node: normal=56px (center 27px), finale=68px (center 33px)
+                    const lineTop = isFinale ? 33 : 27;
                     return (
-                      <div className="pointer-events-none absolute top-[27px] left-1/2 h-[2px]" style={{ width: "100%" }}>
+                      <div className="pointer-events-none absolute left-1/2 h-[2px]" style={{ top: `${lineTop}px`, width: "100%" }}>
                         {nextIsFinale ? (
                           <div className="h-full w-full border-t-2 border-dashed border-ci-jasmine/25" />
                         ) : (

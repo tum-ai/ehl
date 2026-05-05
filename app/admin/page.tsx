@@ -5,7 +5,7 @@ import { DashboardCharts } from "@/components/admin/stats/dashboard-charts";
 import {
   getTeams,
   getChaptersAdmin,
-  getPartners,
+  getAllPartners,
   getSeasonStats,
 } from "@/lib/queries";
 
@@ -13,7 +13,7 @@ export default async function AdminDashboard() {
   const [teams, chapters, partners, seasonStats] = await Promise.all([
     getTeams(),
     getChaptersAdmin(),
-    getPartners(),
+    getAllPartners(),
     getSeasonStats(),
   ]);
 

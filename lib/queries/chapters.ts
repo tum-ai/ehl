@@ -164,13 +164,24 @@ export async function getPublishedScoresForTeam(
 
 // ─── Partner Queries ──────────────────────────────────────
 
-export async function getPartners(): Promise<Partner[]> {
+/** Returns all partner rows (including chapter-specific duplicates). */
+export async function getAllPartners(): Promise<Partner[]> {
   const supabase = getClient();
   const { data } = await supabase
     .from("partners")
     .select("*")
     .order("display_order");
   return (data ?? []).map(toPartner);
+}
+
+/**
+ * Returns unique partners for global display (landing page, /partners).
+ * Partners assigned to multiple chapters appear only once,
+ * keeping the entry with the lowest display_order.
+ */
+export async function getPartners(): Promise<Partner[]> {
+  const all = await getAllPartners();
+  return deduplicatePartners(all);
 }
 
 export async function getPartnersForChapter(
@@ -183,6 +194,20 @@ export async function getPartnersForChapter(
     .eq("chapter_id", chapterId)
     .order("display_order");
   return (data ?? []).map(toPartner);
+}
+
+/**
+ * Deduplicate partners by name, keeping the first occurrence
+ * (lowest display_order since input is sorted).
+ */
+export function deduplicatePartners(partners: Partner[]): Partner[] {
+  const seen = new Set<string>();
+  return partners.filter((p) => {
+    const key = p.name.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 // ─── Media Queries ────────────────────────────────────────

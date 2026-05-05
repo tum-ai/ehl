@@ -5,7 +5,7 @@ import { Section } from "@/components/ui/section";
 import { Badge } from "@/components/ui/badge";
 import { CityIcon } from "@/components/ui/city-icon";
 import { TimelineScrollHighlight } from "@/components/chapter/TimelineScrollHighlight";
-import { getChapters, getPartners } from "@/lib/queries";
+import { getChapters, getAllPartners } from "@/lib/queries";
 import { formatDateRange, cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
@@ -31,7 +31,7 @@ const statusLabel: Record<string, string> = {
 export default async function ChaptersPage() {
   const [chapters, allPartners] = await Promise.all([
     getChapters(),
-    getPartners(),
+    getAllPartners(),
   ]);
 
   return (
@@ -70,7 +70,9 @@ export default async function ChaptersPage() {
                 <div
                   className={cn(
                     "absolute w-[2px] -translate-x-px",
-                    "left-[24px] md:left-1/2",
+                    // Center on node: normal h-12 (48px) → 24px, finale h-14 (56px) → 28px
+                    isFinale ? "left-[28px]" : "left-[24px]",
+                    "md:left-1/2",
                     isFinale ? "top-[52px]" : "top-[48px]",
                   )}
                   style={{ height: "calc(100% - 4px)" }}
