@@ -55,10 +55,9 @@ export async function TourTimeline() {
                     const endColor = tEnd < 0.5
                       ? `rgba(255,206,119,${endOpacity / 100})`
                       : `rgba(154,100,217,${endOpacity / 100})`;
-                    // Center line on current node: normal=56px (center 27px), finale=68px (center 33px)
-                    const lineTop = isFinale ? 33 : 27;
                     return (
-                      <div className="pointer-events-none absolute left-1/2 h-[2px]" style={{ top: `${lineTop}px`, width: "100%" }}>
+                      // All nodes sit in a 68px-tall container; line at 34px (vertical center)
+                      <div className="pointer-events-none absolute top-[34px] left-1/2 h-[2px]" style={{ width: "100%" }}>
                         {nextIsFinale ? (
                           <div className="h-full w-full border-t-2 border-dashed border-ci-jasmine/25" />
                         ) : (
@@ -71,17 +70,17 @@ export async function TourTimeline() {
                     );
                   })()}
 
-                  {/* Node circle with glow ring */}
-                  <div className="relative">
+                  {/* Node circle with glow ring — wrapped in fixed-height container so all nodes share the same vertical center */}
+                  <div className="relative flex h-[68px] items-center justify-center">
                     {/* Glow ring behind node */}
                     {(isCompleted || isFinale) && (
                       <div className={cn(
-                        "absolute inset-0 animate-glow-pulse rounded-full blur-md",
-                        isFinale ? "bg-ci-jasmine/25" : "bg-ci-jasmine/20"
+                        "absolute animate-glow-pulse rounded-full blur-md",
+                        isFinale ? "inset-0 bg-ci-jasmine/25" : "inset-[6px] bg-ci-jasmine/20"
                       )} />
                     )}
                     {isApplicationsOpen && (
-                      <div className="absolute inset-0 animate-glow-pulse rounded-full bg-green-400/20 blur-md" />
+                      <div className="absolute inset-[6px] animate-glow-pulse rounded-full bg-green-400/20 blur-md" />
                     )}
 
                     <div
