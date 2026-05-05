@@ -54,7 +54,7 @@ export function CityMarker({
           isComplete
             ? {
                 opacity: [0.1, 0.2, 0.1],
-                r: [glowRadius, glowRadius * 1.3, glowRadius],
+                scale: [1, 1.3, 1],
               }
             : {}
         }
@@ -67,6 +67,7 @@ export function CityMarker({
               }
             : {}
         }
+        style={{ transformOrigin: `${cx}px ${cy}px` }}
       />
 
       {/* Soft glow ring */}
@@ -89,7 +90,7 @@ export function CityMarker({
         animate={
           isComplete
             ? {
-                r: [coreRadius, coreRadius * 1.08, coreRadius],
+                scale: [1, 1.08, 1],
               }
             : {}
         }
@@ -102,6 +103,7 @@ export function CityMarker({
               }
             : {}
         }
+        style={{ transformOrigin: `${cx}px ${cy}px` }}
       />
 
       {/* City label */}

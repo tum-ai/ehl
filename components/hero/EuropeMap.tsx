@@ -101,22 +101,15 @@ export function EuropeMap({
         </pattern>
       </defs>
 
-      {/* Country fills */}
+      {/* Country fills — single group fade (no per-path stagger for performance) */}
       {countryPaths.map((d, i) => (
-        <motion.path
+        <path
           key={i}
           d={d}
           fill={CI.darkAmethyst}
           stroke={CI.lavender}
           strokeWidth={0.4}
           strokeOpacity={0.25}
-          initial={{ opacity: 0 }}
-          animate={isVisible ? { opacity: 1 } : { opacity: 0 }}
-          transition={{
-            duration: 0.4,
-            delay: i * 0.03,
-            ease: EASING.fade,
-          }}
         />
       ))}
 

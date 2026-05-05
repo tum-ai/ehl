@@ -9,6 +9,7 @@ interface LogoEHLProps {
   phase: HeroPhase;
   cityPositions?: CityPosition[];
   logoContainerRef?: RefObject<HTMLDivElement | null>;
+  isInView?: boolean;
 }
 
 // ─── SVG data ──────────────────────────────────────────────
@@ -103,11 +104,11 @@ function generateParticles(starIndex: number, count: number): Particle[] {
   }));
 }
 
-// Pre-generate particles for all 7 stars (20 particles each)
-const STAR_PARTICLES = STAR_PATHS.map((_, i) => generateParticles(i, 20));
+// Pre-generate particles for all 7 stars (10 particles each)
+const STAR_PARTICLES = STAR_PATHS.map((_, i) => generateParticles(i, 10));
 
 // ─── Component ─────────────────────────────────────────────
-export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps) {
+export function LogoEHL({ phase, cityPositions, logoContainerRef, isInView = true }: LogoEHLProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const starsVisible = phaseReached(phase, "stars");
   const wordmarkVisible = phaseReached(phase, "wordmark");
@@ -175,38 +176,6 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
       style={{ overflow: "visible" }}
     >
       <defs>
-        {/* Warm glow around stars during flight */}
-        <filter id="star-glow" x="-100%" y="-100%" width="300%" height="300%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="50" result="blur" />
-          <feColorMatrix in="blur" type="matrix"
-            values="1 0 0 0 0.15  0 0.9 0 0 0.08  0 0 0.6 0 0  0 0 0 1 0" />
-          <feMerge>
-            <feMergeNode />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-
-        {/* Intense bloom for collision flash */}
-        <filter id="collision-bloom" x="-200%" y="-200%" width="500%" height="500%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="100" />
-        </filter>
-
-        {/* Neon glow for letters (multi-layer) */}
-        <filter id="neon-glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="8" result="innerGlow" />
-          <feGaussianBlur in="SourceGraphic" stdDeviation="30" result="outerGlow" />
-          <feMerge>
-            <feMergeNode in="outerGlow" />
-            <feMergeNode in="innerGlow" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-
-        {/* Soft ambient glow for idle breathing */}
-        <filter id="soft-glow" x="-50%" y="-50%" width="200%" height="200%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="40" />
-        </filter>
-
         {/* Comet trail gradient */}
         <linearGradient id="trail-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
           <stop offset="0%" stopColor={CI.jasmine} stopOpacity={0} />
@@ -284,7 +253,7 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
                     delay: delay + trailDelay,
                     ease: [0.16, 1, 0.3, 1],
                   }}
-                  filter="url(#collision-bloom)"
+                  style={{ filter: "blur(100px)" }}
                 />
               ))}
 
@@ -292,7 +261,7 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
               <motion.path
                 d={d}
                 fill={CI.jasmine}
-                filter={starsVisible && !starsLanded ? "url(#star-glow)" : undefined}
+                style={starsVisible && !starsLanded ? { filter: `drop-shadow(0 0 50px ${CI.jasmine})` } : undefined}
                 initial={{
                   opacity: 0,
                   x: ox,
@@ -339,7 +308,6 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
                 cy={cy}
                 r={250}
                 fill={CI.jasmine}
-                filter="url(#collision-bloom)"
                 initial={{ opacity: 0, scale: 0 }}
                 animate={
                   starsVisible
@@ -355,7 +323,7 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
                   times: [0, 0.1, 0.2, 0.5, 1],
                   ease: "easeOut",
                 }}
-                style={{ transformOrigin: `${cx}px ${cy}px` }}
+                style={{ filter: "blur(100px)", transformOrigin: `${cx}px ${cy}px` }}
               />
 
               {/* ── Shockwave ring 1: fast expanding ring ── */}
@@ -478,7 +446,7 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
         })}
 
         {/* ── Star idle: multi-frequency breathing ── */}
-        {isComplete &&
+        {isComplete && isInView &&
           STAR_PATHS.map((d, i) => (
             <motion.path
               key={`idle-${i}`}
@@ -500,13 +468,13 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
           ))}
 
         {/* ── Star idle glow: slow pulsing halo ── */}
-        {isComplete &&
+        {isComplete && isInView &&
           STAR_PATHS.map((d, i) => (
             <motion.path
               key={`star-halo-${i}`}
               d={d}
               fill={CI.jasmine}
-              filter="url(#soft-glow)"
+              style={{ filter: "blur(40px)" }}
               animate={{
                 opacity: [0.1, 0.2, 0.1],
               }}
@@ -528,7 +496,7 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
             <motion.path
               d={LETTER_PATHS[letter]}
               fill={CI.platinum}
-              filter="url(#neon-glow)"
+              style={{ filter: "blur(20px)" }}
               initial={{ opacity: 0 }}
               animate={
                 wordmarkVisible
@@ -571,7 +539,7 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
         ))}
 
         {/* ── Letter idle: micro-flicker + breathing glow ── */}
-        {isComplete &&
+        {isComplete && isInView &&
           (["E", "H", "L"] as const).map((letter, i) => (
             <g key={`idle-${letter}`}>
               {/* Micro-flicker: irregular, rare power fluctuations */}
@@ -592,7 +560,7 @@ export function LogoEHL({ phase, cityPositions, logoContainerRef }: LogoEHLProps
               <motion.path
                 d={LETTER_PATHS[letter]}
                 fill={CI.platinum}
-                filter="url(#soft-glow)"
+                style={{ filter: "blur(40px)" }}
                 animate={{
                   opacity: [0.04, 0.1, 0.04],
                 }}

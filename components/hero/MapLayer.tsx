@@ -18,6 +18,7 @@ interface MapLayerProps {
   width: number;
   height: number;
   onCityPositions?: (positions: CityPosition[]) => void;
+  isInView?: boolean;
 }
 
 // Pulse periods per city (different so they're never in sync)
@@ -28,7 +29,7 @@ const PULSE_PERIODS: Record<string, number> = {
   Zurich: 5.8,
 };
 
-export default function MapLayer({ phase, width, height, onCityPositions }: MapLayerProps) {
+export default function MapLayer({ phase, width, height, onCityPositions, isInView = true }: MapLayerProps) {
   // Store projection in ref + trigger re-render with a counter
   // (useState with a function value would cause React to invoke it as an initializer)
   const projectionRef = useRef<GeoProjection | null>(null);
@@ -92,7 +93,7 @@ export default function MapLayer({ phase, width, height, onCityPositions }: MapL
             cityProjections={cityProjections}
             projection={(coords) => projection(coords)}
             isVisible={networkVisible}
-            isComplete={isComplete}
+            isComplete={isComplete && isInView}
           />
 
           {cityProjections.map((city, i) => (
@@ -104,7 +105,7 @@ export default function MapLayer({ phase, width, height, onCityPositions }: MapL
               color={city.color}
               isOrigin={city.isOrigin}
               isVisible={citiesVisible}
-              isComplete={isComplete}
+              isComplete={isComplete && isInView}
               pulsePeriod={PULSE_PERIODS[city.name] ?? 5}
               showLabel={width > 500}
             />

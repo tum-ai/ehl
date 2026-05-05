@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion, useInView } from "framer-motion";
 import dynamic from "next/dynamic";
 import { CI, EASING, type HeroPhase } from "@/lib/design-tokens";
 import { LogoEHL } from "./LogoEHL";
@@ -85,6 +85,8 @@ export function HeroSection({ applyHref }: { applyHref?: string } = {}) {
   const { width, height } = useMapDimensions();
   const [cityPositions, setCityPositions] = useState<CityPosition[]>([]);
   const logoRef = useRef<HTMLDivElement>(null);
+  const sectionRef = useRef<HTMLElement>(null);
+  const isInView = useInView(sectionRef, { amount: 0.1 });
 
   const handleCityPositions = useCallback((positions: CityPosition[]) => {
     setCityPositions(positions);
@@ -92,6 +94,7 @@ export function HeroSection({ applyHref }: { applyHref?: string } = {}) {
 
   return (
     <section
+      ref={sectionRef}
       className="hero-animate relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-ci-background"
       aria-label="EHL Hero: Europe's first competitive hackathon league"
     >
@@ -141,7 +144,7 @@ export function HeroSection({ applyHref }: { applyHref?: string } = {}) {
         }}
         transition={{ duration: 1, ease: "easeInOut" }}
       >
-        <MapLayer phase={phase} width={width} height={height} onCityPositions={handleCityPositions} />
+        <MapLayer phase={phase} width={width} height={height} onCityPositions={handleCityPositions} isInView={isInView} />
       </motion.div>
 
       {/* Content layer — nudged up to visually center despite bottom elements */}
@@ -158,7 +161,7 @@ export function HeroSection({ applyHref }: { applyHref?: string } = {}) {
           }}
           transition={{ duration: 0.5 }}
         >
-          <LogoEHL phase={phase} cityPositions={cityPositions} logoContainerRef={logoRef} />
+          <LogoEHL phase={phase} cityPositions={cityPositions} logoContainerRef={logoRef} isInView={isInView} />
         </motion.div>
 
         {/* Wordmark subtitle */}

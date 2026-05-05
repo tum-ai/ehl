@@ -116,17 +116,6 @@ export function NetworkArcPaths({
 
   return (
     <g>
-      {/* Glow filter for arcs */}
-      <defs>
-        <filter id="arc-glow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur in="SourceGraphic" stdDeviation="2" result="blur" />
-          <feMerge>
-            <feMergeNode in="blur" />
-            <feMergeNode in="SourceGraphic" />
-          </feMerge>
-        </filter>
-      </defs>
-
       {arcs.map((arc, i) => {
         if (!arc.path) return null;
 
@@ -143,7 +132,7 @@ export function NetworkArcPaths({
               strokeWidth={1.2}
               strokeLinecap="round"
               opacity={0.6}
-              filter="url(#arc-glow)"
+              style={{ filter: `drop-shadow(0 0 2px ${CI.jasmine})` }}
               strokeDasharray={pathLength}
               initial={{ strokeDashoffset: pathLength }}
               animate={
@@ -158,22 +147,15 @@ export function NetworkArcPaths({
               }}
             />
 
-            {/* Traveling dot "current" effect (only when complete) */}
+            {/* Traveling dot "current" effect (only when complete + in view) */}
             {isComplete && (
-              <motion.circle
+              <circle
                 r={1.5}
                 fill={CI.jasmine}
                 opacity={0.8}
-                initial={{ offsetDistance: "0%" }}
-                animate={{ offsetDistance: "100%" }}
-                transition={{
-                  duration: 6 + i * 0.8,
-                  repeat: Infinity,
-                  ease: "linear",
-                  delay: i * 1.2,
-                }}
                 style={{
                   offsetPath: `path("${arc.path}")`,
+                  animation: `travel-dot ${6 + i * 0.8}s linear ${i * 1.2}s infinite`,
                 }}
               />
             )}
