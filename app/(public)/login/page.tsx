@@ -1,12 +1,12 @@
 "use client";
 
-import { Suspense, useState, useCallback } from "react";
+import { Suspense, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Turnstile } from "@/components/ui/turnstile";
+import { Turnstile, type TurnstileRef } from "@/components/ui/turnstile";
 import { signIn } from "@/lib/actions/auth";
 
 export default function LoginPage() {
@@ -24,14 +24,24 @@ function LoginForm() {
   const [noAccountAccepted, setNoAccountAccepted] = useState(false);
   const [submittedEmail, setSubmittedEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const handleTurnstile = useCallback((token: string) => setTurnstileToken(token), []);
+  const turnstileRef = useRef<TurnstileRef>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setNoAccountAccepted(false);
     setLoading(true);
+
+    let turnstileToken: string | null = null;
+    if (turnstileRef.current) {
+      try {
+        turnstileToken = await turnstileRef.current.execute();
+      } catch {
+        setError("Bot verification failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+    }
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
@@ -104,7 +114,7 @@ function LoginForm() {
             </div>
           )}
 
-          <Turnstile onVerify={handleTurnstile} onExpire={() => setTurnstileToken(null)} />
+          <Turnstile ref={turnstileRef} />
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Signing in..." : "Sign In"}

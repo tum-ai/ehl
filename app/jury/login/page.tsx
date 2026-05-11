@@ -1,23 +1,33 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useRef } from "react";
 import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Turnstile } from "@/components/ui/turnstile";
+import { Turnstile, type TurnstileRef } from "@/components/ui/turnstile";
 import { signInJury } from "@/lib/actions/auth";
 
 export default function JuryLoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const handleTurnstile = useCallback((token: string) => setTurnstileToken(token), []);
+  const turnstileRef = useRef<TurnstileRef>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    let turnstileToken: string | null = null;
+    if (turnstileRef.current) {
+      try {
+        turnstileToken = await turnstileRef.current.execute();
+      } catch {
+        setError("Bot verification failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+    }
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
@@ -79,7 +89,7 @@ export default function JuryLoginPage() {
             <p className="text-sm text-error">{error}</p>
           )}
 
-          <Turnstile onVerify={handleTurnstile} onExpire={() => setTurnstileToken(null)} />
+          <Turnstile ref={turnstileRef} />
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? "Sending..." : "Send Magic Link"}

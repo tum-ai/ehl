@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
 
-interface TurnstileProps {
-  onVerify: (token: string) => void;
-  onExpire?: () => void;
+export interface TurnstileRef {
+  execute: () => Promise<string>;
 }
 
 declare global {
@@ -16,41 +15,73 @@ declare global {
       ) => string;
       reset: (widgetId: string) => void;
       remove: (widgetId: string) => void;
+      execute: (container: HTMLElement | string) => void;
     };
     onTurnstileLoad?: () => void;
   }
 }
 
-export function Turnstile({ onVerify, onExpire }: TurnstileProps) {
+export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const scriptLoadedRef = useRef(false);
+  const resolveRef = useRef<((token: string) => void) | null>(null);
+  const rejectRef = useRef<((err: Error) => void) | null>(null);
 
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   const renderWidget = useCallback(() => {
     if (!containerRef.current || !window.turnstile || !siteKey) return;
-    if (widgetIdRef.current) return; // Already rendered
+    if (widgetIdRef.current) return;
 
     widgetIdRef.current = window.turnstile.render(containerRef.current, {
       sitekey: siteKey,
-      callback: onVerify,
-      "expired-callback": onExpire,
+      execution: "execute",
+      appearance: "execute",
       theme: "dark",
-      appearance: "interaction-only",
+      callback: (token: string) => {
+        resolveRef.current?.(token);
+        resolveRef.current = null;
+        rejectRef.current = null;
+      },
+      "error-callback": () => {
+        rejectRef.current?.(new Error("Turnstile challenge failed"));
+        resolveRef.current = null;
+        rejectRef.current = null;
+      },
+      "timeout-callback": () => {
+        rejectRef.current?.(new Error("Turnstile challenge timed out"));
+        resolveRef.current = null;
+        rejectRef.current = null;
+      },
     });
-  }, [siteKey, onVerify, onExpire]);
+  }, [siteKey]);
+
+  useImperativeHandle(ref, () => ({
+    execute: () => {
+      return new Promise<string>((resolve, reject) => {
+        if (!window.turnstile || !widgetIdRef.current) {
+          reject(new Error("Turnstile not loaded"));
+          return;
+        }
+
+        // Reset first to ensure a fresh challenge every time
+        window.turnstile.reset(widgetIdRef.current);
+        resolveRef.current = resolve;
+        rejectRef.current = reject;
+        window.turnstile.execute(containerRef.current!);
+      });
+    },
+  }), []);
 
   useEffect(() => {
     if (!siteKey) return;
 
-    // If Turnstile script already loaded
     if (window.turnstile) {
       renderWidget();
       return;
     }
 
-    // Avoid loading script twice
     if (!scriptLoadedRef.current) {
       scriptLoadedRef.current = true;
       window.onTurnstileLoad = renderWidget;
@@ -73,4 +104,4 @@ export function Turnstile({ onVerify, onExpire }: TurnstileProps) {
   if (!siteKey) return null;
 
   return <div ref={containerRef} />;
-}
+});

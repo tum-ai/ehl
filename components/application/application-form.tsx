@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Section } from "@/components/ui/section";
-import { Turnstile } from "@/components/ui/turnstile";
+import { Turnstile, type TurnstileRef } from "@/components/ui/turnstile";
 import {
   submitApplication,
   checkEmailHasAccount,
@@ -214,8 +214,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
   const [success, setSuccess] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [accountExists, setAccountExists] = useState(false);
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const handleTurnstile = useCallback((token: string) => setTurnstileToken(token), []);
+  const turnstileRef = useRef<TurnstileRef>(null);
 
   // Form state
   const [email, setEmail] = useState(userProfile?.email ?? "");
@@ -292,6 +291,18 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    // Get a fresh Turnstile token at submit time (not on page load)
+    let turnstileToken: string | null = null;
+    if (turnstileRef.current) {
+      try {
+        turnstileToken = await turnstileRef.current.execute();
+      } catch {
+        setError("Bot verification failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+    }
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
@@ -865,7 +876,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
             </div>
           )}
 
-          <Turnstile onVerify={handleTurnstile} onExpire={() => setTurnstileToken(null)} />
+          <Turnstile ref={turnstileRef} />
 
           <div className="flex justify-end">
             <Button type="submit" disabled={loading || !consentAttendance || !consentPrivacy}>

@@ -1,12 +1,12 @@
 "use client";
 
-import { Suspense, useState, useCallback } from "react";
+import { Suspense, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Section } from "@/components/ui/section";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Turnstile } from "@/components/ui/turnstile";
+import { Turnstile, type TurnstileRef } from "@/components/ui/turnstile";
 import {
   startRegistration,
   verifyAndRegister,
@@ -74,8 +74,7 @@ function RegisterFlow() {
   const [verificationId, setVerificationId] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [code, setCode] = useState("");
-  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
-  const handleTurnstile = useCallback((token: string) => setTurnstileToken(token), []);
+  const turnstileRef = useRef<TurnstileRef>(null);
 
   // ─── Verification step (shared between solo and team) ──
   if (step === "verify") {
@@ -229,6 +228,17 @@ function RegisterFlow() {
       setError(null);
       setLoading(true);
 
+      let turnstileToken: string | null = null;
+      if (turnstileRef.current) {
+        try {
+          turnstileToken = await turnstileRef.current.execute();
+        } catch {
+          setError("Bot verification failed. Please try again.");
+          setLoading(false);
+          return;
+        }
+      }
+
       const formData = new FormData(e.currentTarget);
       if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
       const result = await startSoloRegistration(formData);
@@ -309,7 +319,7 @@ function RegisterFlow() {
             </div>
           )}
 
-          <Turnstile onVerify={handleTurnstile} onExpire={() => setTurnstileToken(null)} />
+          <Turnstile ref={turnstileRef} />
 
           <div className="flex items-center justify-between">
             <p className="text-sm text-text-muted">
@@ -341,9 +351,7 @@ function RegisterFlow() {
     setVerificationId={setVerificationId}
     setEmail={setEmail}
     setStep={setStep}
-    turnstileToken={turnstileToken}
-    onTurnstileVerify={handleTurnstile}
-    onTurnstileExpire={() => setTurnstileToken(null)}
+    turnstileRef={turnstileRef}
   />;
 }
 
@@ -357,9 +365,7 @@ function TeamRegistrationForm({
   setVerificationId,
   setEmail,
   setStep,
-  turnstileToken,
-  onTurnstileVerify,
-  onTurnstileExpire,
+  turnstileRef,
 }: {
   redirectTo: string | null;
   onBack: () => void;
@@ -370,9 +376,7 @@ function TeamRegistrationForm({
   setVerificationId: (id: string) => void;
   setEmail: (e: string) => void;
   setStep: (s: Step) => void;
-  turnstileToken: string | null;
-  onTurnstileVerify: (token: string) => void;
-  onTurnstileExpire: () => void;
+  turnstileRef: React.RefObject<TurnstileRef | null>;
 }) {
   const [memberCount, setMemberCount] = useState(1);
 
@@ -380,6 +384,17 @@ function TeamRegistrationForm({
     e.preventDefault();
     setError(null);
     setLoading(true);
+
+    let turnstileToken: string | null = null;
+    if (turnstileRef.current) {
+      try {
+        turnstileToken = await turnstileRef.current.execute();
+      } catch {
+        setError("Bot verification failed. Please try again.");
+        setLoading(false);
+        return;
+      }
+    }
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
@@ -503,7 +518,7 @@ function TeamRegistrationForm({
           </div>
         )}
 
-        <Turnstile onVerify={onTurnstileVerify} onExpire={onTurnstileExpire} />
+        <Turnstile ref={turnstileRef} />
 
         <div className="flex items-center justify-between">
           <p className="text-sm text-text-muted">
