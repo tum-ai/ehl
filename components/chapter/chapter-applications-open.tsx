@@ -107,7 +107,7 @@ export function ChapterApplicationsOpen({
                   <img
                     src={partner.logoUrl}
                     alt={partner.name}
-                    className="h-10 w-auto object-contain brightness-0 invert opacity-70"
+                    className="h-10 w-auto object-contain brightness-0 invert opacity-80"
                   />
                 ) : (
                   <span className="text-sm font-medium text-text-secondary">

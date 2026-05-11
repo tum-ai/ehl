@@ -159,7 +159,7 @@ export async function TourTimeline() {
                           alt={partner.name}
                           width={40}
                           height={16}
-                          className="h-3.5 w-auto object-contain opacity-30 transition-opacity duration-300 group-hover:opacity-60"
+                          className="h-3.5 w-auto object-contain opacity-60 transition-opacity duration-300 group-hover:opacity-90"
                         />
                       ))}
                       {chapterPartners.length > 4 && (

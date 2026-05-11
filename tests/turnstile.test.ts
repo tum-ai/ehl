@@ -4,18 +4,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 // the core logic by importing it in a vitest environment.
 
 describe("verifyTurnstileToken", () => {
-  const originalEnv = { ...process.env };
   const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     // Force production mode so the dev bypass doesn't trigger
-    process.env.NODE_ENV = "production";
-    process.env.TURNSTILE_SECRET_KEY = "test-secret-key";
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("TURNSTILE_SECRET_KEY", "test-secret-key");
   });
 
   afterEach(() => {
-    process.env = { ...originalEnv };
     globalThis.fetch = originalFetch;
+    vi.unstubAllEnvs();
     vi.resetModules();
   });
 
@@ -26,7 +25,7 @@ describe("verifyTurnstileToken", () => {
   }
 
   it("returns true in development mode regardless of token", async () => {
-    process.env.NODE_ENV = "development";
+    vi.stubEnv("NODE_ENV", "development");
     const verify = await loadModule();
     expect(await verify(null)).toBe(true);
     expect(await verify("")).toBe(true);
@@ -34,7 +33,7 @@ describe("verifyTurnstileToken", () => {
   });
 
   it("returns false when TURNSTILE_SECRET_KEY is not set", async () => {
-    delete process.env.TURNSTILE_SECRET_KEY;
+    vi.stubEnv("TURNSTILE_SECRET_KEY", "");
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const verify = await loadModule();
     expect(await verify("some-token")).toBe(false);

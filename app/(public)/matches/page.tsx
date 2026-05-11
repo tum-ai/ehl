@@ -228,7 +228,7 @@ export default async function ChaptersPage() {
                                 alt={partner.name}
                                 width={80}
                                 height={20}
-                                className="h-5 w-auto object-contain opacity-50"
+                                className="h-5 w-auto object-contain opacity-70"
                               />
                             ))}
                           </div>

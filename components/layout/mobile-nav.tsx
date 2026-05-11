@@ -71,25 +71,36 @@ export function MobileNav({ links, isLoggedIn, userName }: MobileNavProps) {
               </Link>
             ))}
             <div className="mt-8 flex flex-col items-center gap-4">
-              <Link
-                href="/register"
-                className="inline-flex items-center rounded-full bg-ci-platinum px-8 py-3 text-base font-bold font-hero-heading uppercase tracking-[0.05em] text-ci-dark-amethyst"
-                onClick={() => setOpen(false)}
-              >
-                Register Now
-              </Link>
               {isLoggedIn ? (
-                <span className="text-sm text-text-muted">
-                  {userName || "Logged in"}
-                </span>
+                <>
+                  <Link
+                    href="/dashboard"
+                    className="inline-flex items-center rounded-full bg-ci-platinum px-8 py-3 text-base font-bold font-hero-heading uppercase tracking-[0.05em] text-ci-dark-amethyst"
+                    onClick={() => setOpen(false)}
+                  >
+                    Dashboard
+                  </Link>
+                  <span className="text-sm text-text-muted">
+                    {userName || "Logged in"}
+                  </span>
+                </>
               ) : (
-                <Link
-                  href="/login"
-                  onClick={() => setOpen(false)}
-                  className="text-sm text-text-muted transition-colors hover:text-text-primary"
-                >
-                  Login
-                </Link>
+                <>
+                  <Link
+                    href="/register"
+                    className="inline-flex items-center rounded-full bg-ci-platinum px-8 py-3 text-base font-bold font-hero-heading uppercase tracking-[0.05em] text-ci-dark-amethyst"
+                    onClick={() => setOpen(false)}
+                  >
+                    Register Now
+                  </Link>
+                  <Link
+                    href="/login"
+                    onClick={() => setOpen(false)}
+                    className="text-sm text-text-muted transition-colors hover:text-text-primary"
+                  >
+                    Login
+                  </Link>
+                </>
               )}
             </div>
           </div>

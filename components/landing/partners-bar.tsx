@@ -39,7 +39,7 @@ export async function PartnersBar() {
                   alt={partner.name}
                   width={140}
                   height={48}
-                  className="h-7 w-auto object-contain opacity-35 grayscale transition-all duration-500 group-hover:opacity-100 group-hover:grayscale-0"
+                  className="h-7 w-auto object-contain opacity-60 grayscale transition-all duration-500 group-hover:opacity-100 group-hover:grayscale-0"
                 />
               </a>
             ))}

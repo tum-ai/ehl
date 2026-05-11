@@ -556,12 +556,34 @@ export async function resolveDashboardJoinRequest(
       return { error: "Team already has 5 members (maximum)." };
     }
 
+    // If user is already on another team (but not locked), remove them first
+    const { data: existingMembership } = await adminClient
+      .from("team_members")
+      .select("team_id, role")
+      .eq("user_id", request.user_id as string)
+      .single();
+
+    if (existingMembership) {
+      if (existingMembership.role === "president") {
+        return { error: "This user is the president of another team and cannot join yours." };
+      }
+      await adminClient
+        .from("team_members")
+        .delete()
+        .eq("team_id", existingMembership.team_id as string)
+        .eq("user_id", request.user_id as string);
+    }
+
     // Add user to team
-    await adminClient.from("team_members").insert({
+    const { error: insertError } = await adminClient.from("team_members").insert({
       team_id: request.team_id,
       user_id: request.user_id,
       role: "member",
     });
+
+    if (insertError) {
+      return { error: insertError.message };
+    }
   }
 
   // Update request status
