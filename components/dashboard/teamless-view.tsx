@@ -43,7 +43,9 @@ export function TeamlessView({
     setActionLoading(inviteId);
     const result = await acceptTeamInvite(token);
     setActionLoading(null);
-    if (!result.error) {
+    if (result.error) {
+      alert(result.error);
+    } else {
       router.refresh();
     }
   }
@@ -52,7 +54,9 @@ export function TeamlessView({
     setActionLoading(inviteId);
     const result = await declineTeamInvite(token);
     setActionLoading(null);
-    if (!result.error) {
+    if (result.error) {
+      alert(result.error);
+    } else {
       setInvites((prev) => prev.filter((i) => i.id !== inviteId));
     }
   }

@@ -16,8 +16,12 @@ export async function middleware(request: NextRequest) {
   if (password) {
     const pathname = request.nextUrl.pathname;
 
-    // Allow the preview login page and its POST action
-    if (pathname === "/preview-login") {
+    // Allow routes that must work without preview auth
+    if (
+      pathname === "/preview-login" ||
+      pathname.startsWith("/auth/") ||
+      pathname.startsWith("/api/")
+    ) {
       return NextResponse.next();
     }
 

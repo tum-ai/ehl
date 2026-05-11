@@ -89,7 +89,9 @@ export function TeamManagement({
     setActionLoading(requestId);
     const result = await resolveDashboardJoinRequest(requestId, approved);
     setActionLoading(null);
-    if (!result.error) {
+    if (result.error) {
+      alert(result.error);
+    } else {
       setJoinRequests((prev) => prev.filter((r) => r.id !== requestId));
       if (approved) {
         router.refresh();

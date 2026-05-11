@@ -120,7 +120,15 @@ export async function acceptTeamInvite(token: string) {
   });
 
   if (insertError) {
-    return { error: insertError.message };
+    // Rollback: re-add user to their old team if they were removed
+    if (existingMembership) {
+      await adminClient.from("team_members").insert({
+        team_id: existingMembership.team_id,
+        user_id: user.id,
+        role: existingMembership.role,
+      });
+    }
+    return { error: "Could not join team. It may be full. Please try again." };
   }
 
   // Mark invite as accepted
