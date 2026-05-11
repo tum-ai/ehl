@@ -9,7 +9,7 @@ export async function ApplicationBanner() {
   if (openChapters.length === 0) return null;
 
   return (
-    <div className="relative z-20 -mt-16 mb-8 px-4">
+    <div className="relative z-20 -mt-4 mb-8 px-4">
       <div className="mx-auto max-w-4xl space-y-3">
         {openChapters.map((chapter) => (
           <Link
