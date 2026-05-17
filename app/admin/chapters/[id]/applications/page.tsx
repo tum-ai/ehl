@@ -29,6 +29,7 @@ interface TumaiVerification {
   selfReported: boolean;
   verified: boolean;
   mismatch: boolean;
+  fuzzyMatch?: { matchedName: string; score: number } | null;
 }
 
 interface ScreeningInfo {
@@ -145,7 +146,7 @@ export default function AdminApplicationsPage({
     if (leagueFilter === "points" && (app.screening?.totalPoints ?? 0) <= 0) return false;
     if (leagueFilter === "new" && app.screening?.isLeagueMember) return false;
     if (leagueFilter === "noshow" && (app.screening?.noShows ?? 0) === 0) return false;
-    if (leagueFilter === "tumai_mismatch" && !app.screening?.tumaiVerification?.mismatch) return false;
+    if (leagueFilter === "tumai_mismatch" && !app.screening?.tumaiVerification?.mismatch && !app.screening?.tumaiVerification?.fuzzyMatch) return false;
     if (leagueFilter === "flagged" && (app.screening?.flags?.length ?? 0) === 0) return false;
     if (search) {
       const q = search.toLowerCase();
@@ -605,12 +606,22 @@ export default function AdminApplicationsPage({
                   </div>
                 )}
 
+                {/* TUM.ai fuzzy match warning */}
+                {app.screening?.tumaiVerification?.fuzzyMatch && (
+                  <div className="rounded-lg border ad-border-warning ad-bg-warning p-4">
+                    <p className="text-xs font-bold uppercase tracking-wider ad-text-gold mb-1">TUM.ai Fuzzy Match</p>
+                    <p className="text-sm ad-text-secondary">
+                      Applicant claims TUM.ai membership. Closest match: <span className="font-semibold">{app.screening.tumaiVerification.fuzzyMatch.matchedName}</span> ({app.screening.tumaiVerification.fuzzyMatch.score}% confidence)
+                    </p>
+                  </div>
+                )}
+
                 {/* TUM.ai mismatch warning */}
                 {app.screening?.tumaiVerification?.mismatch && (
                   <div className="rounded-lg border ad-border-error ad-bg-error p-4">
                     <p className="text-xs font-bold uppercase tracking-wider ad-text-error mb-1">TUM.ai Mismatch</p>
                     <p className="text-sm ad-text-error">
-                      Applicant claims TUM.ai membership but is not in the verified member list.
+                      Applicant claims TUM.ai membership but no match found in member list.
                     </p>
                   </div>
                 )}
@@ -961,7 +972,7 @@ export default function AdminApplicationsPage({
             <option value="new">New applicants</option>
             <option value="noshow">Has No-Shows</option>
             <option value="flagged">Flagged</option>
-            <option value="tumai_mismatch">TUM.ai Mismatch</option>
+            <option value="tumai_mismatch">TUM.ai Unverified</option>
           </select>
         </div>
 
@@ -1124,8 +1135,13 @@ export default function AdminApplicationsPage({
                           </span>
                         )}
                         {app.screening?.tumaiVerification?.mismatch && (
-                          <span className="inline-flex items-center rounded-full ad-bg-error px-2 py-0.5 text-[10px] font-bold ad-text-error" title="Claims TUM.ai membership but not in verified list">
+                          <span className="inline-flex items-center rounded-full ad-bg-error px-2 py-0.5 text-[10px] font-bold ad-text-error" title="Claims TUM.ai membership but no match found">
                             TUM.ai?
+                          </span>
+                        )}
+                        {app.screening?.tumaiVerification?.fuzzyMatch && (
+                          <span className="inline-flex items-center rounded-full ad-bg-warning px-2 py-0.5 text-[10px] font-bold ad-text-gold" title={`Fuzzy match: ${app.screening.tumaiVerification.fuzzyMatch.matchedName} (${app.screening.tumaiVerification.fuzzyMatch.score}%)`}>
+                            TUM.ai~
                           </span>
                         )}
                         {app.screening?.tumaiVerification?.verified && (

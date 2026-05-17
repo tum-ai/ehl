@@ -13,7 +13,7 @@ async function requireAdminWithUser() {
 }
 
 export async function uploadTumaiMembers(
-  members: { email: string; name: string | null }[]
+  members: { email: string | null; name: string | null }[]
 ) {
   const auth = await requireAdminWithUser();
   if ("error" in auth) return { error: auth.error };
@@ -23,12 +23,16 @@ export async function uploadTumaiMembers(
   // Truncate existing
   await adminClient.from("tumai_members").delete().neq("id", "00000000-0000-0000-0000-000000000000");
 
-  // Insert new
-  const rows = members.map((m) => ({
-    email: m.email.toLowerCase().trim(),
-    name: m.name?.trim() || null,
-    uploaded_by: auth.userId,
-  }));
+  // Insert new: name-only entries get a placeholder email for the UNIQUE constraint
+  const rows = members
+    .filter((m) => m.email || m.name)
+    .map((m, i) => ({
+      email: m.email
+        ? m.email.toLowerCase().trim()
+        : `name-only-${i}-${(m.name ?? "").toLowerCase().replace(/[^a-z]/g, "")}@placeholder.local`,
+      name: m.name?.trim() || null,
+      uploaded_by: auth.userId,
+    }));
 
   if (rows.length === 0) {
     return { error: "No valid entries found in CSV." };

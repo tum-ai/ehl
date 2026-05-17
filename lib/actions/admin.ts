@@ -33,6 +33,46 @@ async function auditLog(
   });
 }
 
+/**
+ * Recalculates match_number for all chapters based on date order.
+ * Chapters with dates are sorted chronologically, chapters without dates go last
+ * (preserving their relative order by created_at).
+ * Also updates the chapter name if it follows the "Match X" pattern.
+ */
+async function recalculateMatchNumbers(
+  adminClient: ReturnType<typeof createAdminClient>
+) {
+  const { data: chapters } = await adminClient
+    .from("chapters")
+    .select("id, name, date, is_finale, created_at")
+    .order("created_at");
+
+  if (!chapters || chapters.length === 0) return;
+
+  const withDate = chapters
+    .filter((c) => c.date)
+    .sort((a, b) => a.date!.localeCompare(b.date!));
+  const withoutDate = chapters.filter((c) => !c.date);
+
+  const ordered = [...withDate, ...withoutDate];
+
+  for (let i = 0; i < ordered.length; i++) {
+    const newNumber = i + 1;
+    const chapter = ordered[i];
+    const update: Record<string, unknown> = { match_number: newNumber };
+
+    // Auto-update name if it follows the "Match X" pattern (not for finale)
+    if (!chapter.is_finale && /^Match \d+$/.test(chapter.name as string)) {
+      update.name = `Match ${newNumber}`;
+    }
+
+    await adminClient
+      .from("chapters")
+      .update(update)
+      .eq("id", chapter.id);
+  }
+}
+
 // ─── Chapter Status ────────────────────────────────────────
 
 export async function updateChapterStatus(chapterId: string, status: string) {
@@ -319,6 +359,9 @@ export async function updateChapterDetails(
     .eq("id", chapterId);
 
   if (error) return { error: error.message };
+
+  // Recalculate match_number for all chapters based on date order
+  await recalculateMatchNumbers(adminClient);
 
   await auditLog(adminClient, "update_chapter_details", "chapter", chapterId, {
     name: data.name,

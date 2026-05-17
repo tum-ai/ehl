@@ -38,31 +38,35 @@ export default function TumaiAdminPage() {
         return;
       }
 
-      // Parse header to find email column
+      // Parse header
       const header = lines[0].toLowerCase().split(",").map((h) => h.trim().replace(/"/g, ""));
       const emailIdx = header.findIndex((h) => h === "email" || h === "e-mail" || h === "mail");
       const nameIdx = header.findIndex((h) => h === "name" || h === "full name" || h === "fullname");
 
-      if (emailIdx === -1) {
-        setMessage({ type: "error", text: "CSV must have an 'email' column." });
+      // Must have at least a name or email column
+      if (emailIdx === -1 && nameIdx === -1) {
+        setMessage({ type: "error", text: "CSV must have a 'name' and/or 'email' column." });
         setUploading(false);
         return;
       }
 
-      const parsed: { email: string; name: string | null }[] = [];
+      const parsed: { email: string | null; name: string | null }[] = [];
       for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(",").map((c) => c.trim().replace(/"/g, ""));
-        const email = cols[emailIdx];
-        if (email && email.includes("@")) {
-          parsed.push({
-            email,
-            name: nameIdx >= 0 ? cols[nameIdx] || null : null,
-          });
-        }
+        const email = emailIdx >= 0 ? cols[emailIdx] : null;
+        const name = nameIdx >= 0 ? cols[nameIdx] : null;
+
+        // Skip rows with neither a valid email nor a name
+        if ((!email || !email.includes("@")) && !name) continue;
+
+        parsed.push({
+          email: email && email.includes("@") ? email : null,
+          name: name || null,
+        });
       }
 
       if (parsed.length === 0) {
-        setMessage({ type: "error", text: "No valid email addresses found in CSV." });
+        setMessage({ type: "error", text: "No valid entries found in CSV." });
         setUploading(false);
         return;
       }
@@ -73,7 +77,8 @@ export default function TumaiAdminPage() {
         setMessage({ type: "error", text: result.error });
       } else {
         setMessage({ type: "success", text: `Uploaded ${result.count} members. Previous list was replaced.` });
-        setMembers(parsed);
+        const refreshed = await getTumaiMembers();
+        setMembers(refreshed);
       }
     } catch {
       setMessage({ type: "error", text: "Failed to parse CSV file." });
@@ -95,16 +100,28 @@ export default function TumaiAdminPage() {
     <div>
       <h1 className="ad-title text-2xl">TUM.ai Members</h1>
       <p className="mt-1 ad-text-secondary">
-        Upload a CSV with member emails to verify TUM.ai membership during screening.
+        Upload a CSV with member names (and optionally emails) to verify TUM.ai membership during screening.
       </p>
 
       {/* Upload */}
       <Card className="mt-8">
         <h2 className="ad-heading text-lg">Upload Member List</h2>
         <p className="mt-1 text-sm ad-text-muted">
-          CSV must have an &quot;email&quot; column. Optionally include a &quot;name&quot; column.
-          This replaces the entire existing list.
+          This replaces the entire existing list. Matching works in two stages:
         </p>
+        <ul className="mt-2 list-disc pl-5 text-sm ad-text-muted space-y-1">
+          <li><span className="font-medium ad-text-secondary">Exact match:</span> Applicant email matches a member email (instant verification)</li>
+          <li><span className="font-medium ad-text-secondary">Fuzzy name match:</span> If no email match, the applicant name is compared against member names (shows closest match with confidence % for manual review)</li>
+        </ul>
+        <div className="mt-4 rounded-lg border ad-border p-3 ad-bg-input">
+          <p className="text-xs font-medium ad-text-secondary mb-2">CSV format (header row required):</p>
+          <code className="block text-xs font-mono ad-text-muted">name,email</code>
+          <code className="block text-xs font-mono ad-text-muted">Julian Sikora,julian@tum-ai.com</code>
+          <code className="block text-xs font-mono ad-text-muted">Max Mustermann,</code>
+          <p className="mt-2 text-xs ad-text-muted">
+            The &quot;name&quot; column is required for fuzzy matching. The &quot;email&quot; column is optional (leave empty for name-only entries).
+          </p>
+        </div>
         <form onSubmit={handleUpload} className="mt-4 flex items-end gap-4">
           <div className="flex-1">
             <input
@@ -167,7 +184,11 @@ export default function TumaiAdminPage() {
               <tbody>
                 {filtered.map((m) => (
                   <tr key={m.email} className="border-b ad-border">
-                    <td className="py-2 font-mono text-xs">{m.email}</td>
+                    <td className="py-2 font-mono text-xs">
+                      {m.email.includes("@placeholder.local") ? (
+                        <span className="ad-text-muted italic">name only</span>
+                      ) : m.email}
+                    </td>
                     <td className="py-2 ad-text-secondary">{m.name || "-"}</td>
                   </tr>
                 ))}

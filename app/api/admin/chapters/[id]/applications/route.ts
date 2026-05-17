@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ApplicationFormData, ApplicationTeamMember } from "@/lib/types";
-import { extractLinkedInUsername, extractGitHubUsername, normalizeName } from "@/lib/flag-utils";
+import { extractLinkedInUsername, extractGitHubUsername, normalizeName, findBestNameMatch } from "@/lib/flag-utils";
 
 function toApplication(row: Record<string, unknown>) {
   return {
@@ -76,7 +76,7 @@ export async function GET(
     adminClient.from("applications").select("id, email, chapter_id, status, chapters!inner(name)"),
     adminClient.from("submissions").select("challenge_id, team_id"),
     adminClient.from("challenge_registrations").select("chapter_id, team_id, challenge_id"),
-    adminClient.from("tumai_members").select("email"),
+    adminClient.from("tumai_members").select("email, name"),
     adminClient.from("participant_flags").select("id, email, name, linkedin_username, github_username, reason, screenshot_url, created_by, created_at").is("resolved_at", null),
   ]);
 
@@ -84,6 +84,11 @@ export async function GET(
   const tumaiEmails = new Set(
     (tumaiMembers ?? []).map((m) => (m.email as string).toLowerCase())
   );
+
+  // TUM.ai member names for fuzzy matching
+  const tumaiNames = (tumaiMembers ?? [])
+    .map((m) => (m.name as string | null))
+    .filter((n): n is string => !!n);
 
   // ─── Build flag lookup maps ────────────────────────────────
 
@@ -282,6 +287,15 @@ export async function GET(
     const selfReported = app.formData?.isTumaiMember ?? false;
     const inList = tumaiEmails.has(app.email.toLowerCase());
 
+    // Fuzzy name match when email not found but claims membership
+    let fuzzyMatch: { name: string; score: number } | null = null;
+    if (selfReported && !inList) {
+      const fullName = [app.firstName, app.lastName].filter(Boolean).join(" ");
+      if (fullName.trim()) {
+        fuzzyMatch = findBestNameMatch(fullName, tumaiNames);
+      }
+    }
+
     // Flag matching: check email, LinkedIn, GitHub, name
     const matchedFlagIds = new Set<string>();
     const flags: { id: string; reason: string; screenshotUrl: string | null; createdByName: string; createdAt: string; matchedVia: string }[] = [];
@@ -318,8 +332,12 @@ export async function GET(
         flags,
         tumaiVerification: {
           selfReported,
-          verified: selfReported && inList,
-          mismatch: selfReported && !inList,
+          verified: selfReported && (inList || (fuzzyMatch !== null && fuzzyMatch.score === 1)),
+          mismatch: selfReported && !inList && !fuzzyMatch,
+          fuzzyMatch: fuzzyMatch && fuzzyMatch.score < 1 ? {
+            matchedName: fuzzyMatch.name,
+            score: Math.round(fuzzyMatch.score * 100),
+          } : null,
         },
       },
     };

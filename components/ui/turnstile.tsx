@@ -57,8 +57,14 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
     });
   }, [siteKey]);
 
+  // Cloudflare test keys always pass - skip real execution in test/CI environments
+  const isTestKey = siteKey?.startsWith("1x0000000000000000000");
+
   useImperativeHandle(ref, () => ({
     execute: () => {
+      if (isTestKey) {
+        return Promise.resolve("test-token");
+      }
       return new Promise<string>((resolve, reject) => {
         if (!window.turnstile || !widgetIdRef.current) {
           reject(new Error("Turnstile not loaded"));
@@ -72,10 +78,10 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
         window.turnstile.execute(containerRef.current!);
       });
     },
-  }), []);
+  }), [isTestKey]);
 
   useEffect(() => {
-    if (!siteKey) return;
+    if (!siteKey || isTestKey) return;
 
     if (window.turnstile) {
       renderWidget();
@@ -99,7 +105,7 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
         widgetIdRef.current = null;
       }
     };
-  }, [siteKey, renderWidget]);
+  }, [siteKey, isTestKey, renderWidget]);
 
   if (!siteKey) return null;
 
