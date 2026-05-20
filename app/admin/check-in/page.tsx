@@ -112,8 +112,30 @@ export default function AdminCheckInPage() {
     let cancelled = false;
     setCameraError(null);
 
+    function handleCameraError(err: unknown) {
+      console.error("Camera error:", err);
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("NotAllowedError") || message.includes("Permission")) {
+        setCameraError("Camera permission denied. Please allow camera access in your browser settings and try again.");
+      } else if (message.includes("NotFoundError") || message.includes("no camera") || message.includes("Requested device not found")) {
+        setCameraError("No camera found. Please connect a camera or use manual token entry below.");
+      } else if (message.includes("NotReadableError") || message.includes("Could not start")) {
+        setCameraError("Camera is in use by another application. Close other apps using the camera and try again.");
+      } else {
+        setCameraError(`Could not access camera: ${message}`);
+      }
+      setScanning(false);
+    }
+
     async function startScanner() {
-      const { Html5Qrcode } = await import("html5-qrcode");
+      let Html5Qrcode;
+      try {
+        const mod = await import("html5-qrcode");
+        Html5Qrcode = mod.Html5Qrcode;
+      } catch (err) {
+        handleCameraError(err);
+        return;
+      }
 
       if (cancelled) return;
 
@@ -125,40 +147,15 @@ export default function AdminCheckInPage() {
       const onFailure = () => {}; // Normal while scanning
 
       try {
-        // Try back camera first (mobile), fall back to any camera (desktop)
-        await scanner.start(
-          { facingMode: "environment" },
-          scanConfig, onSuccess, onFailure
-        ).catch(() =>
-          scanner.start(
-            { facingMode: "user" },
-            scanConfig, onSuccess, onFailure
-          )
-        );
-      } catch (err) {
-        console.error("Camera error:", err);
-        const message =
-          err instanceof Error ? err.message : String(err);
-        if (
-          message.includes("NotAllowedError") ||
-          message.includes("Permission")
-        ) {
-          setCameraError(
-            "Camera permission denied. Please allow camera access in your browser settings and try again."
-          );
-        } else if (
-          message.includes("NotFoundError") ||
-          message.includes("no camera")
-        ) {
-          setCameraError(
-            "No camera found. Please connect a camera and try again."
-          );
-        } else {
-          setCameraError(
-            `Could not access camera: ${message}`
-          );
+        // Try back camera first (mobile), fall back to front camera (desktop)
+        try {
+          await scanner.start({ facingMode: "environment" }, scanConfig, onSuccess, onFailure);
+        } catch {
+          // Back camera failed, try front camera
+          await scanner.start({ facingMode: "user" }, scanConfig, onSuccess, onFailure);
         }
-        setScanning(false);
+      } catch (err) {
+        handleCameraError(err);
       }
     }
 
