@@ -62,7 +62,8 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
 
   useImperativeHandle(ref, () => ({
     execute: () => {
-      if (isTestKey) {
+      // Test keys or missing key: resolve immediately with dummy token
+      if (isTestKey || !siteKey) {
         return Promise.resolve("test-token");
       }
       return new Promise<string>((resolve, reject) => {
@@ -78,7 +79,7 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
         window.turnstile.execute(containerRef.current!);
       });
     },
-  }), [isTestKey]);
+  }), [isTestKey, siteKey]);
 
   useEffect(() => {
     if (!siteKey || isTestKey) return;

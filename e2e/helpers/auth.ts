@@ -49,7 +49,10 @@ export const STORAGE_STATE = {
 
 /**
  * Login as a participant via the /login UI form.
- * Turnstile is bypassed in development mode.
+ * Turnstile is bypassed in development mode (test keys auto-resolve).
+ *
+ * Robust against CI slowness: waits for hydration, increases timeouts,
+ * and captures diagnostic info on failure.
  */
 export async function loginAsParticipant(
   page: Page,
@@ -57,11 +60,34 @@ export async function loginAsParticipant(
   password: string = TEST_PASSWORD
 ) {
   await page.goto("/login");
-  await page.waitForLoadState("domcontentloaded");
+  await page.waitForLoadState("networkidle");
+
+  // Wait for React hydration: the submit button must be enabled and interactive
+  const submitBtn = page.locator('button[type="submit"]');
+  await submitBtn.waitFor({ state: "visible", timeout: 10000 });
+
   await page.locator('input[name="email"]').fill(email);
   await page.locator('input[name="password"]').fill(password);
-  await page.locator('button[type="submit"]').click();
-  await page.waitForURL(/\/(dashboard|event)/, { timeout: 15000 });
+  await submitBtn.click();
+
+  // Wait for navigation with generous timeout (CI + Supabase can be slow)
+  try {
+    await page.waitForURL(/\/(dashboard|event)/, { timeout: 30000 });
+  } catch {
+    // Capture diagnostics before failing
+    const url = page.url();
+    const errorEl = page.locator(".text-error, .text-sm.text-error").first();
+    const hasError = await errorEl.isVisible().catch(() => false);
+    const errorText = hasError ? await errorEl.textContent() : null;
+    const btnText = await submitBtn.textContent().catch(() => "unknown");
+
+    throw new Error(
+      `Login failed for ${email}. ` +
+      `URL: ${url}, ` +
+      `Button: "${btnText}", ` +
+      `Error: ${errorText ?? "none visible"}`
+    );
+  }
 }
 
 /**
