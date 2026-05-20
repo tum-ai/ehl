@@ -7,6 +7,7 @@ import { requireAdminAction } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
+import { logEvent, logEventStrict } from "@/lib/event-log";
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -14,23 +15,6 @@ async function getAdminUserId(): Promise<string | null> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   return user?.id ?? null;
-}
-
-async function auditLog(
-  adminClient: ReturnType<typeof createAdminClient>,
-  action: string,
-  entityType: string,
-  entityId: string,
-  details: Record<string, unknown> = {}
-) {
-  const performedBy = await getAdminUserId();
-  await adminClient.from("admin_audit_log").insert({
-    action,
-    entity_type: entityType,
-    entity_id: entityId,
-    performed_by: performedBy,
-    details,
-  });
 }
 
 /**
@@ -107,10 +91,14 @@ export async function updateChapterStatus(chapterId: string, status: string) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "update_chapter_status", "chapter", chapterId, {
-    chapter_name: chapter.name,
-    previous_status: previousStatus,
-    new_status: status,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "chapter.status_changed",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { status: { from: previousStatus, to: status } },
   });
 
   revalidatePath("/admin/chapters");
@@ -363,10 +351,14 @@ export async function updateChapterDetails(
   // Recalculate match_number for all chapters based on date order
   await recalculateMatchNumbers(adminClient);
 
-  await auditLog(adminClient, "update_chapter_details", "chapter", chapterId, {
-    name: data.name,
-    city: data.city,
-    country: data.country,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "chapter.updated",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { updated: { name: data.name, city: data.city, country: data.country } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}`);
@@ -397,9 +389,13 @@ export async function unlockTeams(chapterId: string, teamIds: string[]) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "unlock_teams", "chapter", chapterId, {
-    team_ids: teamIds,
-    count: teamIds.length,
+  logEvent({
+    action: "chapter.teams_unlocked",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId: adminUserId,
+    actorType: "admin",
+    delta: { created: { team_ids: teamIds } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}/unlocks`);
@@ -418,8 +414,14 @@ export async function revokeUnlock(chapterId: string, teamId: string) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "revoke_unlock", "chapter", chapterId, {
-    team_id: teamId,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "chapter.unlock_revoked",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { deleted: { team_id: teamId } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}/unlocks`);
@@ -484,10 +486,14 @@ export async function createChallenge(formData: FormData) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "create_challenge", "challenge", inserted?.id ?? chapterId, {
-    chapter_id: chapterId,
-    title,
-    is_scored: isScored,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "challenge.created",
+    entityType: "challenge",
+    entityId: inserted?.id ?? chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { created: { title } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}/challenges`);
@@ -553,9 +559,14 @@ export async function updateChallenge(formData: FormData) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "update_challenge", "challenge", challengeId, {
-    chapter_id: chapterId,
-    title,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "challenge.updated",
+    entityType: "challenge",
+    entityId: challengeId,
+    actorId,
+    actorType: "admin",
+    delta: { updated: { title } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}/challenges`);
@@ -581,9 +592,14 @@ export async function deleteChallenge(challengeId: string, chapterId: string) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "delete_challenge", "challenge", challengeId, {
-    chapter_id: chapterId,
-    title: challenge?.title ?? null,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "challenge.deleted",
+    entityType: "challenge",
+    entityId: challengeId,
+    actorId,
+    actorType: "admin",
+    delta: { deleted: { title: challenge?.title ?? null } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}/challenges`);
@@ -629,8 +645,13 @@ export async function generatePitchOrder(challengeId: string) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "generate_pitch_order", "challenge", challengeId, {
-    team_count: teamIds.length,
+  logEvent({
+    action: "challenge.pitch_order_generated",
+    entityType: "challenge",
+    entityId: challengeId,
+    actorId: adminUserId,
+    actorType: "admin",
+    delta: { created: { count: teamIds.length } },
   });
 
   return { success: true, order: teamIds };
@@ -658,8 +679,14 @@ export async function deleteTeam(teamId: string) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "delete_team", "team", teamId, {
-    team_name: team?.name ?? null,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "team.deleted",
+    entityType: "team",
+    entityId: teamId,
+    actorId,
+    actorType: "admin",
+    delta: { deleted: { name: team?.name ?? null } },
   });
 
   revalidatePath("/admin/teams");
@@ -689,8 +716,14 @@ export async function publishScores(chapterId: string) {
 
   if (chapterError) return { error: chapterError.message };
 
-  await auditLog(adminClient, "publish_scores", "chapter", chapterId, {
-    chapter_id: chapterId,
+  const actorId = await getAdminUserId();
+  await logEventStrict({
+    action: "score.published",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { status: { from: "unpublished", to: "published" } },
   });
 
   revalidatePath("/admin/chapters");
@@ -716,8 +749,14 @@ export async function addChapterPhoto(chapterId: string, fileId: string, caption
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "add_chapter_photo", "media", inserted?.id ?? chapterId, {
-    chapter_id: chapterId,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "media.created",
+    entityType: "media",
+    entityId: inserted?.id ?? chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { created: { chapter_id: chapterId } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}/photos`);
@@ -733,8 +772,14 @@ export async function deleteChapterPhoto(photoId: string, chapterId: string) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "delete_chapter_photo", "media", photoId, {
-    chapter_id: chapterId,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "media.deleted",
+    entityType: "media",
+    entityId: photoId,
+    actorId,
+    actorType: "admin",
+    delta: { deleted: { chapter_id: chapterId } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}/photos`);
@@ -753,9 +798,14 @@ export async function togglePhotoFeatured(photoId: string, featured: boolean, ch
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "toggle_photo_featured", "media", photoId, {
-    chapter_id: chapterId,
-    featured,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "media.featured_toggled",
+    entityType: "media",
+    entityId: photoId,
+    actorId,
+    actorType: "admin",
+    delta: { status: { from: !featured, to: featured } },
   });
 
   revalidatePath(`/admin/chapters/${chapterId}/photos`);
@@ -791,8 +841,14 @@ export async function adminRemoveMember(teamId: string, userId: string) {
 
   if (delError) return { error: delError.message };
 
-  await auditLog(adminClient, "admin_remove_member", "team", teamId, {
-    removed_user_id: userId,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "team.member_removed",
+    entityType: "team",
+    entityId: teamId,
+    actorId,
+    actorType: "admin",
+    delta: { deleted: { user_id: userId } },
   });
 
   revalidatePath("/admin/teams");
@@ -902,10 +958,14 @@ export async function sendCertificateEmails(chapterId: string) {
     }
   }
 
-  await auditLog(adminClient, "send_certificates", "chapter", chapterId, {
-    chapter_name: chapter.name,
-    teams_sent: sent,
-    teams_failed: failed,
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "chapter.certificates_sent",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { created: { sent, failed } },
   });
 
   return { success: true, sent, failed };

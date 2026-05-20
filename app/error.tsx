@@ -15,6 +15,19 @@ export default function Error({
       (window as unknown as { Sentry: { captureException: (e: Error) => void } }).Sentry.captureException(error);
     }
     console.error("[RouteError]", error);
+
+    // Report to event log (best-effort, silent on failure)
+    fetch("/api/errors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: error.message,
+        stack: error.stack,
+        digest: error.digest,
+        url: window.location.href,
+        userAgent: navigator.userAgent,
+      }),
+    }).catch(() => {});
   }, [error]);
 
   return (

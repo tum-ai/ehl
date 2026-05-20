@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logEvent } from "@/lib/event-log";
 
 export async function submitScore(
   applicationId: string,
@@ -48,6 +49,14 @@ export async function submitScore(
   if (error) {
     return { error: error.message };
   }
+
+  logEvent({
+    action: "screening.score_submitted",
+    entityType: "screening_score",
+    entityId: applicationId,
+    actorType: "admin",
+    delta: { created: { score } },
+  });
 
   // Return updated scores for this application with screener names
   const { data: scores } = await adminClient

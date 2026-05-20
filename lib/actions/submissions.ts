@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCheckinStatusForUsers } from "@/lib/queries/checkin";
 import { parseGitHubRepo, snapshotRepo, addCollaborators } from "@/lib/github";
 import type { SubmissionFieldConfig } from "@/lib/types";
+import { logEvent } from "@/lib/event-log";
 
 export async function registerForChallenge(
   chapterId: string,
@@ -116,6 +117,14 @@ export async function registerForChallenge(
 
     if (error) return { error: error.message };
   }
+
+  logEvent({
+    action: "registration.created",
+    entityType: "challenge_registration",
+    entityId: challengeId,
+    actorType: "participant",
+    delta: { created: { chapter_id: chapterId } },
+  });
 
   revalidatePath(`/matches`);
   return { success: true, challengeId };
@@ -257,6 +266,14 @@ export async function submitProject(formData: FormData) {
   );
 
   if (error) return { error: error.message };
+
+  logEvent({
+    action: "submission.created",
+    entityType: "submission",
+    entityId: challengeId,
+    actorType: "participant",
+    delta: { created: { project_name: projectName } },
+  });
 
   // Snapshot any repo fields (early copy, will be replaced at deadline)
   try {

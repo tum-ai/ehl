@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminAction } from "@/lib/admin-auth";
 import type { AppSetting } from "@/lib/settings";
+import { logEvent } from "@/lib/event-log";
 
 export async function getSettings(): Promise<AppSetting[]> {
   const adminErr = await requireAdminAction();
@@ -47,6 +48,15 @@ export async function upsertSetting(
   );
 
   if (error) return { error: error.message };
+
+  logEvent({
+    action: "setting.updated",
+    entityType: "app_setting",
+    entityId: key,
+    actorType: "admin",
+    delta: { updated: { key } },
+  });
+
   return { success: true };
 }
 

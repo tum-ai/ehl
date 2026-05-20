@@ -16,6 +16,7 @@ import { uploadFile } from "@/lib/gdrive";
 import QRCode from "qrcode";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, applicationLimiter, apiLimiter } from "@/lib/ratelimit";
+import { logEvent } from "@/lib/event-log";
 
 // ─── Submit application (public) ─────────────────────────────
 
@@ -182,6 +183,14 @@ export async function submitApplication(formData: FormData) {
     return { error: "Failed to submit application. Please try again." };
   }
 
+  logEvent({
+    action: "application.submitted",
+    entityType: "application",
+    entityId: chapterId,
+    actorType: "participant",
+    delta: { created: { email, chapter_id: chapterId } },
+  });
+
   // Send confirmation email (fire and forget)
   const dateStr = formatDateRange(chapter.date, chapter.date_end);
   renderApplicationReceivedEmail({
@@ -326,25 +335,6 @@ export async function deleteApplication(applicationId: string) {
     return { error: "Application not found." };
   }
 
-  // Get current admin user for audit
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  // Log the deletion
-  await adminClient.from("admin_audit_log").insert({
-    action: "delete_application",
-    entity_type: "application",
-    entity_id: applicationId,
-    performed_by: user?.id || null,
-    details: {
-      applicant_name: `${app.first_name} ${app.last_name}`,
-      applicant_email: app.email,
-      status: app.status,
-      chapter_id: app.chapter_id,
-      form_data: app.form_data,
-    },
-  });
-
   // Delete (screening_scores cascade, but team_members link via application doesn't exist)
   const { error } = await adminClient
     .from("applications")
@@ -354,6 +344,14 @@ export async function deleteApplication(applicationId: string) {
   if (error) {
     return { error: error.message };
   }
+
+  logEvent({
+    action: "application.deleted",
+    entityType: "application",
+    entityId: applicationId,
+    actorType: "admin",
+    delta: { deleted: { application_id: applicationId } },
+  });
 
   return { success: true };
 }
@@ -379,6 +377,8 @@ export async function updateApplicationStatus(
     return { error: "Cannot change status after email has been sent." };
   }
 
+  const previousStatus = app?.status as string | undefined;
+
   const { error } = await adminClient
     .from("applications")
     .update({ status, updated_at: new Date().toISOString() })
@@ -387,6 +387,14 @@ export async function updateApplicationStatus(
   if (error) {
     return { error: error.message };
   }
+
+  logEvent({
+    action: "application.status_changed",
+    entityType: "application",
+    entityId: applicationId,
+    actorType: "admin",
+    delta: { status: { from: previousStatus ?? "unknown", to: status } },
+  });
 
   return { success: true };
 }
@@ -421,6 +429,14 @@ export async function bulkUpdateApplicationStatus(
   if (error) {
     return { error: error.message };
   }
+
+  logEvent({
+    action: "application.bulk_status_changed",
+    entityType: "application",
+    entityId: "bulk",
+    actorType: "admin",
+    delta: { updated: { count: applicationIds.length, to_status: status } },
+  });
 
   return { success: true };
 }
@@ -637,6 +653,15 @@ export async function checkInApplication(checkInToken: string, adminUserId: stri
   if (error) {
     return { error: "Check-in failed. Please try again." };
   }
+
+  logEvent({
+    action: "application.checked_in",
+    entityType: "application",
+    entityId: application.id as string,
+    actorId: adminUserId,
+    actorType: "admin",
+    delta: { status: { from: "accepted", to: "checked_in" } },
+  });
 
   return {
     success: true,

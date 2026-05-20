@@ -18,6 +18,7 @@ import {
 } from "@/lib/crypto";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, registerLimiter } from "@/lib/ratelimit";
+import { logEvent } from "@/lib/event-log";
 
 // ─── Solo Registration ───────────────────────────────────
 
@@ -182,6 +183,14 @@ export async function verifyAndRegisterSolo(
     name: rawMeta.name,
     role: "participant",
     looking_for_team: rawMeta.lookingForTeam,
+  });
+
+  logEvent({
+    action: "registration.solo_completed",
+    entityType: "profile",
+    entityId: userId,
+    actorType: "participant",
+    delta: { created: { email: rawMeta.email, name: rawMeta.name } },
   });
 
   // If invite token provided, accept the invite automatically
@@ -451,6 +460,14 @@ export async function verifyAndRegister(verificationId: string, code: string, re
     team_id: team.id,
     user_id: userId,
     role: "president",
+  });
+
+  logEvent({
+    action: "registration.team_completed",
+    entityType: "team",
+    entityId: team.id as string,
+    actorType: "participant",
+    delta: { created: { team_name: teamName, president_email: presidentEmail } },
   });
 
   // Send invite emails to members instead of creating their accounts

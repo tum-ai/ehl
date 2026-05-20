@@ -54,6 +54,11 @@ export const emailLimiter = redis
   ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(3, "3600 s"), prefix: "rl:email" })
   : null;
 
+// Client error reports: 10 per 60 seconds per IP
+export const errorReportLimiter = redis
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(10, "60 s"), prefix: "rl:error" })
+  : null;
+
 // ─── Per-limiter in-memory fallback configuration ────────────
 // When Redis is unavailable, each limiter uses its own fallback limits
 // instead of a single generous default. This prevents auth-sensitive
@@ -75,6 +80,7 @@ if (uploadLimiter) memoryFallbackConfig.set(uploadLimiter, { limit: 2, windowMs:
 if (apiLimiter) memoryFallbackConfig.set(apiLimiter, { limit: 100, windowMs: 60_000 });
 if (certLimiter) memoryFallbackConfig.set(certLimiter, { limit: 10, windowMs: 60_000 });
 if (emailLimiter) memoryFallbackConfig.set(emailLimiter, { limit: 1, windowMs: 60_000 });
+if (errorReportLimiter) memoryFallbackConfig.set(errorReportLimiter, { limit: 10, windowMs: 60_000 });
 
 // ─── In-memory fallback when Redis is unavailable ─────────
 // Simple sliding window: Map<identifier, timestamp[]>

@@ -2,6 +2,7 @@
 
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { logEvent } from "@/lib/event-log";
 
 // ─── List all admins ─────────────────────────────────────────
 
@@ -88,12 +89,12 @@ export async function addAdminEmail(email: string) {
     return { error: error.message };
   }
 
-  // Audit log
-  await adminClient.from("admin_audit_log").insert({
-    action: "add_admin_email",
-    entity_type: "admin_emails",
-    performed_by: user.id,
-    details: { email: normalized },
+  logEvent({
+    action: "admin.email_added",
+    entityType: "admin_emails",
+    entityId: normalized,
+    actorType: "admin",
+    delta: { created: { email: normalized } },
   });
 
   return { success: true };
@@ -159,12 +160,12 @@ export async function removeAdminEmail(email: string) {
       .eq("id", targetProfile.id);
   }
 
-  // Audit log
-  await adminClient.from("admin_audit_log").insert({
-    action: "remove_admin_email",
-    entity_type: "admin_emails",
-    performed_by: user.id,
-    details: { email: normalized },
+  logEvent({
+    action: "admin.email_removed",
+    entityType: "admin_emails",
+    entityId: normalized,
+    actorType: "admin",
+    delta: { deleted: { email: normalized } },
   });
 
   return { success: true };

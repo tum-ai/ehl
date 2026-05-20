@@ -8,6 +8,7 @@ import {
   renderJoinRequestEmail,
 } from "@/lib/emails/render";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { logEvent } from "@/lib/event-log";
 
 /**
  * Check if a user is locked to their current team because
@@ -136,6 +137,14 @@ export async function acceptTeamInvite(token: string) {
     .from("team_invites")
     .update({ status: "accepted" })
     .eq("id", invite.id);
+
+  logEvent({
+    action: "team.invite_accepted",
+    entityType: "team",
+    entityId: invite.team_id as string,
+    actorType: "participant",
+    delta: { created: { user_id: user.id } },
+  });
 
   return { success: true };
 }
@@ -332,6 +341,14 @@ export async function updateTeam(formData: FormData) {
   if (error) {
     return { error: error.message };
   }
+
+  logEvent({
+    action: "team.updated",
+    entityType: "team",
+    entityId: teamId,
+    actorType: "participant",
+    delta: { updated: { name } },
+  });
 
   return { success: true };
 }

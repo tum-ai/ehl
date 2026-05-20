@@ -15,6 +15,19 @@ export default function GlobalError({
       (window as unknown as { Sentry: { captureException: (e: Error) => void } }).Sentry.captureException(error);
     }
     console.error("[GlobalError]", error);
+
+    // Report to event log (best-effort, silent on failure)
+    fetch("/api/errors", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: error.message,
+        stack: error.stack,
+        digest: error.digest,
+        url: typeof window !== "undefined" ? window.location.href : "unknown",
+        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
+      }),
+    }).catch(() => {});
   }, [error]);
 
   return (

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminAction } from "@/lib/admin-auth";
 import { PLACEMENT_POINTS, PARTICIPATION_POINTS } from "@/lib/scoring";
+import { logEvent, logEventStrict } from "@/lib/event-log";
 
 export async function removeJuryMember(userId: string): Promise<{ success?: boolean; error?: string }> {
   const adminErr = await requireAdminAction();
@@ -32,6 +33,14 @@ export async function removeJuryMember(userId: string): Promise<{ success?: bool
 
   // Remove auth user
   await adminClient.auth.admin.deleteUser(userId);
+
+  logEvent({
+    action: "jury.member_removed",
+    entityType: "jury",
+    entityId: userId,
+    actorType: "admin",
+    delta: { deleted: { user_id: userId } },
+  });
 
   revalidatePath("/admin/jury");
   return { success: true };
@@ -176,6 +185,14 @@ export async function submitJuryRanking(formData: FormData) {
     .update({ status: "voted" })
     .eq("user_id", user.id)
     .eq("challenge_id", challengeId);
+
+  await logEventStrict({
+    action: "jury.ranking_submitted",
+    entityType: "jury_ranking",
+    entityId: challengeId,
+    actorType: "jury",
+    delta: { created: { team_count: Object.keys(ranking).length } },
+  });
 
   revalidatePath("/jury");
   return { success: true };
@@ -388,23 +405,12 @@ export async function finalizeJuryVotes(challengeId: string) {
     })
     .eq("id", challengeId);
 
-  // Audit log
-  await adminClient.from("admin_audit_log").insert({
-    action: "finalize_jury_votes",
-    entity_type: "challenge",
-    entity_id: challengeId,
-    performed_by: user?.id || null,
-    details: {
-      chapter_id: challenge.chapter_id,
-      challenge_title: challenge.title,
-      is_scored: isScored,
-      rankings_count: rankings.length,
-      team_results: teamAverages.slice(0, 5).map((t) => ({
-        teamId: t.teamId,
-        avgPlace: t.avgPlace,
-        voteCount: t.voteCount,
-      })),
-    },
+  await logEventStrict({
+    action: "jury.votes_finalized",
+    entityType: "challenge",
+    entityId: challengeId,
+    actorType: "admin",
+    delta: { created: { rankings_count: rankings.length } },
   });
 
   revalidatePath("/admin/jury");

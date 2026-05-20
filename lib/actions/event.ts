@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCheckinStatusForUsers } from "@/lib/queries/checkin";
 import { slugify } from "@/lib/utils";
+import { logEvent } from "@/lib/event-log";
 
 // ─── Get event status for a checked-in participant ──────────
 
@@ -210,6 +211,14 @@ export async function createEventTeam(chapterId: string, teamName: string) {
     role: "president",
   });
 
+  logEvent({
+    action: "team.created_at_event",
+    entityType: "team",
+    entityId: team.id as string,
+    actorType: "participant",
+    delta: { created: { name: teamName.trim() } },
+  });
+
   return { success: true, teamId: team.id as string, teamName: team.name as string };
 }
 
@@ -345,6 +354,14 @@ export async function resolveJoinRequest(
       resolved_by: user.id,
     })
     .eq("id", requestId);
+
+  logEvent({
+    action: "team.join_resolved",
+    entityType: "team",
+    entityId: request.team_id as string,
+    actorType: "participant",
+    delta: { status: { from: "pending", to: approved ? "approved" : "rejected" } },
+  });
 
   return { success: true };
 }

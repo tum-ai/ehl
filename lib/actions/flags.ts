@@ -9,6 +9,7 @@ import {
   extractGitHubUsername,
   normalizeName,
 } from "@/lib/flag-utils";
+import { logEvent } from "@/lib/event-log";
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -18,23 +19,6 @@ async function getAdminUserId(): Promise<string | null> {
     data: { user },
   } = await supabase.auth.getUser();
   return user?.id ?? null;
-}
-
-async function auditLog(
-  adminClient: ReturnType<typeof createAdminClient>,
-  action: string,
-  entityType: string,
-  entityId: string,
-  details: Record<string, unknown> = {}
-) {
-  const performedBy = await getAdminUserId();
-  await adminClient.from("admin_audit_log").insert({
-    action,
-    entity_type: entityType,
-    entity_id: entityId,
-    performed_by: performedBy,
-    details,
-  });
 }
 
 // ─── Create Flag ─────────────────────────────────────────
@@ -79,13 +63,14 @@ export async function createFlag(formData: FormData) {
 
   if (error) return { error: error.message };
 
-  await auditLog(
-    adminClient,
-    "create_flag",
-    "participant_flag",
-    inserted?.id ?? "unknown",
-    { email, name, linkedinUsername, githubUsername, reason }
-  );
+  logEvent({
+    action: "flag.created",
+    entityType: "participant_flag",
+    entityId: inserted?.id ?? "unknown",
+    actorId: userId,
+    actorType: "admin",
+    delta: { created: { email, reason } },
+  });
 
   revalidatePath("/admin/flags");
   return { success: true };
@@ -116,8 +101,13 @@ export async function resolveFlag(flagId: string, reason: string) {
 
   if (error) return { error: error.message };
 
-  await auditLog(adminClient, "resolve_flag", "participant_flag", flagId, {
-    reason,
+  logEvent({
+    action: "flag.resolved",
+    entityType: "participant_flag",
+    entityId: flagId,
+    actorId: userId,
+    actorType: "admin",
+    delta: { status: { from: "active", to: "resolved" } },
   });
 
   revalidatePath("/admin/flags");

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSession } from "@/lib/actions/auth";
+import { logEventStrict } from "@/lib/event-log";
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -46,14 +47,6 @@ export async function POST(request: Request) {
   const adminClient = createAdminClient();
 
   for (const override of overrides) {
-    // Fetch previous score for audit trail
-    const { data: previous } = await adminClient
-      .from("scores")
-      .select("placement, points, source")
-      .eq("chapter_id", chapterId)
-      .eq("team_id", override.teamId)
-      .single();
-
     await adminClient.from("scores").upsert(
       {
         chapter_id: chapterId,
@@ -67,19 +60,15 @@ export async function POST(request: Request) {
       { onConflict: "chapter_id,team_id" }
     );
 
-    // Audit log
-    await adminClient.from("admin_audit_log").insert({
-      action: "score_override",
-      entity_type: "score",
-      entity_id: null,
-      performed_by: session.user.id,
-      details: {
-        chapter_id: chapterId,
+    await logEventStrict({
+      action: "score.overridden",
+      entityType: "score",
+      entityId: chapterId,
+      actorType: "admin",
+      delta: {
         team_id: override.teamId,
-        previous: previous
-          ? { placement: previous.placement, points: previous.points, source: previous.source }
-          : null,
-        new: { placement: override.placement, points: override.points },
+        placement: { to: override.placement },
+        points: { to: override.points },
       },
     });
   }

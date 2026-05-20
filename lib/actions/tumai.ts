@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSession } from "@/lib/actions/auth";
+import { logEvent } from "@/lib/event-log";
 
 async function requireAdminWithUser() {
   const session = await getSession();
@@ -43,6 +44,14 @@ export async function uploadTumaiMembers(
   if (error) {
     return { error: error.message };
   }
+
+  logEvent({
+    action: "tumai.members_uploaded",
+    entityType: "tumai_members",
+    entityId: "batch",
+    actorType: "admin",
+    delta: { created: { count: rows.length } },
+  });
 
   return { success: true, count: rows.length };
 }
