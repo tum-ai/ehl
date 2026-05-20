@@ -70,8 +70,8 @@ export default async function ChaptersPage() {
                 <div
                   className={cn(
                     "absolute w-[2px] -translate-x-px",
-                    // Center on node: normal h-12 (48px) → 24px, finale h-14 (56px) → 28px
-                    isFinale ? "left-[28px]" : "left-[24px]",
+                    // All lines centered at 28px (center of largest node, 56px finale)
+                    "left-[28px]",
                     "md:left-1/2",
                     isFinale ? "top-[52px]" : "top-[48px]",
                   )}
@@ -93,7 +93,9 @@ export default async function ChaptersPage() {
                 {/* Timeline node */}
                 <div className={cn(
                   "relative z-10 shrink-0",
-                  "md:absolute md:left-1/2 md:-translate-x-1/2"
+                  // On mobile: offset smaller nodes to align centers with the 56px finale node
+                  !isFinale && "ml-1",
+                  "md:ml-0 md:absolute md:left-1/2 md:-translate-x-1/2"
                 )}>
                   {/* Glow ring: from status */}
                   {(isCompleted || isFinale) && (

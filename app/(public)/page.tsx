@@ -5,7 +5,6 @@ import { MediaTeaser } from "@/components/landing/media-teaser";
 import { LandingPodium } from "@/components/podium/LandingPodium";
 import { TourTimeline } from "@/components/landing/tour-timeline";
 import { PartnersBar } from "@/components/landing/partners-bar";
-import { ApplicationBanner } from "@/components/landing/application-banner";
 import { getLeaderboard, getChapters } from "@/lib/queries";
 
 export const metadata: Metadata = {
@@ -53,7 +52,6 @@ export default async function Home() {
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
       <HeroSection applyHref={openChapter ? `/apply/${openChapter.slug}` : undefined} />
-      <ApplicationBanner />
       <HowItWorks />
       <TourTimeline />
       <LandingPodium entries={leaderboard} />

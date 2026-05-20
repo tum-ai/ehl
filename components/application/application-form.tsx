@@ -251,13 +251,9 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
   const [discoverySource, setDiscoverySource] = useState<string[]>(
     (userProfile?.formData?.discoverySource as string[]) ?? []
   );
-  const [consentAttendance, setConsentAttendance] = useState(false);
-  const [consentPrivacy, setConsentPrivacy] = useState(false);
-  const [consentNewsletter, setConsentNewsletter] = useState(false);
-  const [consentRecruiting, setConsentRecruiting] = useState(false);
-  const [consentMedia, setConsentMedia] = useState(false);
-  const [consentIpTransfer, setConsentIpTransfer] = useState(false);
-  const [consentSponsorData, setConsentSponsorData] = useState(false);
+  const [consentCore, setConsentCore] = useState(false);
+  const [consentChallenge, setConsentChallenge] = useState(false);
+  const [consentSharing, setConsentSharing] = useState(false);
   const [wantsCv, setWantsCv] = useState("");
 
   // Team match
@@ -303,10 +299,14 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
     formData.set("dietaryRestrictions", dietaryRestrictions);
     formData.set("tshirtCut", tshirtCut);
     formData.set("tshirtSize", tshirtSize);
-    formData.set("consentAttendance", consentAttendance.toString());
-    formData.set("consentPrivacy", consentPrivacy.toString());
-    formData.set("consentNewsletter", consentNewsletter.toString());
-    formData.set("consentRecruiting", consentRecruiting.toString());
+    // Map consolidated consents to individual DB fields
+    formData.set("consentAttendance", consentCore.toString());
+    formData.set("consentPrivacy", consentCore.toString());
+    formData.set("consentMedia", consentCore.toString());
+    formData.set("consentIpTransfer", consentChallenge.toString());
+    formData.set("consentNewsletter", consentSharing.toString());
+    formData.set("consentRecruiting", consentSharing.toString());
+    formData.set("consentSponsorData", consentSharing.toString());
     formData.set("hasTeam", hasTeam === "existing" || hasTeam === "new_team" ? "true" : "false");
     formData.set("gender", gender);
     formData.set("currentlyStudying", currentlyStudying);
@@ -807,57 +807,53 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
           <Card className="mb-6">
             <h2 className="text-lg font-bold">Consent</h2>
             <p className="mt-1 text-xs text-text-muted">
-              All consents are voluntary and may be revoked at any time. Fields marked with * are required for participation.
+              Required consents are marked with *. See our <a href="/privacy" className="text-gold hover:underline">privacy policy</a> for details.
             </p>
-            <div className="mt-4 space-y-3">
-              {/* ── Required consents ── */}
-              <CheckboxField
-                label="I confirm that I will be available to participate at this event if accepted. *"
-                name="consentAttendance"
-                required
-                checked={consentAttendance}
-                onChange={setConsentAttendance}
-              />
-              <CheckboxField
-                label="I agree to the processing of my personal data in accordance with the privacy policy. I consent to the processing of my special categories of personal data (dietary preferences, allergies, date of birth, gender, nationality) for catering planning and statistical purposes. *"
-                name="consentPrivacy"
-                required
-                checked={consentPrivacy}
-                onChange={setConsentPrivacy}
-              />
-              <CheckboxField
-                label="I consent to the use of photos and videos of me taken during the event for marketing, social media, press releases, and event documentation by EHL and event sponsors. *"
-                name="consentMedia"
-                required
-                checked={consentMedia}
-                onChange={setConsentMedia}
-              />
-              <CheckboxField
-                label="I agree that I will only use challenge data provided by sponsors to solve the challenge, and that intellectual property rights to submissions may be subject to terms outlined in the challenge description. *"
-                name="consentIpTransfer"
-                required
-                checked={consentIpTransfer}
-                onChange={setConsentIpTransfer}
-              />
-              {/* ── Optional consents ── */}
-              <CheckboxField
-                label="I consent to receive newsletters by email with information about events, hackathon tips, and partner offers."
-                name="consentNewsletter"
-                checked={consentNewsletter}
-                onChange={setConsentNewsletter}
-              />
-              <CheckboxField
-                label="I consent to the sharing of my resume and profile data with recruiters and sponsors for potential job opportunities."
-                name="consentRecruiting"
-                checked={consentRecruiting}
-                onChange={setConsentRecruiting}
-              />
-              <CheckboxField
-                label="I agree that my name, university, and contact information may be shared with event sponsors for follow-up purposes."
-                name="consentSponsorData"
-                checked={consentSponsorData}
-                onChange={setConsentSponsorData}
-              />
+            <div className="mt-4 space-y-4">
+              {/* Required: Core consent */}
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={consentCore}
+                  onChange={(e) => setConsentCore(e.target.checked)}
+                  required
+                  className="mt-1 h-4 w-4 rounded border-white/20 bg-surface-deep accent-gold"
+                />
+                <span className="text-sm text-text-secondary">
+                  I confirm my availability and agree to the{" "}
+                  <a href="/privacy" target="_blank" className="text-gold hover:underline">privacy policy</a>
+                  , including processing of personal data, media usage at events, and special categories of data for event organization. <span className="text-error">*</span>
+                </span>
+              </label>
+
+              {/* Required: Challenge terms */}
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={consentChallenge}
+                  onChange={(e) => setConsentChallenge(e.target.checked)}
+                  required
+                  className="mt-1 h-4 w-4 rounded border-white/20 bg-surface-deep accent-gold"
+                />
+                <span className="text-sm text-text-secondary">
+                  I agree to the{" "}
+                  <a href="/privacy#challenge-terms" target="_blank" className="text-gold hover:underline">challenge terms</a>
+                  {" "}including intellectual property conditions for sponsor challenges. <span className="text-error">*</span>
+                </span>
+              </label>
+
+              {/* Optional: Sharing */}
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={consentSharing}
+                  onChange={(e) => setConsentSharing(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-white/20 bg-surface-deep accent-gold"
+                />
+                <span className="text-sm text-text-secondary">
+                  I consent to receiving newsletters and sharing my profile with recruiters and event sponsors.
+                </span>
+              </label>
             </div>
           </Card>
 
@@ -870,7 +866,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
           <Turnstile ref={turnstileRef} />
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={loading || !consentAttendance || !consentPrivacy}>
+            <Button type="submit" disabled={loading || !consentCore || !consentChallenge}>
               {loading ? "Submitting..." : "Submit Application"}
             </Button>
           </div>
