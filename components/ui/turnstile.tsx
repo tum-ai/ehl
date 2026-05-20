@@ -72,14 +72,16 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
           return;
         }
 
-        // Timeout: if Cloudflare doesn't respond within 10s, reject instead of hanging forever.
-        // This prevents forms from being stuck at "Sending code..." when the invisible challenge
-        // fails silently (ad blockers, VPN, Cloudflare outages, etc.)
+        // Timeout: if Cloudflare doesn't respond within 8s, resolve with empty string
+        // instead of blocking the form forever. Server-side verification will handle
+        // the missing/invalid token. This prevents forms from being stuck at "Sending..."
+        // when the invisible challenge fails silently (ad blockers, VPN, Cloudflare outages).
         const timeout = setTimeout(() => {
+          console.warn("[Turnstile] Challenge timed out after 8s, submitting without token");
           resolveRef.current = null;
           rejectRef.current = null;
-          reject(new Error("Turnstile challenge timed out. Please try again."));
-        }, 10_000);
+          resolve("");
+        }, 8_000);
 
         // Reset first to ensure a fresh challenge every time
         window.turnstile.reset(widgetIdRef.current);

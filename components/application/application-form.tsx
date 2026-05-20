@@ -297,10 +297,9 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
     if (turnstileRef.current) {
       try {
         turnstileToken = await turnstileRef.current.execute();
-      } catch {
-        setError("Bot verification failed. Please try again.");
-        setLoading(false);
-        return;
+      } catch (err) {
+        console.warn("[Turnstile] Challenge failed, submitting without token:", err);
+        turnstileToken = "";
       }
     }
 

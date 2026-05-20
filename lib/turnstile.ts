@@ -6,6 +6,13 @@ export async function verifyTurnstileToken(token: string | null): Promise<boolea
   // Skip in development
   if (process.env.NODE_ENV === "development") return true;
 
+  // Emergency bypass: set TURNSTILE_OPTIONAL=true in Vercel env vars
+  // when Turnstile is blocking legitimate users (see docs/PRE-EVENT.md)
+  if (process.env.TURNSTILE_OPTIONAL === "true") {
+    if (!token) console.warn("[Turnstile] No token provided, but TURNSTILE_OPTIONAL=true — allowing");
+    return true;
+  }
+
   const secret = process.env.TURNSTILE_SECRET_KEY;
   if (!secret) {
     console.error("TURNSTILE_SECRET_KEY not set");
