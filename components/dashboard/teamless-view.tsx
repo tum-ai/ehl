@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { toggleLookingForTeam, acceptTeamInvite, declineTeamInvite, requestToJoinTeam } from "@/lib/actions/teams";
+import { toggleLookingForTeam, acceptTeamInvite, declineTeamInvite, requestToJoinTeam, createTeam } from "@/lib/actions/teams";
 import type { TeamInvite, TeamJoinRequest } from "@/lib/types";
 import type { TeamLookingForMembers } from "@/lib/queries";
 
@@ -27,6 +27,9 @@ export function TeamlessView({
   const [invites, setInvites] = useState(initialInvites);
   const [joinRequests, setJoinRequests] = useState(initialJoinRequests);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   // Track which teams the user has already requested to join
   const requestedTeamIds = new Set(joinRequests.map((r) => r.teamId));
@@ -102,9 +105,72 @@ export function TeamlessView({
             Join an existing team or create your own
           </p>
           <div className="mt-6 flex justify-center gap-3">
-            <Button onClick={() => router.push("/register?mode=team")}>
-              Create a Team
-            </Button>
+            {showCreateForm ? (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setCreating(true);
+                  setCreateError(null);
+                  const formData = new FormData(e.currentTarget);
+                  const result = await createTeam(
+                    formData.get("teamName") as string,
+                    (formData.get("university") as string) || undefined,
+                    (formData.get("city") as string) || undefined,
+                  );
+                  setCreating(false);
+                  if (result.error) {
+                    setCreateError(result.error);
+                  } else {
+                    window.location.reload();
+                  }
+                }}
+                className="w-full space-y-3 rounded-xl border border-white/10 bg-surface-card p-4 text-left"
+              >
+                <h3 className="font-bold text-text-primary">Create Your Team</h3>
+                {createError && <p className="text-sm text-error">{createError}</p>}
+                <input
+                  name="teamName"
+                  required
+                  placeholder="Team Name *"
+                  className="w-full rounded-lg border border-white/10 bg-surface-deep px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+                />
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    name="university"
+                    placeholder="University"
+                    className="rounded-lg border border-white/10 bg-surface-deep px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+                  />
+                  <input
+                    name="city"
+                    placeholder="City"
+                    className="rounded-lg border border-white/10 bg-surface-deep px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={creating}
+                    className="rounded-lg bg-gold px-4 py-2 text-sm font-bold text-surface-deep hover:bg-gold/90 disabled:opacity-50"
+                  >
+                    {creating ? "Creating..." : "Create Team"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowCreateForm(false);
+                      setCreateError(null);
+                    }}
+                    className="rounded-lg border border-white/10 px-4 py-2 text-sm text-text-muted hover:text-text-primary"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <Button onClick={() => setShowCreateForm(true)}>
+                Create a Team
+              </Button>
+            )}
           </div>
         </div>
       </Card>

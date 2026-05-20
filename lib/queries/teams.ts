@@ -256,3 +256,72 @@ export async function getUsersLookingForTeam(): Promise<
       email: (d.email as string) ?? null,
     }));
 }
+
+// ─── Team Match History ─────────────────────────────────
+
+export interface TeamMatchHistoryEntry {
+  chapter: { id: string; name: string; slug: string; date: string | null; city: string | null; status: string };
+  challenge: { id: string; title: string } | null;
+  registration: { roster: string[]; registeredAt: string } | null;
+  submission: { projectName: string; createdAt: string } | null;
+  score: { placement: number | null; points: number; challengeName: string } | null;
+}
+
+export async function getTeamMatchHistory(teamId: string): Promise<TeamMatchHistoryEntry[]> {
+  const adminClient = createAdminClient();
+
+  // Fetch all data in parallel
+  const [
+    { data: registrations },
+    { data: scores },
+    { data: submissions },
+    { data: chapters },
+    { data: challenges },
+  ] = await Promise.all([
+    adminClient.from("challenge_registrations").select("chapter_id, challenge_id, team_id, roster, registered_at").eq("team_id", teamId),
+    adminClient.from("scores").select("chapter_id, team_id, challenge_name, placement, points").eq("team_id", teamId),
+    adminClient.from("submissions").select("challenge_id, team_id, project_name, created_at").eq("team_id", teamId),
+    adminClient.from("chapters").select("id, name, slug, date, city, status").neq("status", "draft"),
+    adminClient.from("challenges").select("id, title, chapter_id"),
+  ]);
+
+  const chapterMap = new Map((chapters ?? []).map(c => [c.id as string, c]));
+  const challengeMap = new Map((challenges ?? []).map(c => [c.id as string, c]));
+  const scoreMap = new Map((scores ?? []).map(s => [`${s.chapter_id}`, s]));
+  const submissionMap = new Map((submissions ?? []).map(s => [s.challenge_id as string, s]));
+
+  const history: TeamMatchHistoryEntry[] = [];
+
+  for (const reg of registrations ?? []) {
+    const chapter = chapterMap.get(reg.chapter_id as string);
+    if (!chapter) continue;
+
+    const challenge = challengeMap.get(reg.challenge_id as string);
+    const submission = submissionMap.get(reg.challenge_id as string);
+    const score = scoreMap.get(reg.chapter_id as string);
+
+    history.push({
+      chapter: {
+        id: chapter.id as string,
+        name: chapter.name as string,
+        slug: chapter.slug as string,
+        date: (chapter.date as string) ?? null,
+        city: (chapter.city as string) ?? null,
+        status: chapter.status as string,
+      },
+      challenge: challenge ? { id: challenge.id as string, title: challenge.title as string } : null,
+      registration: { roster: (reg.roster as string[]) ?? [], registeredAt: reg.registered_at as string },
+      submission: submission ? { projectName: submission.project_name as string, createdAt: submission.created_at as string } : null,
+      score: score ? { placement: (score.placement as number) ?? null, points: (score.points as number) ?? 0, challengeName: (score.challenge_name as string) ?? "" } : null,
+    });
+  }
+
+  // Sort by chapter date descending (most recent first)
+  history.sort((a, b) => {
+    if (!a.chapter.date) return 1;
+    if (!b.chapter.date) return -1;
+    return new Date(b.chapter.date).getTime() - new Date(a.chapter.date).getTime();
+  });
+
+  return history;
+}

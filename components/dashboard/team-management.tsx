@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { inviteMember, cancelInvite, toggleLookingForMembers, resolveDashboardJoinRequest } from "@/lib/actions/teams";
+import { inviteMember, cancelInvite, toggleLookingForMembers, resolveDashboardJoinRequest, leaveTeam } from "@/lib/actions/teams";
 import type { TeamMember, Profile, TeamInvite, Team, TeamJoinRequest } from "@/lib/types";
 
 interface TeamManagementProps {
@@ -36,8 +36,10 @@ export function TeamManagement({
   const [loading, setLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [lookingForMembers, setLookingForMembers] = useState(team.lookingForMembers);
+  const [leaving, setLeaving] = useState(false);
 
   const isFull = members.length >= 5;
+  const isPresident = members.some((m) => m.userId === currentUserId && m.role === "president");
 
   async function handleInvite(e: React.FormEvent) {
     e.preventDefault();
@@ -235,6 +237,28 @@ export function TeamManagement({
                 </p>
               </div>
             </label>
+          </div>
+        )}
+
+        {!isPresident && (
+          <div className="mt-4 border-t border-white/5 pt-4">
+            <button
+              onClick={async () => {
+                if (!confirm("Are you sure you want to leave this team?")) return;
+                setLeaving(true);
+                const result = await leaveTeam();
+                if (result.error) {
+                  alert(result.error);
+                  setLeaving(false);
+                } else {
+                  window.location.reload();
+                }
+              }}
+              disabled={leaving}
+              className="text-sm text-error hover:text-error/80 transition-colors"
+            >
+              {leaving ? "Leaving..." : "Leave Team"}
+            </button>
           </div>
         )}
       </Card>

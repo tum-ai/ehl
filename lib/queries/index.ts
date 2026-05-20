@@ -35,8 +35,9 @@ export {
   getDashboardJoinRequestsForTeam,
   getPendingJoinRequestsForUser,
   getUsersLookingForTeam,
+  getTeamMatchHistory,
 } from "./teams";
-export type { TeamLookingForMembers } from "./teams";
+export type { TeamLookingForMembers, TeamMatchHistoryEntry } from "./teams";
 
 export {
   getChapters,

@@ -15,6 +15,7 @@ import {
   getPendingJoinRequestsForUser,
   getUsersLookingForTeam,
   getPublishedScoresForTeam,
+  getTeamMatchHistory,
 } from "@/lib/queries";
 import { redirect } from "next/navigation";
 import { formatDateRange } from "@/lib/utils";
@@ -82,12 +83,13 @@ export default async function ParticipantDashboard() {
   const { team, role } = membership;
   const isPresident = role === "president";
 
-  const [chapters, unlocks, leaderboard, members, publishedScores] = await Promise.all([
+  const [chapters, unlocks, leaderboard, members, publishedScores, matchHistory] = await Promise.all([
     getChapters(),
     getUnlocksForTeam(team.id),
     getLeaderboard(),
     getTeamMembersWithProfiles(team.id),
     getPublishedScoresForTeam(team.id),
+    getTeamMatchHistory(team.id),
   ]);
 
   const teamEntry = leaderboard.find((e) => e.team.id === team.id);
@@ -254,6 +256,65 @@ export default async function ParticipantDashboard() {
             })}
         </div>
       </div>
+
+      {/* Match Participation History */}
+      {matchHistory.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-text-muted">
+            Your Participation
+          </h2>
+          <div className="mt-4 space-y-3">
+            {matchHistory.map((entry) => (
+              <Card key={`${entry.chapter.id}-${entry.challenge?.id}`} className="p-4">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <Link href={`/matches/${entry.chapter.slug}`} className="font-medium hover:text-gold transition-colors">
+                      {entry.chapter.name}
+                    </Link>
+                    <p className="text-xs text-text-muted mt-0.5">
+                      {entry.chapter.city}{entry.chapter.date ? ` \u00b7 ${new Date(entry.chapter.date).toLocaleDateString()}` : ""}
+                    </p>
+                  </div>
+                  {entry.score && (
+                    <div className="text-right">
+                      {entry.score.placement && (
+                        <p className="font-mono text-lg font-bold text-gold">#{entry.score.placement}</p>
+                      )}
+                      <p className="text-xs text-text-muted">{entry.score.points} pts</p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                  {entry.challenge && (
+                    <span className="rounded-full bg-purple/10 px-2 py-0.5 text-purple">
+                      {entry.challenge.title}
+                    </span>
+                  )}
+                  {entry.submission ? (
+                    <span className="rounded-full bg-green-500/10 px-2 py-0.5 text-green-400">
+                      Submitted: {entry.submission.projectName}
+                    </span>
+                  ) : entry.chapter.status === "completed" ? (
+                    <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-red-400">
+                      No submission
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-amber-400">
+                      Pending submission
+                    </span>
+                  )}
+                  {entry.registration && (
+                    <span className="rounded-full bg-surface-card px-2 py-0.5 text-text-muted">
+                      Roster: {entry.registration.roster.length} members
+                    </span>
+                  )}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Team link */}
       <div className="mt-8">

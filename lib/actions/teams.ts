@@ -9,6 +9,8 @@ import {
 } from "@/lib/emails/render";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logEvent } from "@/lib/event-log";
+import { slugify } from "@/lib/utils";
+import { revalidatePath } from "next/cache";
 
 /**
  * Check if a user is locked to their current team because
@@ -195,14 +197,15 @@ export async function inviteMember(teamId: string, email: string, name?: string)
     return { error: "Only the team president can invite members." };
   }
 
-  // Check capacity
-  const { data: members } = await adminClient
-    .from("team_members")
-    .select("user_id")
-    .eq("team_id", teamId);
+  // Check capacity: current members + pending invites must be < 5
+  const [{ data: members }, { count: pendingInvites }] = await Promise.all([
+    adminClient.from("team_members").select("user_id").eq("team_id", teamId),
+    adminClient.from("team_invites").select("id", { count: "exact", head: true }).eq("team_id", teamId).eq("status", "pending"),
+  ]);
 
-  if ((members?.length ?? 0) >= 5) {
-    return { error: "Team is full (5 members max)." };
+  const totalCommitted = (members?.length ?? 0) + (pendingInvites ?? 0);
+  if (totalCommitted >= 5) {
+    return { error: `Team is full (${members?.length ?? 0} members + ${pendingInvites ?? 0} pending invites = 5 max).` };
   }
 
   // Check for existing pending invite
@@ -621,5 +624,129 @@ export async function resolveDashboardJoinRequest(
     })
     .eq("id", requestId);
 
+  return { success: true };
+}
+
+// ─── Create team (for already logged-in users) ──────────
+
+export async function createTeam(teamName: string, university?: string, city?: string) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not logged in." };
+
+  const adminClient = createAdminClient();
+
+  // Check user doesn't already have a team
+  const { data: existingMembership } = await adminClient
+    .from("team_members")
+    .select("team_id")
+    .eq("user_id", user.id)
+    .limit(1)
+    .single();
+
+  if (existingMembership) {
+    return { error: "You are already on a team." };
+  }
+
+  if (!teamName || teamName.trim().length < 2) {
+    return { error: "Team name must be at least 2 characters." };
+  }
+
+  const slug = slugify(teamName);
+
+  // Check team name uniqueness
+  const { data: existingTeam } = await adminClient
+    .from("teams")
+    .select("id")
+    .eq("slug", slug)
+    .single();
+
+  if (existingTeam) {
+    return { error: "A team with this name already exists." };
+  }
+
+  // Create team
+  const { data: team, error: teamError } = await adminClient
+    .from("teams")
+    .insert({
+      name: teamName.trim(),
+      slug,
+      university: university?.trim() || null,
+      city: city?.trim() || null,
+      president_user_id: user.id,
+      status: "active",
+    })
+    .select("id, name, slug")
+    .single();
+
+  if (teamError || !team) {
+    return { error: teamError?.message || "Failed to create team." };
+  }
+
+  // Add user as president
+  await adminClient.from("team_members").insert({
+    team_id: team.id,
+    user_id: user.id,
+    role: "president",
+  });
+
+  logEvent({
+    action: "team.created",
+    entityType: "team",
+    entityId: team.id,
+    actorId: user.id,
+    actorType: "participant",
+    delta: { created: { name: teamName } },
+  });
+
+  revalidatePath("/dashboard");
+  return { success: true, team };
+}
+
+// ─── Leave team ──────────────────────────────────────────
+
+export async function leaveTeam() {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Not logged in." };
+
+  const adminClient = createAdminClient();
+
+  // Get user's team membership
+  const { data: membership } = await adminClient
+    .from("team_members")
+    .select("team_id, role")
+    .eq("user_id", user.id)
+    .single();
+
+  if (!membership) {
+    return { error: "You are not on a team." };
+  }
+
+  if (membership.role === "president") {
+    return { error: "Presidents cannot leave their team. Transfer presidency first or contact an admin." };
+  }
+
+  // Check if user is locked to team via active chapter
+  const lockError = await getChapterLockError(adminClient, user.id);
+  if (lockError) return { error: lockError };
+
+  // Remove from team
+  await adminClient
+    .from("team_members")
+    .delete()
+    .eq("team_id", membership.team_id)
+    .eq("user_id", user.id);
+
+  logEvent({
+    action: "team.member_left",
+    entityType: "team",
+    entityId: membership.team_id as string,
+    actorId: user.id,
+    actorType: "participant",
+    delta: { deleted: { user_id: user.id } },
+  });
+
+  revalidatePath("/dashboard");
   return { success: true };
 }
