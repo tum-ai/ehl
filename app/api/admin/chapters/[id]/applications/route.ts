@@ -53,7 +53,7 @@ export async function GET(
   const applications = (appRows ?? []).map(toApplication);
 
   const url = new URL(request.url);
-  const includeScreening = url.searchParams.get("screening") === "true";
+  const includeScreening = url.searchParams.get("preparation") === "true";
 
   if (!includeScreening) {
     return NextResponse.json(applications);

@@ -51,8 +51,8 @@ describe("getTargetIndex", () => {
 
   it("returns correct indices for all statuses", () => {
     const statuses: ChapterStatus[] = [
-      "draft", "announced", "applications_open", "screening",
-      "registration_open", "submissions_open", "pitching", "completed",
+      "draft", "announced", "applications_open", "preparation",
+      "challenge_selection", "submissions_open", "pitching", "completed",
     ];
     statuses.forEach((s, i) => {
       expect(getTargetIndex(s)).toBe(i);

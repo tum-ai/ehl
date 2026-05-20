@@ -97,9 +97,9 @@ export default async function ChapterDetailPage({ params }: PageProps) {
         <ChapterCompleted chapter={chapter} scores={scores} teams={teams} partners={partners} photos={photos} />
       ) : chapter.status === "applications_open" ? (
         <ChapterApplicationsOpen chapter={chapter} partners={partners} />
-      ) : chapter.status === "screening" ? (
+      ) : chapter.status === "preparation" ? (
         <ChapterAnnounced chapter={chapter} screeningMessage="Applications are closed. We are currently reviewing all submissions." />
-      ) : chapter.status === "registration_open" ? (
+      ) : chapter.status === "challenge_selection" ? (
         <ChapterRegistrationOpen
           chapter={chapter}
           challenges={challenges}

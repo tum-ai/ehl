@@ -9,8 +9,8 @@ const STATUS_FLOW: ChapterStatus[] = [
   "draft",           // 0
   "announced",       // 1
   "applications_open", // 2
-  "screening",       // 3
-  "registration_open", // 4
+  "preparation",       // 3
+  "challenge_selection", // 4
   "submissions_open",  // 5
   "pitching",        // 6
   "completed",       // 7

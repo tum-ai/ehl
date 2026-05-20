@@ -41,7 +41,7 @@ export async function registerForChallenge(
     .eq("id", chapterId)
     .single();
 
-  if (!chapter || chapter.status !== "registration_open") {
+  if (!chapter || chapter.status !== "challenge_selection") {
     return { error: "Challenge selection is closed." };
   }
 

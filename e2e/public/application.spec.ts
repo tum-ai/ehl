@@ -3,7 +3,7 @@ import { SEED } from "../helpers/auth";
 
 test.describe("Application page", () => {
   test("shows 'Applications Closed' when chapter status is not applications_open", async ({ page }) => {
-    // Zurich has status "registration_open", not "applications_open"
+    // Zurich has status "challenge_selection", not "applications_open"
     await page.goto(`/apply/${SEED.chapters.zurich.slug}`);
 
     await expect(

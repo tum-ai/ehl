@@ -58,7 +58,7 @@ test.describe("Admin chapter management", () => {
         ).toBeVisible();
 
         // Status badge should be present (the Badge component renders the status text)
-        // Zurich chapter has status "registration_open"
+        // Zurich chapter has status "challenge_selection"
         const statusText = page.locator("[class*='badge'], [class*='Badge']");
         const badgeCount = await statusText.count();
         expect(badgeCount).toBeGreaterThan(0);

@@ -34,7 +34,7 @@ export async function GET(request: Request) {
   for (const chapter of appChapters ?? []) {
     await adminClient
       .from("chapters")
-      .update({ status: "screening" })
+      .update({ status: "preparation" })
       .eq("id", chapter.id);
     transitions.push(`${chapter.name}: applications_open -> screening`);
   }
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   const { data: csChapters } = await adminClient
     .from("chapters")
     .select("id, name, challenge_selection_deadline")
-    .eq("status", "registration_open")
+    .eq("status", "challenge_selection")
     .not("challenge_selection_deadline", "is", null)
     .lte("challenge_selection_deadline", now);
 

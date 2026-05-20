@@ -183,7 +183,7 @@ export const SEED = {
     zurich: {
       id: "e0000000-0000-0000-0000-000000000002",
       slug: "zurich-2",
-      status: "registration_open",
+      status: "challenge_selection",
     },
     berlin: {
       id: "e0000000-0000-0000-0000-000000000003",

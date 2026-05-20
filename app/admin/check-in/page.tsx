@@ -20,7 +20,7 @@ interface Chapter {
 
 // Check-in is possible from screening onwards (event-day: check-in happens
 // after screening is done but before status advances to registration_open)
-const CHECK_IN_STATUSES = new Set(["screening", "registration_open", "hacking", "submissions_open", "pitching"]);
+const CHECK_IN_STATUSES = new Set(["preparation", "challenge_selection", "hacking", "submissions_open", "pitching"]);
 
 interface CheckInResult {
   type: "success" | "error" | "warning";

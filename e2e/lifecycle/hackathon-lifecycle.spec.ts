@@ -504,8 +504,8 @@ test.describe.serial("Hackathon Lifecycle", () => {
     });
 
     // Advance through statuses
-    await setChapterStatus(chapterId, "screening");
-    await setChapterStatus(chapterId, "registration_open");
+    await setChapterStatus(chapterId, "preparation");
+    await setChapterStatus(chapterId, "challenge_selection");
 
     // Unlock both teams
     await unlockTeam(chapterId, teamAlphaId, adminUserId);

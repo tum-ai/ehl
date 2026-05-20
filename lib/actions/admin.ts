@@ -121,7 +121,7 @@ async function getStatusChecks(
 
   // Going backwards is always allowed (no checks)
   const flow = [
-    "draft", "announced", "applications_open", "screening", "registration_open",
+    "draft", "announced", "applications_open", "preparation", "challenge_selection",
     "submissions_open", "pitching", "completed",
   ];
   const currentIdx = flow.indexOf(chapter.status);
@@ -294,7 +294,7 @@ export async function getChapterReadiness(chapterId: string) {
   if (!chapter) return { checks: [] };
 
   const flow = [
-    "draft", "announced", "applications_open", "screening", "registration_open",
+    "draft", "announced", "applications_open", "preparation", "challenge_selection",
     "submissions_open", "pitching", "completed",
   ];
   const currentIdx = flow.indexOf(chapter.status as string);

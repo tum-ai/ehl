@@ -200,7 +200,7 @@ export default async function ParticipantDashboard() {
             .map((chapter) => {
               const isUnlocked = unlockedChapterIds.has(chapter.id);
               const isCompleted = chapter.status === "completed";
-              const isRegistrationOpen = chapter.status === "registration_open";
+              const isRegistrationOpen = chapter.status === "challenge_selection";
               const hasCertificate = isCompleted && scoredChapterIds.has(chapter.id);
 
               return (
