@@ -72,10 +72,25 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
           return;
         }
 
+        // Timeout: if Cloudflare doesn't respond within 10s, reject instead of hanging forever.
+        // This prevents forms from being stuck at "Sending code..." when the invisible challenge
+        // fails silently (ad blockers, VPN, Cloudflare outages, etc.)
+        const timeout = setTimeout(() => {
+          resolveRef.current = null;
+          rejectRef.current = null;
+          reject(new Error("Turnstile challenge timed out. Please try again."));
+        }, 10_000);
+
         // Reset first to ensure a fresh challenge every time
         window.turnstile.reset(widgetIdRef.current);
-        resolveRef.current = resolve;
-        rejectRef.current = reject;
+        resolveRef.current = (token: string) => {
+          clearTimeout(timeout);
+          resolve(token);
+        };
+        rejectRef.current = (err: Error) => {
+          clearTimeout(timeout);
+          reject(err);
+        };
         window.turnstile.execute(containerRef.current!);
       });
     },
