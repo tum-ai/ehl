@@ -128,6 +128,17 @@ export default function AdminCheckInPage() {
     }
 
     async function startScanner() {
+      // Wait a tick for the DOM element to render
+      await new Promise((r) => setTimeout(r, 100));
+      if (cancelled) return;
+
+      // Check if the DOM element exists
+      const container = document.getElementById("qr-reader");
+      if (!container) {
+        handleCameraError(new Error("Scanner container not found"));
+        return;
+      }
+
       let Html5Qrcode;
       try {
         const mod = await import("html5-qrcode");
@@ -139,7 +150,13 @@ export default function AdminCheckInPage() {
 
       if (cancelled) return;
 
-      const scanner = new Html5Qrcode("qr-reader");
+      let scanner;
+      try {
+        scanner = new Html5Qrcode("qr-reader");
+      } catch (err) {
+        handleCameraError(err);
+        return;
+      }
       scannerRef.current = scanner;
 
       const scanConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
@@ -151,22 +168,24 @@ export default function AdminCheckInPage() {
         try {
           await scanner.start({ facingMode: "environment" }, scanConfig, onSuccess, onFailure);
         } catch {
-          // Back camera failed, try front camera
+          if (cancelled) return;
           await scanner.start({ facingMode: "user" }, scanConfig, onSuccess, onFailure);
         }
       } catch (err) {
-        handleCameraError(err);
+        if (!cancelled) handleCameraError(err);
       }
     }
 
-    startScanner();
+    startScanner().catch((err) => {
+      if (!cancelled) handleCameraError(err);
+    });
 
     return () => {
       cancelled = true;
       const scanner = scannerRef.current;
       if (scanner) {
         scanner.stop().catch(() => {});
-        scanner.clear();
+        try { scanner.clear(); } catch { /* ignore */ }
         scannerRef.current = null;
       }
     };
@@ -289,7 +308,10 @@ export default function AdminCheckInPage() {
             )}
             {scanning ? (
               <div className="space-y-4">
-                <div id="qr-reader" className="mx-auto max-w-sm overflow-hidden rounded-xl" />
+                <div id="qr-reader" className="mx-auto max-w-sm overflow-hidden rounded-xl" style={{ minHeight: 300 }} />
+                {!cameraError && (
+                  <p className="text-center text-xs ad-text-muted">Looking for camera...</p>
+                )}
                 <div className="text-center">
                   <Button
                     variant="secondary"
