@@ -111,7 +111,9 @@ export function ChapterRegistrationOpen({
       ) : (
         <div className="mt-8 rounded-2xl border border-white/[0.06] bg-surface-card/40 p-6">
           <p className="text-text-muted">
-            Participation is managed by the organizers. If your team has been invited, log in to see your registration options.
+            {userRole
+              ? "Your team has not been invited to this match yet. Invitations are managed by the organizers."
+              : "Participation is managed by the organizers. Log in to see your registration options."}
           </p>
         </div>
       )}
