@@ -61,11 +61,19 @@ export default function AdminCheckInPage() {
       .catch(() => {});
   }, [selectedChapter]);
 
+  // Use ref for processing state to avoid re-creating the callback
+  // (which would restart the scanner effect)
+  const processingRef = useRef(false);
+
   const processCheckIn = useCallback(
     async (token: string) => {
-      if (processing || !adminUserId) return;
+      if (processingRef.current || !adminUserId) return;
+      processingRef.current = true;
       setProcessing(true);
       setResult(null);
+
+      // Stop scanner after successful scan to prevent repeated calls
+      setScanning(false);
 
       const res = await checkInApplication(token.trim(), adminUserId);
 
@@ -90,9 +98,10 @@ export default function AdminCheckInPage() {
         });
       }
 
+      processingRef.current = false;
       setProcessing(false);
     },
-    [processing, adminUserId]
+    [adminUserId]
   );
 
   // Start/stop html5-qrcode scanner
@@ -111,16 +120,20 @@ export default function AdminCheckInPage() {
       const scanner = new Html5Qrcode("qr-reader");
       scannerRef.current = scanner;
 
+      const scanConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
+      const onSuccess = (decodedText: string) => processCheckIn(decodedText);
+      const onFailure = () => {}; // Normal while scanning
+
       try {
+        // Try back camera first (mobile), fall back to any camera (desktop)
         await scanner.start(
           { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 250 } },
-          (decodedText) => {
-            processCheckIn(decodedText);
-          },
-          () => {
-            // Ignore scan failures (normal while scanning)
-          }
+          scanConfig, onSuccess, onFailure
+        ).catch(() =>
+          scanner.start(
+            { facingMode: "user" },
+            scanConfig, onSuccess, onFailure
+          )
         );
       } catch (err) {
         console.error("Camera error:", err);
@@ -255,12 +268,17 @@ export default function AdminCheckInPage() {
               >
                 {result.message}
               </p>
-              <button
-                onClick={() => setResult(null)}
-                className="mt-4 text-sm ad-text-muted hover:ad-text-secondary transition-colors"
-              >
-                Dismiss
-              </button>
+              <div className="mt-4 flex justify-center gap-3">
+                <Button onClick={() => { setResult(null); setScanning(true); }}>
+                  Scan Next
+                </Button>
+                <button
+                  onClick={() => setResult(null)}
+                  className="text-sm ad-text-muted hover:ad-text-secondary transition-colors px-3 py-2"
+                >
+                  Dismiss
+                </button>
+              </div>
             </div>
           )}
 
