@@ -184,9 +184,13 @@ export default function AdminCheckInPage() {
       cancelled = true;
       const scanner = scannerRef.current;
       if (scanner) {
-        scanner.stop().catch(() => {});
-        try { scanner.clear(); } catch { /* ignore */ }
         scannerRef.current = null;
+        // Stop the scanner gracefully, then clear after a delay
+        scanner.stop().then(() => {
+          try { scanner.clear(); } catch { /* ignore */ }
+        }).catch(() => {
+          try { scanner.clear(); } catch { /* ignore */ }
+        });
       }
     };
   }, [scanning, processCheckIn]);
@@ -360,3 +364,4 @@ export default function AdminCheckInPage() {
     </div>
   );
 }
+
