@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
@@ -67,14 +68,14 @@ const icons: Record<string, React.ReactNode> = {
   ),
 };
 
-export function AdminSidebar() {
+function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
-    <aside className="fixed left-0 top-0 z-40 flex h-screen w-56 flex-col border-r border-purple-900/30 bg-[#110724] font-hero-body">
+    <>
       {/* Logo */}
       <div className="flex h-16 items-center px-6">
-        <Link href="/admin" className="flex items-center gap-2">
+        <Link href="/admin" className="flex items-center gap-2" onClick={onNavigate}>
           <Image
             src="/images/ehl-logo.svg"
             alt="EHL"
@@ -98,6 +99,7 @@ export function AdminSidebar() {
               <li key={item.href}>
                 <Link
                   href={item.href}
+                  onClick={onNavigate}
                   className={cn(
                     "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors duration-200",
                     isActive
@@ -118,6 +120,7 @@ export function AdminSidebar() {
       <div className="border-t border-purple-900/30 p-4 space-y-2">
         <Link
           href="/"
+          onClick={onNavigate}
           className="flex items-center gap-2 text-xs text-text-muted hover:text-text-secondary transition-colors"
         >
           <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -137,6 +140,63 @@ export function AdminSidebar() {
           </button>
         </form>
       </div>
-    </aside>
+    </>
+  );
+}
+
+export function AdminSidebar() {
+  const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Close mobile menu on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  return (
+    <>
+      {/* Mobile top bar with hamburger */}
+      <div className="fixed left-0 right-0 top-0 z-40 flex h-14 items-center gap-3 border-b border-purple-900/30 bg-[#110724] px-4 md:hidden">
+        <button
+          onClick={() => setMobileOpen(true)}
+          className="flex h-9 w-9 items-center justify-center rounded-lg text-text-secondary hover:bg-surface-card hover:text-text-primary transition-colors"
+          aria-label="Open menu"
+        >
+          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+        <Link href="/admin" className="flex items-center gap-2">
+          <Image
+            src="/images/ehl-logo.svg"
+            alt="EHL"
+            width={100}
+            height={50}
+            className="h-6 w-auto"
+          />
+          <span className="text-xs text-text-muted">Admin</span>
+        </Link>
+      </div>
+
+      {/* Mobile overlay sidebar */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/60"
+            onClick={() => setMobileOpen(false)}
+          />
+          {/* Sidebar panel */}
+          <aside className="relative z-10 flex h-full w-56 flex-col border-r border-purple-900/30 bg-[#110724] font-hero-body">
+            <SidebarContent onNavigate={() => setMobileOpen(false)} />
+          </aside>
+        </div>
+      )}
+
+      {/* Desktop sidebar (unchanged, hidden on mobile) */}
+      <aside className="hidden md:fixed md:left-0 md:top-0 md:z-40 md:flex md:h-screen md:w-56 md:flex-col border-r border-purple-900/30 bg-[#110724] font-hero-body">
+        <SidebarContent />
+      </aside>
+    </>
   );
 }

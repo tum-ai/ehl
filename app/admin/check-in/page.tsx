@@ -1,16 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { checkInApplication } from "@/lib/actions/applications";
-import dynamic from "next/dynamic";
-
-const Scanner = dynamic(
-  () => import("@yudiel/react-qr-scanner").then((mod) => mod.Scanner),
-  { ssr: false }
-);
 
 interface Chapter {
   id: string;
@@ -37,6 +31,8 @@ export default function AdminCheckInPage() {
   const [processing, setProcessing] = useState(false);
   const [checkedInCount, setCheckedInCount] = useState(0);
   const [adminUserId, setAdminUserId] = useState("");
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
 
   const checkInChapters = chapters.filter((ch) => CHECK_IN_STATUSES.has(ch.status));
 
@@ -99,13 +95,72 @@ export default function AdminCheckInPage() {
     [processing, adminUserId]
   );
 
-  function handleScan(detectedCodes: Array<{ rawValue: string }>) {
-    if (detectedCodes.length === 0 || processing) return;
-    const token = detectedCodes[0].rawValue;
-    if (token) {
-      processCheckIn(token);
+  // Start/stop html5-qrcode scanner
+  useEffect(() => {
+    if (!scanning) return;
+    if (typeof window === "undefined") return;
+
+    let cancelled = false;
+    setCameraError(null);
+
+    async function startScanner() {
+      const { Html5Qrcode } = await import("html5-qrcode");
+
+      if (cancelled) return;
+
+      const scanner = new Html5Qrcode("qr-reader");
+      scannerRef.current = scanner;
+
+      try {
+        await scanner.start(
+          { facingMode: "environment" },
+          { fps: 10, qrbox: { width: 250, height: 250 } },
+          (decodedText) => {
+            processCheckIn(decodedText);
+          },
+          () => {
+            // Ignore scan failures (normal while scanning)
+          }
+        );
+      } catch (err) {
+        console.error("Camera error:", err);
+        const message =
+          err instanceof Error ? err.message : String(err);
+        if (
+          message.includes("NotAllowedError") ||
+          message.includes("Permission")
+        ) {
+          setCameraError(
+            "Camera permission denied. Please allow camera access in your browser settings and try again."
+          );
+        } else if (
+          message.includes("NotFoundError") ||
+          message.includes("no camera")
+        ) {
+          setCameraError(
+            "No camera found. Please connect a camera and try again."
+          );
+        } else {
+          setCameraError(
+            `Could not access camera: ${message}`
+          );
+        }
+        setScanning(false);
+      }
     }
-  }
+
+    startScanner();
+
+    return () => {
+      cancelled = true;
+      const scanner = scannerRef.current;
+      if (scanner) {
+        scanner.stop().catch(() => {});
+        scanner.clear();
+        scannerRef.current = null;
+      }
+    };
+  }, [scanning, processCheckIn]);
 
   function handleManualSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -212,25 +267,14 @@ export default function AdminCheckInPage() {
           {/* Scanner */}
           <Card className="mt-6">
             <h2 className="ad-heading mb-4 text-lg">Camera Scanner</h2>
+            {cameraError && (
+              <div className="mb-4 rounded-lg border ad-border-error ad-bg-error p-4 text-sm ad-text-error">
+                {cameraError}
+              </div>
+            )}
             {scanning ? (
               <div className="space-y-4">
-                <div className="mx-auto max-w-sm overflow-hidden rounded-xl">
-                  <Scanner
-                    onScan={handleScan}
-                    onError={(err) =>
-                      console.error("Scanner error:", err)
-                    }
-                    formats={["qr_code"]}
-                    scanDelay={1500}
-                    components={{ finder: true }}
-                    styles={{
-                      container: {
-                        width: "100%",
-                        aspectRatio: "1",
-                      },
-                    }}
-                  />
-                </div>
+                <div id="qr-reader" className="mx-auto max-w-sm overflow-hidden rounded-xl" />
                 <div className="text-center">
                   <Button
                     variant="secondary"
@@ -245,7 +289,7 @@ export default function AdminCheckInPage() {
                 <p className="mb-4 text-sm ad-text-muted">
                   Use your device camera to scan participant QR codes.
                 </p>
-                <Button onClick={() => setScanning(true)}>
+                <Button onClick={() => { setCameraError(null); setScanning(true); }}>
                   Start Scanner
                 </Button>
               </div>
