@@ -249,17 +249,24 @@ export function HeroSection({ applyHref, applyChapterName }: { applyHref?: strin
           }}
         >
           {applyHref ? (
-            <PillButton href={applyHref} variant="glow">
-              Apply for {applyChapterName}
-            </PillButton>
+            <>
+              <PillButton href={applyHref} variant="glow">
+                Apply for {applyChapterName}
+              </PillButton>
+              <PillButton href="/matches" variant="filled">
+                Explore Matches
+              </PillButton>
+            </>
           ) : (
-            <PillButton href="/leaderboard" variant="filled">
-              View Leaderboard
-            </PillButton>
+            <>
+              <PillButton href="/leaderboard" variant="filled">
+                View Leaderboard
+              </PillButton>
+              <PillButton href="/matches" variant="outline">
+                Explore Matches
+              </PillButton>
+            </>
           )}
-          <PillButton href="/matches" variant="outline">
-            Explore Matches
-          </PillButton>
         </motion.div>
 
         {/* Founded by TUM.ai */}
