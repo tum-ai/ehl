@@ -74,3 +74,4 @@ image-*.png
 # Tooling
 .playwright-mcp/
 supabase/.temp/
+.env.supabase
