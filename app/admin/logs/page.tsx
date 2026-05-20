@@ -256,6 +256,7 @@ export default function AdminLogsPage() {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [search, setSearch] = useState("");
   const [filters, setFilters] = useState({ action: "", entityType: "", actorType: "", from: "", to: "" });
   const [verifyResult, setVerifyResult] = useState<VerifyResult | null>(null);
   const [verifying, setVerifying] = useState(false);
@@ -268,6 +269,7 @@ export default function AdminLogsPage() {
     if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+      if (search) params.set("search", search);
       if (filters.action) params.set("action", filters.action);
       if (filters.entityType) params.set("entity_type", filters.entityType);
       if (filters.actorType) params.set("actor_type", filters.actorType);
@@ -285,7 +287,7 @@ export default function AdminLogsPage() {
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [page, limit, filters]);
+  }, [page, limit, search, filters]);
 
   // Initial load + filter/page changes
   useEffect(() => {
@@ -302,10 +304,10 @@ export default function AdminLogsPage() {
     };
   }, [tab, autoRefresh, fetchLogs]);
 
-  // Reset page when filters/tab change
+  // Reset page when filters/tab/search change
   useEffect(() => {
     setPage(1);
-  }, [filters, tab]);
+  }, [filters, tab, search]);
 
   async function handleVerify() {
     setVerifying(true);
@@ -330,6 +332,7 @@ export default function AdminLogsPage() {
       let hasMore = true;
       while (hasMore) {
         const params = new URLSearchParams({ page: String(exportPage), limit: "200" });
+        if (search) params.set("search", search);
         if (filters.action) params.set("action", filters.action);
         if (filters.entityType) params.set("entity_type", filters.entityType);
         if (filters.actorType) params.set("actor_type", filters.actorType);
@@ -402,6 +405,32 @@ export default function AdminLogsPage() {
         >
           Audit Trail
         </button>
+      </div>
+
+      {/* Search */}
+      <div className="mt-4">
+        <div className="relative">
+          <svg className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search across all fields (actions, entities, delta content, IDs...)"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-10 pr-4 text-sm text-slate-700 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}

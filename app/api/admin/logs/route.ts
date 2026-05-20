@@ -9,6 +9,7 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get("page") ?? "1"));
   const limit = Math.min(200, Math.max(1, parseInt(searchParams.get("limit") ?? "50")));
+  const search = searchParams.get("search");
   const action = searchParams.get("action");
   const entityType = searchParams.get("entity_type");
   const actorType = searchParams.get("actor_type");
@@ -21,6 +22,14 @@ export async function GET(request: Request) {
     .from("event_log")
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false });
+
+  // Global search across text fields + JSONB delta cast to text
+  if (search) {
+    const s = search.replace(/[%_]/g, "");
+    query = query.or(
+      `action.ilike.%${s}%,entity_type.ilike.%${s}%,entity_id.ilike.%${s}%,actor_type.ilike.%${s}%,delta::text.ilike.%${s}%`
+    );
+  }
 
   if (action) query = query.ilike("action", `%${action}%`);
   if (entityType) query = query.eq("entity_type", entityType);
