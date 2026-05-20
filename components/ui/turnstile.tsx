@@ -24,16 +24,28 @@ declare global {
   }
 }
 
+// Turnstile tokens expire after ~300s. Auto-refresh before that.
+const TOKEN_MAX_AGE_MS = 250_000; // 4m10s, well before 5m expiry
+
 export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const scriptLoadedRef = useRef(false);
   const tokenRef = useRef<string>("");
+  const tokenTimestampRef = useRef<number>(0);
 
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
 
   // Cloudflare test keys always pass - skip in test/CI environments
   const isTestKey = siteKey?.startsWith("1x0000000000000000000");
+
+  const resetWidget = useCallback(() => {
+    tokenRef.current = "";
+    tokenTimestampRef.current = 0;
+    if (widgetIdRef.current && window.turnstile) {
+      window.turnstile.reset(widgetIdRef.current);
+    }
+  }, []);
 
   const renderWidget = useCallback(() => {
     if (!containerRef.current || !window.turnstile || !siteKey) return;
@@ -42,35 +54,52 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
     widgetIdRef.current = window.turnstile.render(containerRef.current, {
       sitekey: siteKey,
       theme: "dark",
+      // "auto" refresh: Cloudflare will auto-refresh when possible,
+      // but we also handle expiry manually below
+      "refresh-expired": "auto",
       callback: (token: string) => {
         tokenRef.current = token;
+        tokenTimestampRef.current = Date.now();
       },
       "expired-callback": () => {
-        tokenRef.current = "";
+        // Token expired, auto-reset for a fresh challenge
+        console.warn("[Turnstile] Token expired, auto-refreshing");
+        resetWidget();
       },
       "error-callback": () => {
-        console.warn("[Turnstile] Challenge error, token cleared");
-        tokenRef.current = "";
+        console.warn("[Turnstile] Challenge error, resetting");
+        resetWidget();
       },
     });
-  }, [siteKey]);
+  }, [siteKey, resetWidget]);
 
   useImperativeHandle(ref, () => ({
     getToken: () => {
       if (isTestKey || !siteKey) return "test-token";
-      // Also try getResponse as fallback
-      if (!tokenRef.current && widgetIdRef.current && window.turnstile) {
-        tokenRef.current = window.turnstile.getResponse(widgetIdRef.current) ?? "";
+
+      // Check if token is stale (older than ~4 minutes)
+      if (tokenRef.current && tokenTimestampRef.current) {
+        const age = Date.now() - tokenTimestampRef.current;
+        if (age > TOKEN_MAX_AGE_MS) {
+          console.warn("[Turnstile] Token too old, clearing");
+          tokenRef.current = "";
+          tokenTimestampRef.current = 0;
+        }
       }
+
+      // Always try getResponse as source of truth
+      if (widgetIdRef.current && window.turnstile) {
+        const fresh = window.turnstile.getResponse(widgetIdRef.current);
+        if (fresh) {
+          tokenRef.current = fresh;
+          if (!tokenTimestampRef.current) tokenTimestampRef.current = Date.now();
+        }
+      }
+
       return tokenRef.current;
     },
-    reset: () => {
-      tokenRef.current = "";
-      if (widgetIdRef.current && window.turnstile) {
-        window.turnstile.reset(widgetIdRef.current);
-      }
-    },
-  }), [isTestKey, siteKey]);
+    reset: resetWidget,
+  }), [isTestKey, siteKey, resetWidget]);
 
   useEffect(() => {
     if (!siteKey || isTestKey) return;
