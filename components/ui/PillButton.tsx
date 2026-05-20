@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 interface PillButtonProps {
   href: string;
-  variant?: "filled" | "outline";
+  variant?: "filled" | "outline" | "glow";
   children: React.ReactNode;
   className?: string;
 }
@@ -13,6 +13,8 @@ const variants = {
     "bg-ci-platinum text-ci-dark-amethyst font-bold hover:shadow-[0_0_24px_rgba(239,239,239,0.2)] active:scale-[0.98]",
   outline:
     "border border-ci-jasmine text-ci-jasmine hover:bg-ci-jasmine/10 hover:shadow-[0_0_20px_rgba(255,206,119,0.15)] active:scale-[0.98]",
+  glow:
+    "bg-gradient-to-r from-gold to-ci-jasmine text-ci-dark-amethyst font-bold shadow-[0_0_30px_rgba(232,184,75,0.3)] hover:shadow-[0_0_40px_rgba(232,184,75,0.5)] active:scale-[0.98]",
 };
 
 export function PillButton({

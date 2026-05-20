@@ -249,7 +249,7 @@ export function HeroSection({ applyHref }: { applyHref?: string } = {}) {
           }}
         >
           {applyHref ? (
-            <PillButton href={applyHref} variant="filled">
+            <PillButton href={applyHref} variant="glow">
               Apply Now
             </PillButton>
           ) : (
