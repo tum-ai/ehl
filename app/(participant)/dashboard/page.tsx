@@ -202,8 +202,22 @@ export default async function ParticipantDashboard() {
             .map((chapter) => {
               const isUnlocked = unlockedChapterIds.has(chapter.id);
               const isCompleted = chapter.status === "completed";
-              const isRegistrationOpen = chapter.status === "challenge_selection";
+              const hasParticipated = matchHistory.some((m) => m.chapter.id === chapter.id);
               const hasCertificate = isCompleted && scoredChapterIds.has(chapter.id);
+
+              // Status label + badge variant
+              const statusConfig: Record<string, { label: string; variant: "completed" | "announced" | "live" | "upcoming" | "default" }> = {
+                announced: { label: "Announced", variant: "upcoming" },
+                applications_open: { label: "Applications Open", variant: "announced" },
+                preparation: { label: "Preparation", variant: "announced" },
+                challenge_selection: { label: "Challenge Selection", variant: "live" },
+                hacking: { label: "Hacking", variant: "live" },
+                submissions_open: { label: "Submissions Open", variant: "live" },
+                pitching: { label: "Pitching", variant: "live" },
+                completed: { label: hasParticipated ? "Completed" : "Not Participated", variant: hasParticipated ? "completed" : "default" },
+              };
+
+              const { label: statusLabel, variant: statusVariant } = statusConfig[chapter.status] ?? { label: chapter.status, variant: "upcoming" as const };
 
               return (
                 <div key={chapter.id} className="rounded-lg border border-white/5 transition-colors hover:bg-surface-card/50">
@@ -224,15 +238,7 @@ export default async function ParticipantDashboard() {
                         {isUnlocked && !isCompleted && (
                           <Badge variant="announced">Unlocked</Badge>
                         )}
-                        {isRegistrationOpen && isUnlocked && (
-                          <Badge variant="completed">Select Challenge</Badge>
-                        )}
-                        {isCompleted && (
-                          <Badge variant="completed">Completed</Badge>
-                        )}
-                        {!isCompleted && !isUnlocked && (
-                          <Badge variant="upcoming">{chapter.status}</Badge>
-                        )}
+                        <Badge variant={statusVariant}>{statusLabel}</Badge>
                       </div>
                     </div>
                   </Link>
