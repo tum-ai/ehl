@@ -32,6 +32,8 @@ export default function AdminCheckInPage() {
   const [checkedInCount, setCheckedInCount] = useState(0);
   const [adminUserId, setAdminUserId] = useState("");
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [checkedInList, setCheckedInList] = useState<Array<{ id: string; first_name: string; last_name: string; email: string; checked_in_at: string }>>([]);
+  const [loadingList, setLoadingList] = useState(false);
   const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
 
   const checkInChapters = chapters.filter((ch) => CHECK_IN_STATUSES.has(ch.status));
@@ -52,14 +54,28 @@ export default function AdminCheckInPage() {
       .catch(() => {});
   }, []);
 
+  const loadCheckedInList = useCallback(async () => {
+    if (!selectedChapter) return;
+    setLoadingList(true);
+    try {
+      const res = await fetch(`/api/admin/chapters/${selectedChapter}/applications`);
+      if (res.ok) {
+        const allApps = await res.json() as Array<{ id: string; firstName: string; lastName: string; email: string; status: string; checkedInAt: string | null }>;
+        const checkedIn = allApps
+          .filter((a) => a.status === "checked_in" && a.checkedInAt)
+          .map((a) => ({ id: a.id, first_name: a.firstName, last_name: a.lastName, email: a.email, checked_in_at: a.checkedInAt! }))
+          .sort((a, b) => new Date(b.checked_in_at).getTime() - new Date(a.checked_in_at).getTime());
+        setCheckedInList(checkedIn);
+        setCheckedInCount(checkedIn.length);
+      }
+    } catch { /* ignore */ }
+    setLoadingList(false);
+  }, [selectedChapter]);
+
   useEffect(() => {
     if (!selectedChapter) return;
-    // Load checked-in count
-    fetch(`/api/admin/chapters/${selectedChapter}/applications/stats`)
-      .then((r) => r.json())
-      .then((stats) => setCheckedInCount(stats.checkedIn || 0))
-      .catch(() => {});
-  }, [selectedChapter]);
+    loadCheckedInList();
+  }, [selectedChapter, loadCheckedInList]);
 
   // Use ref for processing state to avoid re-creating the callback
   // (which would restart the scanner effect)
@@ -83,7 +99,7 @@ export default function AdminCheckInPage() {
           message: `Checked in successfully!`,
           name: res.name,
         });
-        setCheckedInCount((c) => c + 1);
+        loadCheckedInList();
       } else if (res.error?.includes("Already checked in")) {
         setResult({
           type: "warning",
@@ -101,7 +117,7 @@ export default function AdminCheckInPage() {
       processingRef.current = false;
       setProcessing(false);
     },
-    [adminUserId]
+    [adminUserId, loadCheckedInList]
   );
 
   // Start/stop html5-qrcode scanner
@@ -302,9 +318,9 @@ export default function AdminCheckInPage() {
             </div>
           )}
 
-          {/* Scanner */}
+          {/* Scanner - only on mobile/tablet (touch devices with cameras) */}
           <Card className="mt-6">
-            <h2 className="ad-heading mb-4 text-lg">Camera Scanner</h2>
+            <h2 className="ad-heading mb-4 text-lg">QR Scanner</h2>
             {cameraError && (
               <div className="mb-4 rounded-lg border ad-border-error ad-bg-error p-4 text-sm ad-text-error">
                 {cameraError}
@@ -314,7 +330,7 @@ export default function AdminCheckInPage() {
               <div className="space-y-4">
                 <div id="qr-reader" className="mx-auto max-w-sm overflow-hidden rounded-xl" style={{ minHeight: 300 }} />
                 {!cameraError && (
-                  <p className="text-center text-xs ad-text-muted">Looking for camera...</p>
+                  <p className="text-center text-xs ad-text-muted">Point camera at QR code...</p>
                 )}
                 <div className="text-center">
                   <Button
@@ -341,7 +357,7 @@ export default function AdminCheckInPage() {
           <Card className="mt-6">
             <h2 className="ad-heading mb-4 text-lg">Manual Entry</h2>
             <p className="mb-4 text-sm ad-text-muted">
-              Enter a check-in token manually if the QR code cannot be scanned.
+              Enter a check-in token manually (for desktop or if QR scanning fails).
             </p>
             <form
               onSubmit={handleManualSubmit}
@@ -358,6 +374,44 @@ export default function AdminCheckInPage() {
                 {processing ? "Checking..." : "Check In"}
               </Button>
             </form>
+          </Card>
+
+          {/* Checked-in participants list */}
+          <Card className="mt-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="ad-heading text-lg">Checked-in Participants</h2>
+              <Button variant="secondary" onClick={loadCheckedInList} disabled={loadingList}>
+                {loadingList ? "Loading..." : "Refresh"}
+              </Button>
+            </div>
+            {checkedInList.length === 0 ? (
+              <p className="text-center ad-text-muted text-sm py-4">
+                {loadingList ? "Loading..." : "No participants checked in yet."}
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b ad-border">
+                      <th className="text-left py-2 px-3 font-medium ad-text-muted">#</th>
+                      <th className="text-left py-2 px-3 font-medium ad-text-muted">Name</th>
+                      <th className="text-left py-2 px-3 font-medium ad-text-muted">Email</th>
+                      <th className="text-left py-2 px-3 font-medium ad-text-muted">Checked in at</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {checkedInList.map((p, i) => (
+                      <tr key={p.id} className="border-b ad-border last:border-0">
+                        <td className="py-2 px-3 ad-text-muted">{i + 1}</td>
+                        <td className="py-2 px-3 ad-text font-medium">{p.first_name} {p.last_name}</td>
+                        <td className="py-2 px-3 ad-text-secondary">{p.email}</td>
+                        <td className="py-2 px-3 ad-text-muted text-xs">{new Date(p.checked_in_at).toLocaleTimeString()}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </Card>
         </>
       )}
