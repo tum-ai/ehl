@@ -48,46 +48,23 @@ export const STORAGE_STATE = {
 // ─── Login Functions ────────────────────────────────────────
 
 /**
- * Login as a participant via the /login UI form.
- * Turnstile is bypassed in development mode (test keys auto-resolve).
+ * Login as a participant via magic link (same method as admin/jury).
  *
- * Robust against CI slowness: waits for hydration, increases timeouts,
- * and captures diagnostic info on failure.
+ * Previously this used the /login UI form, but the Turnstile execute()
+ * mode + Server Action redirect is unreliable in CI headless browsers
+ * (form submit hangs without error or navigation). Magic link bypasses
+ * all client-side complexity and is what admin/jury already use.
+ *
+ * The login form UI itself is covered by smoke tests.
  */
 export async function loginAsParticipant(
   page: Page,
   email: string,
-  password: string = TEST_PASSWORD
+  _password: string = TEST_PASSWORD
 ) {
-  await page.goto("/login");
-  await page.waitForLoadState("networkidle");
-
-  // Wait for React hydration: the submit button must be enabled and interactive
-  const submitBtn = page.locator('button[type="submit"]');
-  await submitBtn.waitFor({ state: "visible", timeout: 10000 });
-
-  await page.locator('input[name="email"]').fill(email);
-  await page.locator('input[name="password"]').fill(password);
-  await submitBtn.click();
-
-  // Wait for navigation with generous timeout (CI + Supabase can be slow)
-  try {
-    await page.waitForURL(/\/(dashboard|event)/, { timeout: 30000 });
-  } catch {
-    // Capture diagnostics before failing
-    const url = page.url();
-    const errorEl = page.locator(".text-error, .text-sm.text-error").first();
-    const hasError = await errorEl.isVisible().catch(() => false);
-    const errorText = hasError ? await errorEl.textContent() : null;
-    const btnText = await submitBtn.textContent().catch(() => "unknown");
-
-    throw new Error(
-      `Login failed for ${email}. ` +
-      `URL: ${url}, ` +
-      `Button: "${btnText}", ` +
-      `Error: ${errorText ?? "none visible"}`
-    );
-  }
+  const magicLinkUrl = await generateMagicLink(email, "/dashboard");
+  await page.goto(magicLinkUrl);
+  await page.waitForURL(/\/(dashboard|event)/, { timeout: 15000 });
 }
 
 /**
