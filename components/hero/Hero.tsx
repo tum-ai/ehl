@@ -80,7 +80,7 @@ function useMapDimensions() {
   return dimensions;
 }
 
-export function HeroSection({ applyHref }: { applyHref?: string } = {}) {
+export function HeroSection({ applyHref, applyChapterName }: { applyHref?: string; applyChapterName?: string } = {}) {
   const phase = useHeroAnimation();
   const { width, height } = useMapDimensions();
   const [cityPositions, setCityPositions] = useState<CityPosition[]>([]);
@@ -250,7 +250,7 @@ export function HeroSection({ applyHref }: { applyHref?: string } = {}) {
         >
           {applyHref ? (
             <PillButton href={applyHref} variant="glow">
-              Apply Now
+              Apply for {applyChapterName}
             </PillButton>
           ) : (
             <PillButton href="/leaderboard" variant="filled">

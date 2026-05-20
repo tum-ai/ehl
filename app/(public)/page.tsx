@@ -51,7 +51,7 @@ export default async function Home() {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <HeroSection applyHref={openChapter ? `/apply/${openChapter.slug}` : undefined} />
+      <HeroSection applyHref={openChapter ? `/apply/${openChapter.slug}` : undefined} applyChapterName={openChapter?.name} />
       <HowItWorks />
       <TourTimeline />
       <LandingPodium entries={leaderboard} />
