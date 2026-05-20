@@ -90,6 +90,7 @@ export default function ForgotPasswordPage() {
               <input
                 type="email"
                 name="email"
+                autoComplete="email"
                 required
                 placeholder="you@example.com"
                 className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"

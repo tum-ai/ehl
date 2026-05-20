@@ -116,6 +116,7 @@ export default function ResetPasswordPage() {
                 <input
                   type="password"
                   name="password"
+                  autoComplete="new-password"
                   required
                   placeholder="Min. 6 characters"
                   className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
@@ -128,6 +129,7 @@ export default function ResetPasswordPage() {
                 <input
                   type="password"
                   name="confirmPassword"
+                  autoComplete="new-password"
                   required
                   placeholder="Repeat password"
                   className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"

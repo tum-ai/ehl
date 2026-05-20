@@ -71,6 +71,7 @@ function LoginForm() {
             <input
               type="email"
               name="email"
+              autoComplete="email"
               placeholder="president@team.com"
               required
               className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
@@ -81,6 +82,7 @@ function LoginForm() {
             <input
               type="password"
               name="password"
+              autoComplete="current-password"
               placeholder="••••••••"
               required
               className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"

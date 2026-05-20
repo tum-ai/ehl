@@ -22,6 +22,7 @@ function InputField({
   placeholder,
   defaultValue,
   disabled,
+  autoComplete,
 }: {
   label: string;
   name: string;
@@ -30,6 +31,7 @@ function InputField({
   placeholder?: string;
   defaultValue?: string;
   disabled?: boolean;
+  autoComplete?: string;
 }) {
   return (
     <div>
@@ -43,6 +45,7 @@ function InputField({
         placeholder={placeholder}
         defaultValue={defaultValue}
         disabled={disabled}
+        autoComplete={autoComplete}
         className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none disabled:opacity-50"
       />
     </div>
@@ -275,7 +278,7 @@ function RegisterFlow() {
           <Card className="mb-6">
             <h2 className="text-lg font-bold">Your Details</h2>
             <div className="mt-4 space-y-4">
-              <InputField label="Full Name" name="name" required placeholder="Your full name" />
+              <InputField label="Full Name" name="name" required placeholder="Your full name" autoComplete="name" />
               <InputField
                 label="Email"
                 name="email"
@@ -283,8 +286,9 @@ function RegisterFlow() {
                 required
                 placeholder="you@example.com"
                 defaultValue={prefillEmail ?? undefined}
+                autoComplete="email"
               />
-              <InputField label="Password" name="password" type="password" required placeholder="Min. 6 characters" />
+              <InputField label="Password" name="password" type="password" required placeholder="Min. 6 characters" autoComplete="new-password" />
 
               {!inviteToken && (
                 <label className="flex items-center gap-3 rounded-lg border border-white/5 p-3">
@@ -435,9 +439,9 @@ function TeamRegistrationForm({
             As president, you manage the roster and handle registrations.
           </p>
           <div className="mt-4 space-y-4">
-            <InputField label="Name" name="presidentName" required placeholder="Your full name" />
-            <InputField label="Email" name="presidentEmail" type="email" required placeholder="you@example.com" />
-            <InputField label="Password" name="password" type="password" required placeholder="Min. 6 characters" />
+            <InputField label="Name" name="presidentName" required placeholder="Your full name" autoComplete="name" />
+            <InputField label="Email" name="presidentEmail" type="email" required placeholder="you@example.com" autoComplete="email" />
+            <InputField label="Password" name="password" type="password" required placeholder="Min. 6 characters" autoComplete="new-password" />
           </div>
         </Card>
 
