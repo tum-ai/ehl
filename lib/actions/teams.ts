@@ -106,7 +106,7 @@ export async function acceptTeamInvite(token: string) {
 
   if (existingMembership) {
     if (existingMembership.role === "president") {
-      return { error: "You are the president of a team. Transfer presidency or disband your team first." };
+      return { error: "You are the president of a team and cannot switch teams." };
     }
     await adminClient
       .from("team_members")
@@ -724,7 +724,7 @@ export async function leaveTeam() {
   }
 
   if (membership.role === "president") {
-    return { error: "Presidents cannot leave their team. Transfer presidency first or contact an admin." };
+    return { error: "Presidents cannot leave their team. Contact an admin if you need to be removed." };
   }
 
   // Check if user is locked to team via active chapter
