@@ -86,11 +86,15 @@ export async function startSoloRegistration(formData: FormData) {
     type: "solo_registration",
   });
 
-  await sendEmail({
-    to: email,
-    subject: "Your EHL verification code",
-    html,
-  });
+  try {
+    await sendEmail({
+      to: email,
+      subject: "Your EHL verification code",
+      html,
+    });
+  } catch {
+    return { error: "Failed to send verification email. Please try again in a moment." };
+  }
 
   return { verificationId: verification.id };
 }
@@ -326,11 +330,15 @@ export async function startRegistration(formData: FormData) {
     type: "registration",
   });
 
-  await sendEmail({
-    to: presidentEmail,
-    subject: "Your EHL verification code",
-    html,
-  });
+  try {
+    await sendEmail({
+      to: presidentEmail,
+      subject: "Your EHL verification code",
+      html,
+    });
+  } catch {
+    return { error: "Failed to send verification email. Please try again in a moment." };
+  }
 
   return { verificationId: verification.id };
 }
