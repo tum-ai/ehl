@@ -292,16 +292,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
     setError(null);
     setLoading(true);
 
-    // Get a fresh Turnstile token at submit time (not on page load)
-    let turnstileToken: string | null = null;
-    if (turnstileRef.current) {
-      try {
-        turnstileToken = await turnstileRef.current.execute();
-      } catch (err) {
-        console.warn("[Turnstile] Challenge failed, submitting without token:", err);
-        turnstileToken = "";
-      }
-    }
+    const turnstileToken = turnstileRef.current?.getToken() ?? "";
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
@@ -335,6 +326,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
     setLoading(false);
     if (result?.error) {
       setError(result.error);
+      turnstileRef.current?.reset();
     } else if (result?.success) {
       setSuccess(true);
     }

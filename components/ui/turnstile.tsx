@@ -3,7 +3,10 @@
 import { useEffect, useRef, useCallback, useImperativeHandle, forwardRef } from "react";
 
 export interface TurnstileRef {
-  execute: () => Promise<string>;
+  /** Returns the current token, or empty string if not yet solved */
+  getToken: () => string;
+  /** Resets the widget for a fresh challenge (call after form error) */
+  reset: () => void;
 }
 
 declare global {
@@ -15,7 +18,7 @@ declare global {
       ) => string;
       reset: (widgetId: string) => void;
       remove: (widgetId: string) => void;
-      execute: (container: HTMLElement | string) => void;
+      getResponse: (widgetId: string) => string | undefined;
     };
     onTurnstileLoad?: () => void;
   }
@@ -25,10 +28,12 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const widgetIdRef = useRef<string | null>(null);
   const scriptLoadedRef = useRef(false);
-  const resolveRef = useRef<((token: string) => void) | null>(null);
-  const rejectRef = useRef<((err: Error) => void) | null>(null);
+  const tokenRef = useRef<string>("");
 
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+
+  // Cloudflare test keys always pass - skip in test/CI environments
+  const isTestKey = siteKey?.startsWith("1x0000000000000000000");
 
   const renderWidget = useCallback(() => {
     if (!containerRef.current || !window.turnstile || !siteKey) return;
@@ -36,65 +41,34 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
 
     widgetIdRef.current = window.turnstile.render(containerRef.current, {
       sitekey: siteKey,
-      execution: "execute",
-      appearance: "execute",
       theme: "dark",
       callback: (token: string) => {
-        resolveRef.current?.(token);
-        resolveRef.current = null;
-        rejectRef.current = null;
+        tokenRef.current = token;
+      },
+      "expired-callback": () => {
+        tokenRef.current = "";
       },
       "error-callback": () => {
-        rejectRef.current?.(new Error("Turnstile challenge failed"));
-        resolveRef.current = null;
-        rejectRef.current = null;
-      },
-      "timeout-callback": () => {
-        rejectRef.current?.(new Error("Turnstile challenge timed out"));
-        resolveRef.current = null;
-        rejectRef.current = null;
+        console.warn("[Turnstile] Challenge error, token cleared");
+        tokenRef.current = "";
       },
     });
   }, [siteKey]);
 
-  // Cloudflare test keys always pass - skip real execution in test/CI environments
-  const isTestKey = siteKey?.startsWith("1x0000000000000000000");
-
   useImperativeHandle(ref, () => ({
-    execute: () => {
-      // Test keys or missing key: resolve immediately with dummy token
-      if (isTestKey || !siteKey) {
-        return Promise.resolve("test-token");
+    getToken: () => {
+      if (isTestKey || !siteKey) return "test-token";
+      // Also try getResponse as fallback
+      if (!tokenRef.current && widgetIdRef.current && window.turnstile) {
+        tokenRef.current = window.turnstile.getResponse(widgetIdRef.current) ?? "";
       }
-      return new Promise<string>((resolve, reject) => {
-        if (!window.turnstile || !widgetIdRef.current) {
-          reject(new Error("Turnstile not loaded"));
-          return;
-        }
-
-        // Timeout: if Cloudflare doesn't respond within 8s, resolve with empty string
-        // instead of blocking the form forever. Server-side verification will handle
-        // the missing/invalid token. This prevents forms from being stuck at "Sending..."
-        // when the invisible challenge fails silently (ad blockers, VPN, Cloudflare outages).
-        const timeout = setTimeout(() => {
-          console.warn("[Turnstile] Challenge timed out after 8s, submitting without token");
-          resolveRef.current = null;
-          rejectRef.current = null;
-          resolve("");
-        }, 8_000);
-
-        // Reset first to ensure a fresh challenge every time
+      return tokenRef.current;
+    },
+    reset: () => {
+      tokenRef.current = "";
+      if (widgetIdRef.current && window.turnstile) {
         window.turnstile.reset(widgetIdRef.current);
-        resolveRef.current = (token: string) => {
-          clearTimeout(timeout);
-          resolve(token);
-        };
-        rejectRef.current = (err: Error) => {
-          clearTimeout(timeout);
-          reject(err);
-        };
-        window.turnstile.execute(containerRef.current!);
-      });
+      }
     },
   }), [isTestKey, siteKey]);
 
@@ -125,7 +99,7 @@ export const Turnstile = forwardRef<TurnstileRef>(function Turnstile(_, ref) {
     };
   }, [siteKey, isTestKey, renderWidget]);
 
-  if (!siteKey) return null;
+  if (!siteKey || isTestKey) return null;
 
   return <div ref={containerRef} />;
 });

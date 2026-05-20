@@ -18,15 +18,7 @@ export default function JuryLoginPage() {
     setError(null);
     setLoading(true);
 
-    let turnstileToken: string | null = null;
-    if (turnstileRef.current) {
-      try {
-        turnstileToken = await turnstileRef.current.execute();
-      } catch (err) {
-        console.warn("[Turnstile] Challenge failed, submitting without token:", err);
-        turnstileToken = "";
-      }
-    }
+    const turnstileToken = turnstileRef.current?.getToken() ?? "";
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
@@ -34,6 +26,7 @@ export default function JuryLoginPage() {
 
     if (result?.error) {
       setError(result.error);
+      turnstileRef.current?.reset();
     } else if (result?.success) {
       setSent(true);
     }

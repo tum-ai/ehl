@@ -22,15 +22,7 @@ export default function ForgotPasswordPage() {
     setNoAccountAccepted(false);
     setLoading(true);
 
-    let turnstileToken: string | null = null;
-    if (turnstileRef.current) {
-      try {
-        turnstileToken = await turnstileRef.current.execute();
-      } catch (err) {
-        console.warn("[Turnstile] Challenge failed, submitting without token:", err);
-        turnstileToken = "";
-      }
-    }
+    const turnstileToken = turnstileRef.current?.getToken() ?? "";
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
@@ -39,6 +31,7 @@ export default function ForgotPasswordPage() {
 
     setLoading(false);
     if (result?.error) {
+      turnstileRef.current?.reset();
       if (result.error === "no_account_accepted") {
         setNoAccountAccepted(true);
         setSubmittedEmail(email);
