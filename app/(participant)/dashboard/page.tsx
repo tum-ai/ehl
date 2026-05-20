@@ -92,6 +92,20 @@ export default async function ParticipantDashboard() {
     getTeamMatchHistory(team.id),
   ]);
 
+  // Load user's applications to filter visible matches
+  const supabaseForApps = await createClient();
+  const { data: userApps } = await supabaseForApps
+    .from("applications")
+    .select("chapter_id, status")
+    .eq("email", session.profile?.email ?? "");
+
+  // Only show matches where user has applied and wasn't rejected
+  const appliedChapterIds = new Set(
+    (userApps ?? [])
+      .filter((a) => a.status !== "rejected")
+      .map((a) => a.chapter_id as string)
+  );
+
   const teamEntry = leaderboard.find((e) => e.team.id === team.id);
   const unlockedChapterIds = new Set(unlocks.map((u) => u.chapterId));
   const scoredChapterIds = new Set(publishedScores.map((s) => s.chapterId));
@@ -198,7 +212,7 @@ export default async function ParticipantDashboard() {
         </h2>
         <div className="mt-4 space-y-2">
           {chapters
-            .filter((c) => c.status !== "draft")
+            .filter((c) => c.status !== "draft" && appliedChapterIds.has(c.id))
             .map((chapter) => {
               const isUnlocked = unlockedChapterIds.has(chapter.id);
               const isCompleted = chapter.status === "completed";
@@ -260,6 +274,11 @@ export default async function ParticipantDashboard() {
                 </div>
               );
             })}
+          {chapters.filter((c) => c.status !== "draft" && appliedChapterIds.has(c.id)).length === 0 && (
+            <p className="text-sm text-text-muted py-4">
+              You haven&apos;t applied to any matches yet. Browse <Link href="/matches" className="text-gold hover:underline">upcoming matches</Link> to get started.
+            </p>
+          )}
         </div>
       </div>
 
