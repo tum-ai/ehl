@@ -77,21 +77,22 @@ export async function Navbar() {
               Login
             </Link>
           )}
-          {openChapter && (
+          {openChapter ? (
             <Link
               href={`/apply/${openChapter.slug}`}
-              className="inline-flex items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-3 py-1.5 text-xs font-bold font-hero-heading text-gold transition-all duration-200 hover:bg-gold/20 hover:shadow-[0_0_20px_rgba(232,184,75,0.15)]"
+              className="inline-flex items-center gap-2 rounded-full border border-gold/30 bg-gold/10 px-4 py-2 text-sm font-bold font-hero-heading text-gold transition-all duration-200 hover:bg-gold/20 hover:shadow-[0_0_20px_rgba(232,184,75,0.15)]"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-gold animate-pulse" />
               Apply: {openChapter.name}
             </Link>
+          ) : (
+            <Link
+              href="/register"
+              className="inline-flex items-center gap-2 rounded-full bg-ci-platinum px-5 py-2 text-sm font-bold font-hero-heading uppercase tracking-[0.05em] text-ci-dark-amethyst transition-all duration-200 hover:shadow-[0_0_20px_rgba(239,239,239,0.2)] active:scale-[0.98]"
+            >
+              Register Now
+            </Link>
           )}
-          <Link
-            href="/register"
-            className="inline-flex items-center gap-2 rounded-full bg-ci-platinum px-5 py-2 text-sm font-bold font-hero-heading uppercase tracking-[0.05em] text-ci-dark-amethyst transition-all duration-200 hover:shadow-[0_0_20px_rgba(239,239,239,0.2)] active:scale-[0.98]"
-          >
-            Register Now
-          </Link>
         </div>
 
         {/* Mobile hamburger */}
