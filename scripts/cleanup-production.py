@@ -212,24 +212,26 @@ def match_declarations_to_teams(submissions, declarations):
         captain = sub.get("Email of the Team Captain", "").strip().lower()
         team = sub.get("Team Name", "").strip()
         sub_slug = slugify(team)
+        fuzzy = sub_slug.replace("-", "")
 
-        # 1) Captain email match (captain declared AND submitted same team)
-        if captain in by_captain:
-            matches[captain] = by_captain[captain]
-            continue
-
-        # 2) Exact slug match (different captain declared vs submitted)
+        # Match by team name (slug), not captain email.
+        # Captain email is unreliable: captains switch teams between
+        # declaration and submission. Only slug-based matching is safe.
         if sub_slug in by_slug:
             matches[captain] = by_slug[sub_slug]
-            continue
-
-        # 3) Fuzzy slug match (strip hyphens)
-        fuzzy = sub_slug.replace("-", "")
-        if fuzzy in fuzzy_index:
+        elif fuzzy in fuzzy_index:
             matches[captain] = fuzzy_index[fuzzy]
-            continue
-
-        matches[captain] = None  # no declaration found
+        else:
+            # Last resort: captain match, but ONLY if the slugs are compatible
+            if captain in by_captain:
+                decl = by_captain[captain]
+                ds = decl["slug"].replace("-", "")
+                if ds == fuzzy:
+                    matches[captain] = decl
+                else:
+                    matches[captain] = None  # captain declared a different team
+            else:
+                matches[captain] = None
 
     return matches
 
