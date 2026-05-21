@@ -1,5 +1,6 @@
--- Add alphabetical tiebreaker to leaderboard view.
--- Sorting: points DESC, best_placement ASC, team_name ASC.
+-- Add alphabetical tiebreaker to leaderboard view for display order.
+-- rank() uses only points + best_placement (equal points = equal rank).
+-- team_name is added as a display tiebreaker (not part of rank calculation).
 
 CREATE OR REPLACE VIEW leaderboard AS
 SELECT
@@ -15,9 +16,9 @@ SELECT
   rank() OVER (
     ORDER BY
       coalesce(sum(s.points) FILTER (WHERE s.published), 0) DESC,
-      min(s.placement) FILTER (WHERE s.published AND s.placement IS NOT NULL) ASC NULLS LAST,
-      t.name ASC
-  ) AS rank
+      min(s.placement) FILTER (WHERE s.published AND s.placement IS NOT NULL) ASC NULLS LAST
+  ) AS rank,
+  t.name AS sort_name
 FROM teams t
 LEFT JOIN scores s ON t.id = s.team_id
 WHERE t.status = 'active'

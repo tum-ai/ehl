@@ -104,6 +104,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     .from("leaderboard")
     .select("*")
     .order("rank")
+    .order("sort_name")
     .limit(QUERY_LIMITS.leaderboard);
 
   if (!data) return [];
