@@ -179,8 +179,8 @@ export function EventHub({ chapterId, chapterName, chapterSlug }: EventHubProps)
         )}
       </Card>
 
-      {/* Team check-in status (shown when team exists but not yet registered for challenge) */}
-      {teamDone && !challengeDone && teamMembers.length > 0 && (
+      {/* Team check-in status (always visible when team exists) */}
+      {teamDone && teamMembers.length > 0 && (
         <Card className={`mb-6 ${allCheckedIn ? "border-green-500/20" : "border-yellow-500/20"}`}>
           <div className="flex items-center gap-3 mb-3">
             <div className={`flex h-8 w-8 items-center justify-center rounded-full ${allCheckedIn ? "bg-green-500/10" : "bg-yellow-500/10"}`}>
@@ -200,7 +200,7 @@ export function EventHub({ chapterId, chapterName, chapterSlug }: EventHubProps)
               </p>
               {!allCheckedIn && (
                 <p className="text-sm text-yellow-400">
-                  All members must check in before registering for a challenge.
+                  All members must check in before submitting.
                 </p>
               )}
             </div>
