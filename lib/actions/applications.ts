@@ -490,6 +490,7 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
         to: app.email as string,
         subject: `You're in! Accepted for ${chapter.name}`,
         html,
+        skipRateLimit: true,
         attachments: [
           {
             filename: "qr-code.png",
@@ -555,6 +556,7 @@ export async function sendRejectionEmails(applicationIds: string[]) {
         to: app.email as string,
         subject: `Application update: ${chapter.name}`,
         html,
+        skipRateLimit: true,
       });
       await adminClient
         .from("applications")

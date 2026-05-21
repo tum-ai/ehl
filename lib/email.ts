@@ -28,9 +28,10 @@ interface SendEmailOptions {
   subject: string;
   html: string;
   attachments?: Attachment[];
+  skipRateLimit?: boolean;
 }
 
-export async function sendEmail({ to, subject, html, attachments = [] }: SendEmailOptions) {
+export async function sendEmail({ to, subject, html, attachments = [], skipRateLimit = false }: SendEmailOptions) {
   const from = process.env.SMTP_FROM;
   if (!from) {
     console.error("SMTP_FROM env var is not set. Skipping email.");
@@ -38,12 +39,15 @@ export async function sendEmail({ to, subject, html, attachments = [] }: SendEma
   }
 
   // Per-address rate limiting (3 emails/hour/address)
+  // Skipped for admin-initiated sends (acceptance/rejection emails)
   const recipients = Array.isArray(to) ? to : [to];
-  for (const recipient of recipients) {
-    const rl = await checkRateLimit(emailLimiter, recipient.toLowerCase());
-    if (rl.limited) {
-      console.warn(`[Email] Rate limit hit for ${recipient}, skipping "${subject}"`);
-      throw new Error(`Email rate limit exceeded for ${recipient}`);
+  if (!skipRateLimit) {
+    for (const recipient of recipients) {
+      const rl = await checkRateLimit(emailLimiter, recipient.toLowerCase());
+      if (rl.limited) {
+        console.warn(`[Email] Rate limit hit for ${recipient}, skipping "${subject}"`);
+        throw new Error(`Email rate limit exceeded for ${recipient}`);
+      }
     }
   }
 
