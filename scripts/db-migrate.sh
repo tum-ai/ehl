@@ -8,7 +8,7 @@
 set -euo pipefail
 
 PROD_REF="fdoeygfcjllrzogoymsf"
-TEST_REF="ucxqfzegubessqqqbdfe"
+TEST_REF="wbplmgiykuxzfkqxczzf"
 ENV_FILE="$(dirname "$0")/../.env.supabase"
 
 if [ ! -f "$ENV_FILE" ]; then
