@@ -7,6 +7,7 @@ interface ApplicationAcceptedEmailProps {
   chapterCity: string;
   chapterDate: string;
   chapterSlug: string;
+  checkInToken: string;
 }
 
 export function ApplicationAcceptedEmail({
@@ -15,6 +16,7 @@ export function ApplicationAcceptedEmail({
   chapterCity,
   chapterDate,
   chapterSlug,
+  checkInToken,
 }: ApplicationAcceptedEmailProps) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ehl.gg";
 
@@ -60,6 +62,18 @@ export function ApplicationAcceptedEmail({
                 </td>
               </tr>
             </table>
+          </td>
+        </tr>
+        <tr>
+          <td align="center" style={{ paddingTop: 8 }}>
+            <span style={{
+              fontFamily: "'JetBrains Mono', 'Courier New', monospace",
+              fontSize: 11,
+              color: "#888888",
+              letterSpacing: "0.5px",
+            }}>
+              {checkInToken}
+            </span>
           </td>
         </tr>
       </table>

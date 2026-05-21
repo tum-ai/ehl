@@ -4,7 +4,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { checkInApplication } from "@/lib/actions/applications";
+import {
+  checkInApplication,
+  searchApplicationsForCheckIn,
+  checkInApplicationById,
+} from "@/lib/actions/applications";
 
 interface Chapter {
   id: string;
@@ -34,6 +38,10 @@ export default function AdminCheckInPage() {
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [checkedInList, setCheckedInList] = useState<Array<{ id: string; first_name: string; last_name: string; email: string; checked_in_at: string }>>([]);
   const [loadingList, setLoadingList] = useState(false);
+  const [nameQuery, setNameQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Array<{ id: string; name: string; email: string; status: string }>>([]);
+  const [searching, setSearching] = useState(false);
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scannerRef = useRef<import("html5-qrcode").Html5Qrcode | null>(null);
 
   const checkInChapters = chapters.filter((ch) => CHECK_IN_STATUSES.has(ch.status));
@@ -218,6 +226,44 @@ export default function AdminCheckInPage() {
     setManualToken("");
   }
 
+  function handleNameSearch(value: string) {
+    setNameQuery(value);
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+    if (value.trim().length < 2) {
+      setSearchResults([]);
+      return;
+    }
+    searchTimeoutRef.current = setTimeout(async () => {
+      setSearching(true);
+      const res = await searchApplicationsForCheckIn(selectedChapter, value);
+      if (!res.error) setSearchResults(res.results ?? []);
+      setSearching(false);
+    }, 300);
+  }
+
+  async function handleCheckInById(applicationId: string) {
+    if (processingRef.current || !adminUserId) return;
+    processingRef.current = true;
+    setProcessing(true);
+    setResult(null);
+
+    const res = await checkInApplicationById(applicationId, adminUserId);
+
+    if (res.success) {
+      setResult({ type: "success", message: "Checked in successfully!", name: res.name });
+      setNameQuery("");
+      setSearchResults([]);
+      loadCheckedInList();
+    } else if (res.error?.includes("Already checked in")) {
+      setResult({ type: "warning", message: res.error, name: res.name });
+    } else {
+      setResult({ type: "error", message: res.error || "Check-in failed.", name: res.name });
+    }
+
+    processingRef.current = false;
+    setProcessing(false);
+  }
+
   return (
     <div>
       <h1 className="ad-title text-2xl">QR Check-in</h1>
@@ -353,11 +399,55 @@ export default function AdminCheckInPage() {
             )}
           </Card>
 
-          {/* Manual entry */}
+          {/* Name search */}
           <Card className="mt-6">
-            <h2 className="ad-heading mb-4 text-lg">Manual Entry</h2>
+            <h2 className="ad-heading mb-4 text-lg">Search by Name</h2>
             <p className="mb-4 text-sm ad-text-muted">
-              Enter a check-in token manually (for desktop or if QR scanning fails).
+              Search for a participant by name or email to check them in manually.
+            </p>
+            <input
+              type="text"
+              value={nameQuery}
+              onChange={(e) => handleNameSearch(e.target.value)}
+              placeholder="Search name or email..."
+              className="w-full rounded-lg border ad-border ad-bg-input px-4 py-2.5 text-sm ad-text placeholder:ad-text-muted focus:outline-none"
+            />
+            {searching && (
+              <p className="mt-3 text-xs ad-text-muted">Searching...</p>
+            )}
+            {searchResults.length > 0 && (
+              <div className="mt-3 divide-y ad-border">
+                {searchResults.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                    <div>
+                      <p className="text-sm font-medium ad-text">{a.name}</p>
+                      <p className="text-xs ad-text-muted">{a.email}</p>
+                    </div>
+                    {a.status === "checked_in" ? (
+                      <Badge variant="live" light>Checked in</Badge>
+                    ) : (
+                      <Button
+                        size="sm"
+                        onClick={() => handleCheckInById(a.id)}
+                        disabled={processing}
+                      >
+                        {processing ? "..." : "Check In"}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {nameQuery.trim().length >= 2 && !searching && searchResults.length === 0 && (
+              <p className="mt-3 text-xs ad-text-muted">No accepted applications found.</p>
+            )}
+          </Card>
+
+          {/* Manual token entry */}
+          <Card className="mt-6">
+            <h2 className="ad-heading mb-4 text-lg">Manual Token Entry</h2>
+            <p className="mb-4 text-sm ad-text-muted">
+              Enter a check-in token from the acceptance email.
             </p>
             <form
               onSubmit={handleManualSubmit}

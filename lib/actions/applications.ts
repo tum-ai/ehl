@@ -483,6 +483,7 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
       chapterCity: `${chapter.city}, ${chapter.country}`,
       chapterDate: dateStr,
       chapterSlug: chapter.slug as string,
+      checkInToken: app.check_in_token as string,
     });
 
     try {
@@ -668,6 +669,102 @@ export async function checkInApplication(checkInToken: string, adminUserId: stri
     actorId: adminUserId,
     actorType: "admin",
     delta: { status: { from: "accepted", to: "checked_in" } },
+  });
+
+  return {
+    success: true,
+    name: `${application.first_name} ${application.last_name}`,
+    email: application.email as string,
+  };
+}
+
+// ─── Admin: Search applications for manual check-in ────────
+
+export async function searchApplicationsForCheckIn(
+  chapterId: string,
+  query: string
+) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const adminClient = createAdminClient();
+
+  const trimmed = query.trim();
+  if (trimmed.length < 2) return { results: [] };
+
+  // Search by name or email in accepted applications for this chapter
+  const { data } = await adminClient
+    .from("applications")
+    .select("id, first_name, last_name, email, status")
+    .eq("chapter_id", chapterId)
+    .in("status", ["accepted", "checked_in"])
+    .or(`first_name.ilike.%${trimmed}%,last_name.ilike.%${trimmed}%,email.ilike.%${trimmed}%`)
+    .order("last_name")
+    .limit(10);
+
+  return {
+    results: (data ?? []).map((a) => ({
+      id: a.id as string,
+      name: `${a.first_name} ${a.last_name}`,
+      email: a.email as string,
+      status: a.status as string,
+    })),
+  };
+}
+
+// ─── Admin: Check-in by application ID (manual fallback) ───
+
+export async function checkInApplicationById(
+  applicationId: string,
+  adminUserId: string
+) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const adminClient = createAdminClient();
+
+  const { data: application } = await adminClient
+    .from("applications")
+    .select("id, status, first_name, last_name, email")
+    .eq("id", applicationId)
+    .single();
+
+  if (!application) {
+    return { error: "Application not found." };
+  }
+
+  if (application.status === "checked_in") {
+    return {
+      error: "Already checked in.",
+      name: `${application.first_name} ${application.last_name}`,
+    };
+  }
+
+  if (application.status !== "accepted") {
+    return {
+      error: `Cannot check in. Application status: ${application.status}`,
+      name: `${application.first_name} ${application.last_name}`,
+    };
+  }
+
+  const { error } = await adminClient
+    .from("applications")
+    .update({
+      status: "checked_in",
+      checked_in_at: new Date().toISOString(),
+      checked_in_by: adminUserId,
+    })
+    .eq("id", application.id);
+
+  if (error) {
+    return { error: "Check-in failed. Please try again." };
+  }
+
+  logEvent({
+    action: "application.checked_in",
+    entityType: "application",
+    entityId: application.id as string,
+    actorId: adminUserId,
+    actorType: "admin",
+    delta: { status: { from: "accepted", to: "checked_in" }, method: "name_search" },
   });
 
   return {
