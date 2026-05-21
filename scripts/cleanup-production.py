@@ -30,6 +30,14 @@ DECL_CSV = os.path.join(INIT_DATA, "Team Declaration_Submissions_2026-05-21.csv"
 
 ADMIN_EMAILS = {"julian.sikora@tum-ai.com", "makeathon@tum-ai.com", "e2e-admin@test-ehl.com"}
 
+# Known email aliases (same person, different email addresses)
+EMAIL_ALIASES = {
+    "mohammad.elmusleh@outlook.com": "mohammadmusleh3@gmail.com",
+}
+
+# Fake/test submissions to skip entirely
+SKIP_SUBMISSIONS = {"dndndjne@ahhshd.com"}  # "jdjd" fake team
+
 # Winners: challenge_name (as in submission CSV) -> [(placement, team_name_in_csv)]
 WINNERS = {
     "Spherecast": [(1,"bussies"),(2,"Harissa"),(3,"Default Name"),(4,"ASM"),(5,"Optily")],
@@ -139,8 +147,11 @@ def load_submissions():
     with open(SUBS_CSV, encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             email = row.get("Email of the Team Captain", "").strip().lower()
+            email = EMAIL_ALIASES.get(email, email)  # resolve aliases
             team = row.get("Team Name", "").strip()
             submitted = row.get("Submitted at", "")
+            if email in SKIP_SUBMISSIONS:
+                continue
             if email and team:
                 if email not in by_captain or submitted > by_captain[email].get("Submitted at", ""):
                     by_captain[email] = row
