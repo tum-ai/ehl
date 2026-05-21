@@ -325,3 +325,84 @@ export async function getTeamMatchHistory(teamId: string): Promise<TeamMatchHist
 
   return history;
 }
+
+// ─── Admin: All Participants with Team Info ───────────────
+
+export interface ParticipantWithTeam {
+  id: string;
+  name: string | null;
+  email: string;
+  teamId: string | null;
+  teamName: string | null;
+  teamSlug: string | null;
+  teamRole: "president" | "member" | null;
+  checkedIn: boolean;
+  checkedInAt: string | null;
+}
+
+export async function getAllParticipantsWithTeams(
+  chapterId?: string
+): Promise<ParticipantWithTeam[]> {
+  const supabase = createAdminClient();
+
+  // Get all participant profiles
+  const { data: profiles } = await supabase
+    .from("profiles")
+    .select("id, email, name")
+    .eq("role", "participant")
+    .order("name")
+    .limit(QUERY_LIMITS.allTeamMembers);
+
+  if (!profiles) return [];
+
+  // Get team memberships
+  const { data: memberships } = await supabase
+    .from("team_members")
+    .select("user_id, team_id, role, teams(name, slug)")
+    .limit(QUERY_LIMITS.allTeamMembers);
+
+  const memberMap = new Map<string, { teamId: string; teamName: string; teamSlug: string; role: string }>();
+  for (const m of memberships ?? []) {
+    const team = m.teams as unknown as { name: string; slug: string } | null;
+    memberMap.set(m.user_id as string, {
+      teamId: m.team_id as string,
+      teamName: team?.name ?? "",
+      teamSlug: team?.slug ?? "",
+      role: m.role as string,
+    });
+  }
+
+  // Get check-in status for a specific chapter
+  const checkedInEmails = new Set<string>();
+  const checkedInAtMap = new Map<string, string>();
+  if (chapterId) {
+    const { data: apps } = await supabase
+      .from("applications")
+      .select("email, status, checked_in_at")
+      .eq("chapter_id", chapterId)
+      .eq("status", "checked_in")
+      .limit(QUERY_LIMITS.allTeamMembers);
+    for (const app of apps ?? []) {
+      checkedInEmails.add((app.email as string).toLowerCase());
+      if (app.checked_in_at) {
+        checkedInAtMap.set((app.email as string).toLowerCase(), app.checked_in_at as string);
+      }
+    }
+  }
+
+  return profiles.map((p) => {
+    const email = (p.email as string).toLowerCase();
+    const membership = memberMap.get(p.id as string);
+    return {
+      id: p.id as string,
+      name: (p.name as string) ?? null,
+      email,
+      teamId: membership?.teamId ?? null,
+      teamName: membership?.teamName ?? null,
+      teamSlug: membership?.teamSlug ?? null,
+      teamRole: (membership?.role as "president" | "member") ?? null,
+      checkedIn: checkedInEmails.has(email),
+      checkedInAt: checkedInAtMap.get(email) ?? null,
+    };
+  });
+}
