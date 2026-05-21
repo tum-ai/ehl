@@ -147,8 +147,12 @@ def load_submissions():
     return list(by_captain.values())
 
 def load_declarations():
-    """Load Team Declaration CSV. Returns dict: captain_email -> {team, members[{email,name}]}."""
-    by_captain = {}
+    """Load Team Declaration CSV. Returns dict with two indexes:
+    - 'by_captain': captain_email -> declaration (latest per captain)
+    - 'by_slug': team_slug -> declaration (latest per slug)
+    A captain who switched teams will have their latest team in by_captain,
+    but both teams are accessible via by_slug."""
+    all_decls = []
     with open(DECL_CSV, encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
             captain_email = row.get("Your Email (Team member 1)", "").strip().lower()
@@ -169,45 +173,60 @@ def load_declarations():
                 if email:
                     members.append({"email": email, "name": name})
 
-            if captain_email not in by_captain or submitted > by_captain[captain_email]["submitted"]:
-                by_captain[captain_email] = {
-                    "team": team_name,
-                    "slug": slugify(team_name),
-                    "captain": captain_email,
-                    "members": members,
-                    "submitted": submitted,
-                }
-    return by_captain
+            all_decls.append({
+                "team": team_name,
+                "slug": slugify(team_name),
+                "captain": captain_email,
+                "members": members,
+                "submitted": submitted,
+            })
+
+    # Index by captain (latest per captain)
+    by_captain = {}
+    for d in all_decls:
+        if d["captain"] not in by_captain or d["submitted"] > by_captain[d["captain"]]["submitted"]:
+            by_captain[d["captain"]] = d
+
+    # Index by slug (latest per slug)
+    by_slug = {}
+    for d in all_decls:
+        if d["slug"] not in by_slug or d["submitted"] > by_slug[d["slug"]]["submitted"]:
+            by_slug[d["slug"]] = d
+
+    return {"by_captain": by_captain, "by_slug": by_slug, "all": all_decls}
 
 
 def match_declarations_to_teams(submissions, declarations):
     """Match each submission to a declaration using 3-tier strategy.
     Returns dict: submission_captain_email -> declaration (or None)."""
     matches = {}
-    decl_by_slug = {}
-    for d in declarations.values():
-        decl_by_slug[d["slug"]] = d
-        decl_by_slug[d["slug"].replace("-", "")] = d
+    by_captain = declarations["by_captain"]
+    by_slug = declarations["by_slug"]
+
+    # Also build fuzzy slug index
+    fuzzy_index = {}
+    for slug, d in by_slug.items():
+        fuzzy_index[slug.replace("-", "")] = d
 
     for sub in submissions:
         captain = sub.get("Email of the Team Captain", "").strip().lower()
         team = sub.get("Team Name", "").strip()
         sub_slug = slugify(team)
 
-        # 1) Captain email match
-        if captain in declarations:
-            matches[captain] = declarations[captain]
+        # 1) Captain email match (captain declared AND submitted same team)
+        if captain in by_captain:
+            matches[captain] = by_captain[captain]
             continue
 
-        # 2) Exact slug match
-        if sub_slug in decl_by_slug:
-            matches[captain] = decl_by_slug[sub_slug]
+        # 2) Exact slug match (different captain declared vs submitted)
+        if sub_slug in by_slug:
+            matches[captain] = by_slug[sub_slug]
             continue
 
         # 3) Fuzzy slug match (strip hyphens)
         fuzzy = sub_slug.replace("-", "")
-        if fuzzy in decl_by_slug:
-            matches[captain] = decl_by_slug[fuzzy]
+        if fuzzy in fuzzy_index:
+            matches[captain] = fuzzy_index[fuzzy]
             continue
 
         matches[captain] = None  # no declaration found
@@ -366,7 +385,7 @@ def main():
     print(f"  Checked-in guests: {len(guests)}")
     print(f"  Tally applications: {len(tally)}")
     print(f"  Final submissions (deduped): {len(submissions)}")
-    print(f"  Team declarations (deduped): {len(declarations)}")
+    print(f"  Team declarations: {len(declarations['all'])} total, {len(declarations['by_captain'])} unique captains")
 
     # ═══════════════════════════════════════════════════════
     # COMPUTE IMPORT PLAN (all in Python, no API calls)
@@ -433,7 +452,7 @@ def main():
     for sub in submissions:
         email = sub.get("Email of the Team Captain", "").strip().lower()
         if email: all_emails.add(email)
-    for decl in declarations.values():
+    for decl in declarations["all"]:
         for m in decl["members"]:
             if m["email"]: all_emails.add(m["email"])
 
@@ -449,7 +468,7 @@ def main():
     email_to_name = {}
     # Build declaration name lookup
     decl_names = {}
-    for decl in declarations.values():
+    for decl in declarations["all"]:
         for m in decl["members"]:
             if m["email"] and m["name"]:
                 decl_names[m["email"]] = m["name"]
@@ -509,8 +528,9 @@ def main():
                 if not m["email"]:
                     continue
                 # Check multi-team resolution: does this member belong to THIS team?
+                # member_final_team maps email -> submission_captain_email of their final team
                 final = member_final_team.get(m["email"])
-                if final is not None and final != decl["captain"]:
+                if final is not None and final != captain_email:
                     continue  # member was reassigned to a different team
                 user_uuid = email_to_uuid.get(m["email"])
                 if not user_uuid:
