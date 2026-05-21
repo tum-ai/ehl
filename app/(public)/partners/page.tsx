@@ -105,7 +105,7 @@ export default async function PartnersPage() {
               </ul>
 
               <a
-                href={`mailto:${process.env.NEXT_PUBLIC_CONTACT_EMAIL || "contact@ehl.gg"}?subject=EHL Partnership: ${tier.name}`}
+                href={`mailto:partners@tum-ai.com?subject=EHL Partnership: ${tier.name}`}
                 className={cn(
                   "mt-8 block w-full rounded-full py-3 text-center font-hero-heading text-sm font-bold transition-all duration-200",
                   tier.highlight
