@@ -459,6 +459,7 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
   }
 
   let sent = 0;
+  const failed: string[] = [];
   for (const app of applications) {
     // Skip if already emailed
     if (app.acceptance_email_sent_at) continue;
@@ -505,9 +506,13 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
       sent++;
     } catch (err) {
       console.error(`Failed to send acceptance email to ${app.email}:`, err);
+      failed.push(app.email as string);
     }
   }
 
+  if (failed.length > 0) {
+    return { success: true, sent, error: `Failed to send to: ${failed.join(", ")}` };
+  }
   return { success: true, sent };
 }
 
