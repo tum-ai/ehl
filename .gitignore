@@ -1,5 +1,9 @@
 # Dependencies
 /node_modules
+
+# Init data (production import CSVs, never commit)
+/init-data
+__pycache__
 /.pnp
 .pnp.*
 .yarn/*
