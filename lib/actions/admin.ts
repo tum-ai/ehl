@@ -693,6 +693,69 @@ export async function deleteTeam(teamId: string) {
   return { success: true };
 }
 
+// ─── Delete Participant ──────────────────────────────────────
+
+export async function deleteParticipant(userId: string) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const adminClient = createAdminClient();
+
+  // Fetch profile for audit trail
+  const { data: profile } = await adminClient
+    .from("profiles")
+    .select("email, name")
+    .eq("id", userId)
+    .single();
+
+  if (!profile) return { error: "Participant not found." };
+
+  // Block deletion of admin accounts
+  const { data: adminCheck } = await adminClient
+    .from("admin_emails")
+    .select("email")
+    .eq("email", profile.email as string)
+    .single();
+  if (adminCheck) return { error: "Cannot delete admin accounts." };
+
+  // FK-safe deletion order
+  await adminClient.from("screening_scores").delete().eq("application_id", userId);
+  await adminClient.from("team_invites").delete().eq("invited_email", profile.email as string);
+  await adminClient.from("team_join_requests").delete().eq("user_id", userId);
+  await adminClient.from("verification_codes").delete().eq("email", profile.email as string);
+  await adminClient.from("participant_flags").delete().eq("profile_id", userId);
+  await adminClient.from("applications").delete().eq("email", profile.email as string);
+
+  // Remove from team (update president if needed)
+  const { data: membership } = await adminClient
+    .from("team_members")
+    .select("team_id, role")
+    .eq("user_id", userId);
+
+  for (const m of membership ?? []) {
+    if (m.role === "president") {
+      await adminClient.from("teams").update({ president_user_id: null }).eq("id", m.team_id as string);
+    }
+  }
+  await adminClient.from("team_members").delete().eq("user_id", userId);
+
+  // Delete profile and auth user
+  await adminClient.from("profiles").delete().eq("id", userId);
+  await adminClient.auth.admin.deleteUser(userId);
+
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "participant.deleted",
+    entityType: "profile",
+    entityId: userId,
+    actorId,
+    actorType: "admin",
+    delta: { deleted: { email: profile.email, name: profile.name } },
+  });
+
+  revalidatePath("/admin/teams");
+  return { success: true };
+}
+
 // ─── Score Publishing ──────────────────────────────────────
 
 export async function publishScores(chapterId: string) {

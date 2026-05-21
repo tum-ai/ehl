@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 import { LimitBanner } from "@/components/admin/limit-banner";
 import { DeleteTeamButton } from "./delete-team-button";
+import { DeleteParticipantButton } from "./delete-participant-button";
 import { RemoveMemberButton } from "./remove-member-button";
 import type { Team, TeamMember, Profile, Chapter } from "@/lib/types";
 import type { ParticipantWithTeam } from "@/lib/queries/teams";
@@ -260,6 +261,7 @@ function ParticipantsTable({
               <th className="px-6 py-4">Team</th>
               <th className="px-6 py-4">Role</th>
               {activeChapter && <th className="px-6 py-4 text-center">Check-In</th>}
+              <th className="px-6 py-4 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -314,6 +316,13 @@ function ParticipantsTable({
                     )}
                   </td>
                 )}
+                <td className="px-6 py-4 text-right">
+                  <DeleteParticipantButton
+                    userId={p.id}
+                    name={p.name || ""}
+                    email={p.email}
+                  />
+                </td>
               </tr>
             ))}
           </tbody>
