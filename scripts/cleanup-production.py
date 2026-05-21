@@ -26,6 +26,7 @@ INIT_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "init
 GUESTS_CSV = os.path.join(INIT_DATA, "TUM.ai Makeathon 2026 - Guests - 2026-05-21-09-45-58.csv")
 TALLY_CSV = os.path.join(INIT_DATA, "Application for TUM.ai Makeathon 2026_Submissions_2026-05-21.csv")
 SUBS_CSV = os.path.join(INIT_DATA, "Final Submission_ Makeathon 2026_Submissions_2026-05-21.csv")
+DECL_CSV = os.path.join(INIT_DATA, "Team Declaration_Submissions_2026-05-21.csv")
 
 ADMIN_EMAILS = {"julian.sikora@tum-ai.com", "makeathon@tum-ai.com", "e2e-admin@test-ehl.com"}
 
@@ -144,6 +145,99 @@ def load_submissions():
                 if email not in by_captain or submitted > by_captain[email].get("Submitted at", ""):
                     by_captain[email] = row
     return list(by_captain.values())
+
+def load_declarations():
+    """Load Team Declaration CSV. Returns dict: captain_email -> {team, members[{email,name}]}."""
+    by_captain = {}
+    with open(DECL_CSV, encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            captain_email = row.get("Your Email (Team member 1)", "").strip().lower()
+            team_name = row.get("Name of your Team", "").strip()
+            submitted = row.get("Submitted at", "")
+            if not captain_email or not team_name:
+                continue
+
+            members = [{"email": captain_email, "name": row.get("Your Name (First and Last)", "").strip()}]
+            for name_col, email_col in [
+                ("Name (First and Last)", "Email Team Member 2"),
+                ("Name (First and Last) (2)", "Email Team member 3"),
+                ("Name (First and Last) (3)", "Email Team member 4"),
+                ("Name (First and Last) (4)", "Email Team member 5"),
+            ]:
+                email = row.get(email_col, "").strip().lower()
+                name = row.get(name_col, "").strip()
+                if email:
+                    members.append({"email": email, "name": name})
+
+            if captain_email not in by_captain or submitted > by_captain[captain_email]["submitted"]:
+                by_captain[captain_email] = {
+                    "team": team_name,
+                    "slug": slugify(team_name),
+                    "captain": captain_email,
+                    "members": members,
+                    "submitted": submitted,
+                }
+    return by_captain
+
+
+def match_declarations_to_teams(submissions, declarations):
+    """Match each submission to a declaration using 3-tier strategy.
+    Returns dict: submission_captain_email -> declaration (or None)."""
+    matches = {}
+    decl_by_slug = {}
+    for d in declarations.values():
+        decl_by_slug[d["slug"]] = d
+        decl_by_slug[d["slug"].replace("-", "")] = d
+
+    for sub in submissions:
+        captain = sub.get("Email of the Team Captain", "").strip().lower()
+        team = sub.get("Team Name", "").strip()
+        sub_slug = slugify(team)
+
+        # 1) Captain email match
+        if captain in declarations:
+            matches[captain] = declarations[captain]
+            continue
+
+        # 2) Exact slug match
+        if sub_slug in decl_by_slug:
+            matches[captain] = decl_by_slug[sub_slug]
+            continue
+
+        # 3) Fuzzy slug match (strip hyphens)
+        fuzzy = sub_slug.replace("-", "")
+        if fuzzy in decl_by_slug:
+            matches[captain] = decl_by_slug[fuzzy]
+            continue
+
+        matches[captain] = None  # no declaration found
+
+    return matches
+
+
+def resolve_multi_team_members(teams_with_members):
+    """Resolve members who appear in multiple teams. Latest declaration wins.
+    Returns dict: team_key -> list of member emails (deduplicated)."""
+    # Build: email -> [(team_key, submitted_at)]
+    member_teams = {}
+    for key, info in teams_with_members.items():
+        for m in info["members"]:
+            if m["email"] not in member_teams:
+                member_teams[m["email"]] = []
+            member_teams[m["email"]].append((key, info["submitted"]))
+
+    # For multi-team members, keep only latest
+    member_final_team = {}
+    for email, teams in member_teams.items():
+        if len(teams) == 1:
+            member_final_team[email] = teams[0][0]
+        else:
+            # Latest submitted wins
+            latest = max(teams, key=lambda x: x[1])
+            member_final_team[email] = latest[0]
+
+    return member_final_team
+
 
 def build_form_data(tally_row):
     def get(col): return (tally_row.get(col) or "").strip()
@@ -267,10 +361,12 @@ def main():
     guests = load_guests()
     tally = load_tally()
     submissions = load_submissions()
+    declarations = load_declarations()
 
     print(f"  Checked-in guests: {len(guests)}")
     print(f"  Tally applications: {len(tally)}")
     print(f"  Final submissions (deduped): {len(submissions)}")
+    print(f"  Team declarations (deduped): {len(declarations)}")
 
     # ═══════════════════════════════════════════════════════
     # COMPUTE IMPORT PLAN (all in Python, no API calls)
@@ -278,11 +374,69 @@ def main():
 
     print("\n=== Computing import plan ===")
 
-    # --- Users ---
+    # --- Match declarations to submissions ---
+    decl_matches = match_declarations_to_teams(submissions, declarations)
+    matched_count = sum(1 for v in decl_matches.values() if v is not None)
+    print(f"  Declarations matched to submissions: {matched_count}/{len(submissions)}")
+
+    # --- ASAP fix: if 2 captains submitted same team name, keep the one with declaration ---
+    sub_by_slug = {}
+    for sub in submissions:
+        team_name = sub.get("Team Name", "").strip()
+        slug = slugify(team_name)
+        captain = sub.get("Email of the Team Captain", "").strip().lower()
+        if slug not in sub_by_slug:
+            sub_by_slug[slug] = []
+        sub_by_slug[slug].append((captain, sub))
+
+    filtered_submissions = []
+    for slug, entries in sub_by_slug.items():
+        if len(entries) == 1:
+            filtered_submissions.append(entries[0][1])
+        else:
+            # Multiple captains, same team name slug -> keep the one with a declaration
+            with_decl = [(c, s) for c, s in entries if decl_matches.get(c) is not None]
+            if with_decl:
+                filtered_submissions.append(with_decl[0][1])
+                skipped = [c for c, s in entries if decl_matches.get(c) is None]
+                if skipped:
+                    print(f"  ASAP fix: kept {with_decl[0][0]} for '{slug}', skipped {skipped}")
+            else:
+                # No declaration for any -> keep first
+                filtered_submissions.append(entries[0][1])
+    submissions = filtered_submissions
+    # Refresh decl_matches after filtering
+    decl_matches = match_declarations_to_teams(submissions, declarations)
+    print(f"  Submissions after ASAP dedup: {len(submissions)}")
+
+    # --- Resolve multi-team members ---
+    teams_with_members = {}
+    for sub in submissions:
+        captain = sub.get("Email of the Team Captain", "").strip().lower()
+        decl = decl_matches.get(captain)
+        if decl:
+            teams_with_members[captain] = decl
+
+    member_final_team = resolve_multi_team_members(teams_with_members)
+    multi_count = sum(1 for email, teams in {} .items())  # counted in resolve function
+    # Count how many were reassigned
+    reassigned = 0
+    for email, final_team_key in member_final_team.items():
+        appearances = sum(1 for d in teams_with_members.values() if any(m["email"] == email for m in d["members"]))
+        if appearances > 1:
+            reassigned += 1
+    if reassigned:
+        print(f"  Multi-team members resolved: {reassigned} people assigned to latest team")
+
+    # --- Collect all emails needed (guests + captains + declaration members) ---
     all_emails = set(guests.keys())
     for sub in submissions:
         email = sub.get("Email of the Team Captain", "").strip().lower()
         if email: all_emails.add(email)
+    for decl in declarations.values():
+        for m in decl["members"]:
+            if m["email"]: all_emails.add(m["email"])
+
     # Remove admins (they already exist)
     import_emails = all_emails - {e.lower() for e in ADMIN_EMAILS}
 
@@ -291,8 +445,15 @@ def main():
     for email in sorted(import_emails):
         email_to_uuid[email] = str(uuid.uuid4())
 
-    # Get name for each user (prefer Tally, fallback to Luma)
+    # Get name for each user (prefer Tally, fallback to Luma, fallback to Declaration)
     email_to_name = {}
+    # Build declaration name lookup
+    decl_names = {}
+    for decl in declarations.values():
+        for m in decl["members"]:
+            if m["email"] and m["name"]:
+                decl_names[m["email"]] = m["name"]
+
     for email in import_emails:
         t = tally.get(email)
         g = guests.get(email)
@@ -302,16 +463,19 @@ def main():
             name = f"{first} {last}".strip()
         elif g:
             name = f"{g['first_name']} {g['last_name']}".strip()
+        elif email in decl_names:
+            name = decl_names[email]
         else:
             name = email.split("@")[0]
         email_to_name[email] = name or email.split("@")[0]
 
     print(f"  Users to import: {len(import_emails)}")
 
-    # --- Teams ---
+    # --- Teams + Members ---
     teams = []
     used_slugs = set()
     team_name_to_uuid = {}
+    team_member_rows = []  # (team_uuid, user_uuid, role)
 
     for sub in submissions:
         team_name = sub.get("Team Name", "").strip()
@@ -328,16 +492,40 @@ def main():
         team_uuid = str(uuid.uuid4())
         captain_uuid = email_to_uuid.get(captain_email)
         if not captain_uuid:
-            # Admin might be captain
             continue
 
         team_name_to_uuid[team_name.lower()] = team_uuid
         teams.append({
             "id": team_uuid, "name": team_name, "slug": slug,
             "captain_uuid": captain_uuid, "challenge": challenge,
+            "captain_email": captain_email,
         })
 
+        # Build member list from declaration
+        decl = decl_matches.get(captain_email)
+        added_emails = set()
+        if decl:
+            for m in decl["members"]:
+                if not m["email"]:
+                    continue
+                # Check multi-team resolution: does this member belong to THIS team?
+                final = member_final_team.get(m["email"])
+                if final is not None and final != decl["captain"]:
+                    continue  # member was reassigned to a different team
+                user_uuid = email_to_uuid.get(m["email"])
+                if not user_uuid:
+                    continue
+                role = "president" if m["email"] == captain_email else "member"
+                if m["email"] not in added_emails:
+                    team_member_rows.append((team_uuid, user_uuid, role))
+                    added_emails.add(m["email"])
+
+        # Ensure captain is always in the team (even if not in declaration)
+        if captain_email not in added_emails:
+            team_member_rows.append((team_uuid, captain_uuid, "president"))
+
     print(f"  Teams to import: {len(teams)}")
+    print(f"  Team members to import: {len(team_member_rows)}")
 
     # --- Winner matching ---
     winner_scores = []
@@ -356,7 +544,6 @@ def main():
             })
             winner_team_ids.add(team_uuid)
 
-    # Participation scores
     participation_scores = []
     for t in teams:
         if t["id"] not in winner_team_ids:
@@ -385,7 +572,7 @@ SUMMARY
   NUKE: Delete all test data, all challenges (cleanup duplicates)
   IMPORT:
     {len(import_emails)} auth.users + profiles (batch SQL, 1 request)
-    {len(teams)} teams + members + registrations (batch SQL, 1 request)
+    {len(teams)} teams + {len(team_member_rows)} members + registrations (batch SQL, 1 request)
     {app_count} applications (batch SQL, 1-2 requests)
     {len(winner_scores)} winner + {len(participation_scores)} participation scores (1 request)
   FINALIZE: Munich=completed, others=announced, re-enable trigger
@@ -508,7 +695,7 @@ SUMMARY
         print("profiles batch failed! Aborting."); return
 
     # --- Call 5: teams + members + registrations ---
-    print(f"\n[5/8] Batch creating {len(teams)} teams + members + registrations...")
+    print(f"\n[5/8] Batch creating {len(teams)} teams + {len(team_member_rows)} members + registrations...")
 
     team_values = []
     member_values = []
@@ -518,12 +705,12 @@ SUMMARY
         team_values.append(
             f"('{t['id']}', '{esc(t['name'])}', '{esc(t['slug'])}', '{t['captain_uuid']}', 'active')"
         )
-        member_values.append(
-            f"('{t['id']}', '{t['captain_uuid']}', 'president')"
-        )
         ch_id = challenge_map.get(t["challenge"])
         if ch_id:
             reg_values.append(f"('{munich_id}', '{t['id']}', '{ch_id}')")
+
+    for team_uuid, user_uuid, role in team_member_rows:
+        member_values.append(f"('{team_uuid}', '{user_uuid}', '{role}')")
 
     teams_sql = f"""
     BEGIN;
