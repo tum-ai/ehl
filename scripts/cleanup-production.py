@@ -214,24 +214,17 @@ def match_declarations_to_teams(submissions, declarations):
         sub_slug = slugify(team)
         fuzzy = sub_slug.replace("-", "")
 
-        # Match by team name (slug), not captain email.
-        # Captain email is unreliable: captains switch teams between
-        # declaration and submission. Only slug-based matching is safe.
+        # 1) Slug match (most reliable - same team name)
         if sub_slug in by_slug:
             matches[captain] = by_slug[sub_slug]
         elif fuzzy in fuzzy_index:
             matches[captain] = fuzzy_index[fuzzy]
+        # 2) Captain match (team was renamed between declaration and submission,
+        #    but same captain = same team members)
+        elif captain in by_captain:
+            matches[captain] = by_captain[captain]
         else:
-            # Last resort: captain match, but ONLY if the slugs are compatible
-            if captain in by_captain:
-                decl = by_captain[captain]
-                ds = decl["slug"].replace("-", "")
-                if ds == fuzzy:
-                    matches[captain] = decl
-                else:
-                    matches[captain] = None  # captain declared a different team
-            else:
-                matches[captain] = None
+            matches[captain] = None
 
     return matches
 
