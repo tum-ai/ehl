@@ -102,7 +102,7 @@ export default function AdminApplicationsPage({
 
   const loadData = useCallback(async (id: string) => {
     const [appsRes, statsRes, chapterRes] = await Promise.all([
-      fetch(`/api/admin/chapters/${id}/applications?screening=true`).then((r) => r.json()),
+      fetch(`/api/admin/chapters/${id}/applications?preparation=true`).then((r) => r.json()),
       fetch(`/api/admin/chapters/${id}/applications/stats`).then((r) => r.json()),
       fetch(`/api/admin/chapters/${id}/details`).then((r) => r.json()).catch(() => null),
     ]);
