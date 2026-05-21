@@ -718,8 +718,7 @@ export async function deleteParticipant(userId: string) {
   if (adminCheck) return { error: "Cannot delete admin accounts." };
 
   // FK-safe deletion order
-  await adminClient.from("screening_scores").delete().eq("application_id", userId);
-  await adminClient.from("team_invites").delete().eq("invited_email", profile.email as string);
+  await adminClient.from("team_invites").delete().eq("email", profile.email as string);
   await adminClient.from("team_join_requests").delete().eq("user_id", userId);
   await adminClient.from("verification_codes").delete().eq("email", profile.email as string);
   await adminClient.from("participant_flags").delete().eq("profile_id", userId);
