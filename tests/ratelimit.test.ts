@@ -29,8 +29,8 @@ describe("checkMemoryLimit", () => {
   });
 
   it("uses default limits when not specified", () => {
-    // Default: 5 requests, 60s window
-    for (let i = 0; i < 5; i++) {
+    // Default: 10 requests, 60s window
+    for (let i = 0; i < 10; i++) {
       expect(checkMemoryLimit("default:1")).toBe(true);
     }
     expect(checkMemoryLimit("default:1")).toBe(false);
@@ -48,24 +48,24 @@ describe("checkMemoryLimit", () => {
     expect(checkMemoryLimit("window:1", 1, 1)).toBe(true);
   });
 
-  it("enforces strict auth limits (5 per 60s)", () => {
-    const authLimit = 5;
+  it("enforces auth limits (60 per 60s for hackathon shared WiFi)", () => {
+    const authLimit = 60;
     for (let i = 0; i < authLimit; i++) {
       expect(checkMemoryLimit("auth:ip1", authLimit, 60_000)).toBe(true);
     }
     expect(checkMemoryLimit("auth:ip1", authLimit, 60_000)).toBe(false);
   });
 
-  it("enforces strict register limits (3 per 60s)", () => {
-    const registerLimit = 3;
+  it("enforces register limits (60 per 60s for hackathon shared WiFi)", () => {
+    const registerLimit = 60;
     for (let i = 0; i < registerLimit; i++) {
       expect(checkMemoryLimit("register:ip1", registerLimit, 60_000)).toBe(true);
     }
     expect(checkMemoryLimit("register:ip1", registerLimit, 60_000)).toBe(false);
   });
 
-  it("allows generous API limits (100 per 60s)", () => {
-    const apiLimit = 100;
+  it("allows generous API limits (200 per 60s)", () => {
+    const apiLimit = 200;
     for (let i = 0; i < apiLimit; i++) {
       expect(checkMemoryLimit("api:ip1", apiLimit, 60_000)).toBe(true);
     }

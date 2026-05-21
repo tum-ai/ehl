@@ -13,45 +13,48 @@ function createRedis() {
 
 const redis = createRedis();
 
-// Auth endpoints: 5 requests per 60 seconds
+// ─── Rate Limiters ──────────────────────────────────────
+// Limits are generous: 500+ participants share one WiFi at hackathon events.
+// Turnstile CAPTCHA is the primary bot defense; IP limits are a safety net.
+
+// Auth endpoints: 60 requests per 60 seconds per IP
 export const authLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(5, "60 s"), prefix: "rl:auth" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(60, "60 s"), prefix: "rl:auth" })
   : null;
 
-// Registration: 3 requests per 60 seconds
+// Registration: 60 requests per 60 seconds per IP
 export const registerLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(3, "60 s"), prefix: "rl:register" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(60, "60 s"), prefix: "rl:register" })
   : null;
 
-// Password reset: 3 requests per 60 seconds
+// Password reset: 60 requests per 60 seconds per IP
 export const resetLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(3, "60 s"), prefix: "rl:reset" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(60, "60 s"), prefix: "rl:reset" })
   : null;
 
-// Application submit: 3 requests per 60 seconds
+// Application submit: 60 requests per 60 seconds per IP
 export const applicationLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(3, "60 s"), prefix: "rl:apply" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(60, "60 s"), prefix: "rl:apply" })
   : null;
 
-// File upload: 10 requests per hour
+// File upload: 50 requests per hour per user
 export const uploadLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(10, "3600 s"), prefix: "rl:upload" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(50, "3600 s"), prefix: "rl:upload" })
   : null;
 
 // General API: 1000 requests per 60 seconds per IP
-// (generous: 500+ participants share one WiFi at events)
 export const apiLimiter = redis
   ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(1000, "60 s"), prefix: "rl:api" })
   : null;
 
-// Certificate PDF generation: 10 per 60 seconds per IP (CPU-intensive)
+// Certificate PDF generation: 30 per 60 seconds per IP (CPU-intensive)
 export const certLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(10, "60 s"), prefix: "rl:cert" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(30, "60 s"), prefix: "rl:cert" })
   : null;
 
-// Email sending: 3 per hour per address
+// Email sending: 10 per hour per address
 export const emailLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(3, "3600 s"), prefix: "rl:email" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(10, "3600 s"), prefix: "rl:email" })
   : null;
 
 // Client error reports: 10 per 60 seconds per IP
@@ -69,17 +72,17 @@ interface MemoryFallbackConfig {
   windowMs: number;
 }
 
-const DEFAULT_FALLBACK: MemoryFallbackConfig = { limit: 5, windowMs: 60_000 };
+const DEFAULT_FALLBACK: MemoryFallbackConfig = { limit: 10, windowMs: 60_000 };
 
 const memoryFallbackConfig = new Map<Ratelimit | null, MemoryFallbackConfig>();
-if (authLimiter) memoryFallbackConfig.set(authLimiter, { limit: 5, windowMs: 60_000 });
-if (registerLimiter) memoryFallbackConfig.set(registerLimiter, { limit: 3, windowMs: 60_000 });
-if (resetLimiter) memoryFallbackConfig.set(resetLimiter, { limit: 3, windowMs: 60_000 });
-if (applicationLimiter) memoryFallbackConfig.set(applicationLimiter, { limit: 3, windowMs: 60_000 });
-if (uploadLimiter) memoryFallbackConfig.set(uploadLimiter, { limit: 2, windowMs: 60_000 });
-if (apiLimiter) memoryFallbackConfig.set(apiLimiter, { limit: 100, windowMs: 60_000 });
-if (certLimiter) memoryFallbackConfig.set(certLimiter, { limit: 10, windowMs: 60_000 });
-if (emailLimiter) memoryFallbackConfig.set(emailLimiter, { limit: 1, windowMs: 60_000 });
+if (authLimiter) memoryFallbackConfig.set(authLimiter, { limit: 60, windowMs: 60_000 });
+if (registerLimiter) memoryFallbackConfig.set(registerLimiter, { limit: 60, windowMs: 60_000 });
+if (resetLimiter) memoryFallbackConfig.set(resetLimiter, { limit: 60, windowMs: 60_000 });
+if (applicationLimiter) memoryFallbackConfig.set(applicationLimiter, { limit: 60, windowMs: 60_000 });
+if (uploadLimiter) memoryFallbackConfig.set(uploadLimiter, { limit: 10, windowMs: 60_000 });
+if (apiLimiter) memoryFallbackConfig.set(apiLimiter, { limit: 200, windowMs: 60_000 });
+if (certLimiter) memoryFallbackConfig.set(certLimiter, { limit: 30, windowMs: 60_000 });
+if (emailLimiter) memoryFallbackConfig.set(emailLimiter, { limit: 5, windowMs: 60_000 });
 if (errorReportLimiter) memoryFallbackConfig.set(errorReportLimiter, { limit: 10, windowMs: 60_000 });
 
 // ─── In-memory fallback when Redis is unavailable ─────────
@@ -129,18 +132,22 @@ export function _resetMemoryStore() {
   memoryStore.clear();
 }
 
-// Helper to check rate limit and return error if exceeded
+// Helper to check rate limit and return contextual error if exceeded
 export async function checkRateLimit(
   limiter: Ratelimit | null,
-  identifier: string
+  identifier: string,
+  context?: string
 ): Promise<{ limited: boolean; error?: string }> {
   const config = memoryFallbackConfig.get(limiter) ?? DEFAULT_FALLBACK;
+  const errorMsg = context
+    ? `Too many ${context} requests. Please wait a minute and try again.`
+    : "Too many requests. Please try again later.";
 
   if (!limiter) {
     // No Redis available: use in-memory fallback with per-limiter limits
     console.warn(`[rate-limit] Redis unavailable, using in-memory fallback for: ${identifier}`);
     if (!checkMemoryLimit(identifier, config.limit, config.windowMs)) {
-      return { limited: true, error: "Too many requests. Please try again later." };
+      return { limited: true, error: errorMsg };
     }
     return { limited: false };
   }
@@ -148,7 +155,7 @@ export async function checkRateLimit(
   try {
     const { success } = await limiter.limit(identifier);
     if (!success) {
-      return { limited: true, error: "Too many requests. Please try again later." };
+      return { limited: true, error: errorMsg };
     }
     return { limited: false };
   } catch (err) {
@@ -156,7 +163,7 @@ export async function checkRateLimit(
     console.error("[rate-limit] Redis error, falling back to in-memory:", err);
     console.warn(`[rate-limit] Fallback active for: ${identifier} (limit: ${config.limit}/${config.windowMs}ms)`);
     if (!checkMemoryLimit(identifier, config.limit, config.windowMs)) {
-      return { limited: true, error: "Too many requests. Please try again later." };
+      return { limited: true, error: errorMsg };
     }
     return { limited: false };
   }

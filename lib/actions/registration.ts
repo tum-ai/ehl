@@ -46,7 +46,7 @@ export async function startSoloRegistration(formData: FormData) {
   // Rate limiting
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  const rl = await checkRateLimit(registerLimiter, ip);
+  const rl = await checkRateLimit(registerLimiter, ip, "registration");
   if (rl.limited) return { error: rl.error! };
 
   const adminClient = createAdminClient();
@@ -277,7 +277,7 @@ export async function startRegistration(formData: FormData) {
   // Rate limiting
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  const rl = await checkRateLimit(registerLimiter, ip);
+  const rl = await checkRateLimit(registerLimiter, ip, "registration");
   if (rl.limited) return { error: rl.error! };
 
   const adminClient = createAdminClient();

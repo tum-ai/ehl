@@ -40,7 +40,7 @@ export async function submitApplication(formData: FormData) {
   // Rate limiting
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  const rl = await checkRateLimit(applicationLimiter, ip);
+  const rl = await checkRateLimit(applicationLimiter, ip, "application");
   if (rl.limited) return { error: rl.error! };
 
   const adminClient = createAdminClient();

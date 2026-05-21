@@ -29,7 +29,7 @@ export async function signIn(formData: FormData, redirectTo?: string) {
   // Rate limiting
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  const rl = await checkRateLimit(authLimiter, ip);
+  const rl = await checkRateLimit(authLimiter, ip, "login");
   if (rl.limited) return { error: rl.error! };
 
   // Block admin and jury accounts from email/password login
@@ -145,7 +145,7 @@ export async function signInJury(formData: FormData) {
   // Rate limiting
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  const rl = await checkRateLimit(authLimiter, ip);
+  const rl = await checkRateLimit(authLimiter, ip, "login");
   if (rl.limited) return { error: rl.error! };
 
   const siteUrl = getSiteUrl();
@@ -217,7 +217,7 @@ export async function requestPasswordReset(formData: FormData) {
   // Rate limiting
   const h = await headers();
   const ip = h.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  const rl = await checkRateLimit(resetLimiter, ip);
+  const rl = await checkRateLimit(resetLimiter, ip, "password reset");
   if (rl.limited) return { error: rl.error! };
 
   const adminClient = createAdminClient();
@@ -294,11 +294,17 @@ export async function requestPasswordReset(formData: FormData) {
 
   const html = await renderPasswordResetEmail({ name, resetUrl });
 
-  await sendEmail({
-    to: email,
-    subject: "Reset your EHL password",
-    html,
-  }).catch((err) => console.error("Failed to send password reset email:", err));
+  try {
+    await sendEmail({
+      to: email,
+      subject: "Reset your EHL password",
+      html,
+      skipRateLimit: true,
+    });
+  } catch (err) {
+    console.error("Failed to send password reset email:", err);
+    return { error: "Failed to send reset email. Please try again in a moment." };
+  }
 
   return { success: true };
 }
