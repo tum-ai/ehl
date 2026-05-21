@@ -65,20 +65,33 @@ export default async function ChapterDetailPage({ params }: PageProps) {
   let teamId: string | null = null;
   let registeredChallengeId: string | null = null;
   let submission = null;
-  let isUnlocked = false;
+  let checkinInfo: { total: number; checkedIn: number; allCheckedIn: boolean; members: { name: string; checkedIn: boolean }[] } | null = null;
   let userRole: "president" | "member" | null = null;
 
   if (session) {
     // Find user's team (president or member)
-    const { getTeamForUser, getChapterUnlocks } = await import("@/lib/queries");
+    const { getTeamForUser, getTeamMembersWithProfiles } = await import("@/lib/queries");
+    const { getCheckinStatusForUsers } = await import("@/lib/queries/checkin");
     const userTeamResult = await getTeamForUser(session.user.id);
     if (userTeamResult) {
       teamId = userTeamResult.team.id;
       userRole = userTeamResult.role;
 
-      // Check if unlocked for this chapter
-      const unlocks = await getChapterUnlocks(chapter.id);
-      isUnlocked = unlocks.some((u) => u.teamId === teamId);
+      // Check team check-in status (replaces manual unlock system)
+      const members = await getTeamMembersWithProfiles(teamId);
+      const memberIds = members.map((m) => m.userId);
+      const checkinMap = await getCheckinStatusForUsers(memberIds, chapter.id);
+      const memberStatuses = members.map((m) => ({
+        name: m.profile?.name || m.profile?.email || "Unknown",
+        checkedIn: checkinMap.get(m.userId) ?? false,
+      }));
+      const checkedInCount = memberStatuses.filter((m) => m.checkedIn).length;
+      checkinInfo = {
+        total: memberStatuses.length,
+        checkedIn: checkedInCount,
+        allCheckedIn: memberStatuses.length > 0 && checkedInCount === memberStatuses.length,
+        members: memberStatuses,
+      };
 
       // Check registration
       const registration = await getRegistrationForTeam(chapter.id, teamId);
@@ -103,7 +116,7 @@ export default async function ChapterDetailPage({ params }: PageProps) {
         <ChapterRegistrationOpen
           chapter={chapter}
           challenges={challenges}
-          isUnlocked={isUnlocked}
+          checkinInfo={checkinInfo}
           registeredChallengeId={registeredChallengeId}
           userRole={userRole}
           teamId={teamId}

@@ -6,7 +6,6 @@ import { getSession } from "@/lib/actions/auth";
 import {
   getTeamForUser,
   getChapters,
-  getUnlocksForTeam,
   getLeaderboard,
   getTeamMembersWithProfiles,
   getPendingInvitesForTeam,
@@ -83,9 +82,8 @@ export default async function ParticipantDashboard() {
   const { team, role } = membership;
   const isPresident = role === "president";
 
-  const [chapters, unlocks, leaderboard, members, publishedScores, matchHistory] = await Promise.all([
+  const [chapters, leaderboard, members, publishedScores, matchHistory] = await Promise.all([
     getChapters(),
-    getUnlocksForTeam(team.id),
     getLeaderboard(),
     getTeamMembersWithProfiles(team.id),
     getPublishedScoresForTeam(team.id),
@@ -107,7 +105,6 @@ export default async function ParticipantDashboard() {
   );
 
   const teamEntry = leaderboard.find((e) => e.team.id === team.id);
-  const unlockedChapterIds = new Set(unlocks.map((u) => u.chapterId));
   const scoredChapterIds = new Set(publishedScores.map((s) => s.chapterId));
 
   // Get captain-specific data
@@ -214,7 +211,6 @@ export default async function ParticipantDashboard() {
           {chapters
             .filter((c) => c.status !== "draft" && appliedChapterIds.has(c.id))
             .map((chapter) => {
-              const isUnlocked = unlockedChapterIds.has(chapter.id);
               const isCompleted = chapter.status === "completed";
               const hasParticipated = matchHistory.some((m) => m.chapter.id === chapter.id);
               const hasCertificate = isCompleted && scoredChapterIds.has(chapter.id);
@@ -249,9 +245,6 @@ export default async function ParticipantDashboard() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        {isUnlocked && !isCompleted && (
-                          <Badge variant="announced">Unlocked</Badge>
-                        )}
                         <Badge variant={statusVariant}>{statusLabel}</Badge>
                       </div>
                     </div>

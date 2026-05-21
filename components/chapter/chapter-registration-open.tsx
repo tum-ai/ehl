@@ -7,10 +7,17 @@ import { registerForChallenge } from "@/lib/actions/submissions";
 import { DeadlineCountdown } from "@/components/submission/deadline-countdown";
 import type { Chapter, Challenge } from "@/lib/types";
 
+interface CheckinInfo {
+  total: number;
+  checkedIn: number;
+  allCheckedIn: boolean;
+  members: { name: string; checkedIn: boolean }[];
+}
+
 interface ChapterRegistrationOpenProps {
   chapter: Chapter;
   challenges: Challenge[];
-  isUnlocked: boolean;
+  checkinInfo: CheckinInfo | null;
   registeredChallengeId: string | null;
   userRole: "president" | "member" | null;
   teamId: string | null;
@@ -19,7 +26,7 @@ interface ChapterRegistrationOpenProps {
 export function ChapterRegistrationOpen({
   chapter,
   challenges,
-  isUnlocked,
+  checkinInfo,
   registeredChallengeId: initialRegisteredId,
   userRole,
   teamId,
@@ -27,6 +34,8 @@ export function ChapterRegistrationOpen({
   const [registeredChallengeId, setRegisteredChallengeId] = useState(initialRegisteredId);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const canRegister = checkinInfo?.allCheckedIn && userRole === "president";
 
   async function handleRegister(challengeId: string) {
     if (!teamId) return;
@@ -71,8 +80,8 @@ export function ChapterRegistrationOpen({
         />
       )}
 
-      {/* Unlock status */}
-      {isUnlocked && userRole === "president" ? (
+      {/* Team check-in status */}
+      {checkinInfo && checkinInfo.allCheckedIn ? (
         <div className="mt-8 rounded-2xl border border-gold/20 bg-gold/[0.03] p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10">
@@ -81,39 +90,61 @@ export function ChapterRegistrationOpen({
               </svg>
             </div>
             <div>
-              <p className="font-bold text-gold">You are invited!</p>
+              <p className="font-bold text-gold">All members checked in!</p>
               <p className="text-sm text-text-secondary">
-                {registeredChallengeId
-                  ? "Your team is registered. You can switch challenges until selection closes."
-                  : "Choose a challenge below to register your team."}
+                {userRole === "president"
+                  ? (registeredChallengeId
+                    ? "Your team is registered. You can switch challenges until selection closes."
+                    : "Choose a challenge below to register your team.")
+                  : (registeredChallengeId
+                    ? "Your team president has selected a challenge."
+                    : "Your team president will select a challenge for your team.")}
               </p>
             </div>
           </div>
         </div>
-      ) : isUnlocked && userRole === "member" ? (
-        <div className="mt-8 rounded-2xl border border-gold/20 bg-gold/[0.03] p-6">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10">
-              <svg className="h-5 w-5 text-gold" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+      ) : checkinInfo && checkinInfo.total > 0 ? (
+        <div className="mt-8 rounded-2xl border border-yellow-500/20 bg-yellow-500/[0.03] p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500/10">
+              <svg className="h-5 w-5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
               </svg>
             </div>
             <div>
-              <p className="font-bold text-gold">Your team is invited!</p>
+              <p className="font-bold text-yellow-400">
+                Team Check-in: {checkinInfo.checkedIn} of {checkinInfo.total}
+              </p>
               <p className="text-sm text-text-secondary">
-                {registeredChallengeId
-                  ? "Your team president has selected a challenge."
-                  : "Your team president will select a challenge for your team."}
+                All members must check in before your team can register for a challenge.
               </p>
             </div>
+          </div>
+          <div className="space-y-1.5">
+            {checkinInfo.members.map((m) => (
+              <div key={m.name} className="flex items-center gap-2 text-sm">
+                {m.checkedIn ? (
+                  <svg className="h-4 w-4 text-green-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="h-4 w-4 text-red-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                )}
+                <span className={m.checkedIn ? "text-text-primary" : "text-text-muted"}>
+                  {m.name}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
       ) : (
         <div className="mt-8 rounded-2xl border border-white/[0.06] bg-surface-card/40 p-6">
           <p className="text-text-muted">
             {userRole
-              ? "Your team has not been invited to this match yet. Invitations are managed by the organizers."
-              : "Participation is managed by the organizers. Log in to see your registration options."}
+              ? "Your team needs to check in to participate. Check in at the event to get started."
+              : "Log in to see your team status and register for a challenge."}
           </p>
         </div>
       )}
@@ -238,7 +269,7 @@ export function ChapterRegistrationOpen({
                 )}
 
                 {/* Register / Switch / Status */}
-                {isUnlocked && userRole === "president" && (
+                {canRegister && (
                   <div className="border-t border-white/[0.06] p-6">
                     {isRegistered ? (
                       <p className="text-sm text-text-secondary">

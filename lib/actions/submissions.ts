@@ -50,18 +50,6 @@ export async function registerForChallenge(
     return { error: "The challenge selection deadline has passed." };
   }
 
-  // Verify team is unlocked for this chapter
-  const { data: unlock } = await adminClient
-    .from("chapter_unlocks")
-    .select("chapter_id")
-    .eq("chapter_id", chapterId)
-    .eq("team_id", teamId)
-    .single();
-
-  if (!unlock) {
-    return { error: "Your team has not been unlocked for this chapter." };
-  }
-
   // Auto-populate roster from team members if not provided
   let finalRoster = roster;
   if (finalRoster.length === 0) {
