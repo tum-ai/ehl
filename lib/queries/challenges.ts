@@ -1,4 +1,4 @@
-import type { Challenge, ChapterUnlock, ChallengeRegistration, PitchOrder } from "../types";
+import type { Challenge, ChallengeRegistration, PitchOrder } from "../types";
 import { getClient } from "./client";
 import { toChallenge, toPitchOrder } from "./mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
@@ -27,41 +27,6 @@ export async function getChallengeById(
     .eq("id", id)
     .single();
   return data ? toChallenge(data) : null;
-}
-
-// ─── Chapter Unlock Queries ───────────────────────────────
-
-export async function getChapterUnlocks(
-  chapterId: string
-): Promise<ChapterUnlock[]> {
-  const supabase = getClient();
-  const { data } = await supabase
-    .from("chapter_unlocks")
-    .select("*")
-    .eq("chapter_id", chapterId)
-    .limit(QUERY_LIMITS.chapterUnlocks);
-  return (data ?? []).map((row) => ({
-    chapterId: row.chapter_id as string,
-    teamId: row.team_id as string,
-    unlockedAt: row.unlocked_at as string,
-    unlockedBy: (row.unlocked_by as string) ?? null,
-  }));
-}
-
-export async function getUnlocksForTeam(
-  teamId: string
-): Promise<ChapterUnlock[]> {
-  const supabase = getClient();
-  const { data } = await supabase
-    .from("chapter_unlocks")
-    .select("*")
-    .eq("team_id", teamId);
-  return (data ?? []).map((row) => ({
-    chapterId: row.chapter_id as string,
-    teamId: row.team_id as string,
-    unlockedAt: row.unlocked_at as string,
-    unlockedBy: (row.unlocked_by as string) ?? null,
-  }));
 }
 
 // ─── Challenge Registration Queries ───────────────────────

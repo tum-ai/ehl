@@ -368,66 +368,6 @@ export async function updateChapterDetails(
   return { success: true };
 }
 
-// ─── Team Unlocks ──────────────────────────────────────────
-
-export async function unlockTeams(chapterId: string, teamIds: string[]) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
-  const adminUserId = await getAdminUserId();
-
-  const adminClient = createAdminClient();
-
-  const inserts = teamIds.map((teamId) => ({
-    chapter_id: chapterId,
-    team_id: teamId,
-    unlocked_by: adminUserId,
-  }));
-
-  const { error } = await adminClient
-    .from("chapter_unlocks")
-    .upsert(inserts, { onConflict: "chapter_id,team_id" });
-
-  if (error) return { error: error.message };
-
-  logEvent({
-    action: "chapter.teams_unlocked",
-    entityType: "chapter",
-    entityId: chapterId,
-    actorId: adminUserId,
-    actorType: "admin",
-    delta: { created: { team_ids: teamIds } },
-  });
-
-  revalidatePath(`/admin/chapters/${chapterId}/unlocks`);
-  return { success: true };
-}
-
-export async function revokeUnlock(chapterId: string, teamId: string) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
-  const adminClient = createAdminClient();
-  const { error } = await adminClient
-    .from("chapter_unlocks")
-    .delete()
-    .eq("chapter_id", chapterId)
-    .eq("team_id", teamId);
-
-  if (error) return { error: error.message };
-
-  const actorId = await getAdminUserId();
-  logEvent({
-    action: "chapter.unlock_revoked",
-    entityType: "chapter",
-    entityId: chapterId,
-    actorId,
-    actorType: "admin",
-    delta: { deleted: { team_id: teamId } },
-  });
-
-  revalidatePath(`/admin/chapters/${chapterId}/unlocks`);
-  return { success: true };
-}
-
 // ─── Challenges ────────────────────────────────────────────
 
 export async function createChallenge(formData: FormData) {

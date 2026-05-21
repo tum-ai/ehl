@@ -73,10 +73,6 @@ export async function cleanupE2EData() {
       .delete()
       .in("chapter_id", chapterIds);
     await admin
-      .from("chapter_unlocks")
-      .delete()
-      .in("chapter_id", chapterIds);
-    await admin
       .from("challenges")
       .delete()
       .in("chapter_id", chapterIds);

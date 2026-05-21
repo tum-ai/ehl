@@ -26,7 +26,6 @@ import {
   createChallenge,
   setChapterStatus,
   setChapterDeadlines,
-  unlockTeam,
   registerForChallenge,
   assignJury,
   getVerificationCode,
@@ -507,18 +506,7 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await setChapterStatus(chapterId, "preparation");
     await setChapterStatus(chapterId, "challenge_selection");
 
-    // Unlock both teams
-    await unlockTeam(chapterId, teamAlphaId, adminUserId);
-    await unlockTeam(chapterId, teamBetaId, adminUserId);
-  });
-
-  test("4.3 Admin sees unlocked teams", async ({ page }) => {
-    await loginAsAdmin(page);
-    await page.goto(`/admin/chapters/${chapterId}/unlocks`);
-    await page.waitForLoadState("networkidle");
-
-    await expect(page.getByText("E2E Alpha", { exact: true })).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText("E2E Beta", { exact: true })).toBeVisible();
+    // Teams are auto-unlocked via check-in status (no manual unlock needed)
   });
 
   // ── BLOCK 5: CHALLENGE SETUP ────────────────────────────

@@ -640,7 +640,6 @@ SUMMARY
     DELETE FROM verification_codes;
     DELETE FROM team_invites;
     DELETE FROM team_join_requests;
-    DELETE FROM chapter_unlocks;
     DELETE FROM participant_flags;
     DELETE FROM team_members;
     UPDATE teams SET president_user_id = NULL;

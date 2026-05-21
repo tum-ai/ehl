@@ -62,8 +62,6 @@ export {
 export {
   getChallengesForChapter,
   getChallengeById,
-  getChapterUnlocks,
-  getUnlocksForTeam,
   getRegistrationForTeam,
   getPitchOrder,
 } from "./challenges";

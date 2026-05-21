@@ -24,7 +24,6 @@ DELETE FROM pitch_orders;
 DELETE FROM code_reviews;
 DELETE FROM submissions;
 DELETE FROM challenge_registrations;
-DELETE FROM chapter_unlocks;
 DELETE FROM challenges;
 DELETE FROM scores;
 DELETE FROM media;
@@ -139,13 +138,6 @@ INSERT INTO challenges (id, chapter_id, title, description, sponsor_name, submis
    '[{"key":"repo","label":"GitHub Repository","type":"url","required":true}]', 2);
 
 -- ═══════════════════════════════════════════════════════════════
--- CHAPTER UNLOCKS (Match 2: 3 teams unlocked)
--- ═══════════════════════════════════════════════════════════════
-
-INSERT INTO chapter_unlocks (chapter_id, team_id, unlocked_by) VALUES
-  ('e0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000001', 'a0000000-0000-0000-0000-000000000001'),
-  ('e0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001'),
-  ('e0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000003', 'a0000000-0000-0000-0000-000000000001');
 
 -- ═══════════════════════════════════════════════════════════════
 -- CHALLENGE REGISTRATIONS

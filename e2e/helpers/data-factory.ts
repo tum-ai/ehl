@@ -258,7 +258,6 @@ export async function createChapter(opts: {
       await admin.from("challenge_registrations").delete().in("challenge_id", challengeIds);
     }
     await admin.from("jury_assignments").delete().in("chapter_id", existingIds);
-    await admin.from("chapter_unlocks").delete().in("chapter_id", existingIds);
     await admin.from("challenges").delete().in("chapter_id", existingIds);
     await admin.from("scores").delete().in("chapter_id", existingIds);
     await admin.from("media").delete().in("chapter_id", existingIds);
@@ -381,24 +380,6 @@ export async function createChallenge(opts: {
 }
 
 // ─── Chapter Unlocks ────────────────────────────────────────
-
-/**
- * Unlock a team for a chapter.
- */
-export async function unlockTeam(
-  chapterId: string,
-  teamId: string,
-  adminUserId: string
-) {
-  const admin = getAdminClient();
-  const { error } = await admin.from("chapter_unlocks").insert({
-    chapter_id: chapterId,
-    team_id: teamId,
-    unlocked_by: adminUserId,
-  });
-
-  if (error) throw new Error(`Failed to unlock team: ${error.message}`);
-}
 
 // ─── Challenge Registration ─────────────────────────────────
 
