@@ -133,6 +133,7 @@ def load_tally():
     return apps
 
 def load_submissions():
+    """Load submissions deduped by captain email (keep latest per captain)."""
     by_captain = {}
     with open(SUBS_CSV, encoding="utf-8-sig") as f:
         for row in csv.DictReader(f):
@@ -628,7 +629,8 @@ SUMMARY
     print(f"\n[8/8] Finalizing...")
     sql_exec("""
         UPDATE chapters SET status = 'completed' WHERE slug = 'munich-1';
-        UPDATE chapters SET status = 'announced' WHERE slug != 'munich-1' AND status = 'draft' AND slug != 'berlin';
+        UPDATE chapters SET status = 'announced' WHERE slug != 'munich-1' AND status = 'draft';
+        UPDATE chapters SET date = NULL, date_end = NULL WHERE slug = 'berlin';
         CREATE TRIGGER event_log_no_update
             BEFORE UPDATE OR DELETE ON event_log
             FOR EACH ROW EXECUTE FUNCTION prevent_event_log_mutation();
