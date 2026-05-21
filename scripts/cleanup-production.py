@@ -51,8 +51,15 @@ def slugify(name):
     return re.sub(r"^-|-$", "", re.sub(r"[^a-z0-9]+", "-", name.lower()))
 
 def esc(s):
+    """Escape a value for use in SQL string literals. Prevents SQL injection."""
     if s is None: return ""
-    return str(s).replace("'", "''").replace("\\", "\\\\")
+    s = str(s)
+    s = s.replace("'", "''")       # Single quotes
+    s = s.replace("\\", "\\\\")    # Backslashes
+    s = s.replace("\x00", "")      # Null bytes
+    s = s.replace("\n", " ")       # Newlines -> space
+    s = s.replace("\r", "")        # Carriage returns
+    return s
 
 def load_config():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
@@ -621,7 +628,7 @@ SUMMARY
     print(f"\n[8/8] Finalizing...")
     sql_exec("""
         UPDATE chapters SET status = 'completed' WHERE slug = 'munich-1';
-        UPDATE chapters SET status = 'announced' WHERE slug != 'munich-1' AND status = 'draft';
+        UPDATE chapters SET status = 'announced' WHERE slug != 'munich-1' AND status = 'draft' AND slug != 'berlin';
         CREATE TRIGGER event_log_no_update
             BEFORE UPDATE OR DELETE ON event_log
             FOR EACH ROW EXECUTE FUNCTION prevent_event_log_mutation();
