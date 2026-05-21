@@ -17,24 +17,25 @@ const redis = createRedis();
 // Limits are generous: 500+ participants share one WiFi at hackathon events.
 // Turnstile CAPTCHA is the primary bot defense; IP limits are a safety net.
 
-// Auth endpoints: 60 requests per 60 seconds per IP
+// Auth endpoints: 500 requests per 60 seconds per IP
+// Turnstile CAPTCHA is the real bot gate; this just prevents extreme abuse
 export const authLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(60, "60 s"), prefix: "rl:auth" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(500, "60 s"), prefix: "rl:auth" })
   : null;
 
-// Registration: 60 requests per 60 seconds per IP
+// Registration: 500 requests per 60 seconds per IP
 export const registerLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(60, "60 s"), prefix: "rl:register" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(500, "60 s"), prefix: "rl:register" })
   : null;
 
-// Password reset: 60 requests per 60 seconds per IP
+// Password reset: 500 requests per 60 seconds per IP
 export const resetLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(60, "60 s"), prefix: "rl:reset" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(500, "60 s"), prefix: "rl:reset" })
   : null;
 
-// Application submit: 60 requests per 60 seconds per IP
+// Application submit: 500 requests per 60 seconds per IP
 export const applicationLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(60, "60 s"), prefix: "rl:apply" })
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(500, "60 s"), prefix: "rl:apply" })
   : null;
 
 // File upload: 50 requests per hour per user
@@ -75,10 +76,10 @@ interface MemoryFallbackConfig {
 const DEFAULT_FALLBACK: MemoryFallbackConfig = { limit: 10, windowMs: 60_000 };
 
 const memoryFallbackConfig = new Map<Ratelimit | null, MemoryFallbackConfig>();
-if (authLimiter) memoryFallbackConfig.set(authLimiter, { limit: 60, windowMs: 60_000 });
-if (registerLimiter) memoryFallbackConfig.set(registerLimiter, { limit: 60, windowMs: 60_000 });
-if (resetLimiter) memoryFallbackConfig.set(resetLimiter, { limit: 60, windowMs: 60_000 });
-if (applicationLimiter) memoryFallbackConfig.set(applicationLimiter, { limit: 60, windowMs: 60_000 });
+if (authLimiter) memoryFallbackConfig.set(authLimiter, { limit: 500, windowMs: 60_000 });
+if (registerLimiter) memoryFallbackConfig.set(registerLimiter, { limit: 500, windowMs: 60_000 });
+if (resetLimiter) memoryFallbackConfig.set(resetLimiter, { limit: 500, windowMs: 60_000 });
+if (applicationLimiter) memoryFallbackConfig.set(applicationLimiter, { limit: 500, windowMs: 60_000 });
 if (uploadLimiter) memoryFallbackConfig.set(uploadLimiter, { limit: 10, windowMs: 60_000 });
 if (apiLimiter) memoryFallbackConfig.set(apiLimiter, { limit: 200, windowMs: 60_000 });
 if (certLimiter) memoryFallbackConfig.set(certLimiter, { limit: 30, windowMs: 60_000 });
