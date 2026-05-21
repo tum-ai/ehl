@@ -17,15 +17,15 @@ export async function PartnersBar() {
 
       {/* Marquee with edge fades */}
       <div className="relative">
-        {/* Left fade */}
-        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-24 bg-gradient-to-r from-surface-deep to-transparent" />
-        {/* Right fade */}
-        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-24 bg-gradient-to-l from-surface-deep to-transparent" />
+        {/* Left fade - smaller on mobile */}
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 sm:w-24 bg-gradient-to-r from-surface-deep to-transparent" />
+        {/* Right fade - smaller on mobile */}
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 sm:w-24 bg-gradient-to-l from-surface-deep to-transparent" />
 
         <div className="overflow-hidden">
           <div className="marquee-track">
-            {/* Render partners twice for seamless loop */}
-            {[...partners, ...partners].map((partner, i) => (
+            {/* Render partners three times for seamless loop (avoids gap at seam) */}
+            {[...partners, ...partners, ...partners].map((partner, i) => (
               <a
                 key={`${partner.id}-${i}`}
                 href={partner.url}
