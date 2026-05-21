@@ -90,6 +90,13 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
               <span className="ad-text-muted">&rarr;</span>
             </Link>
             <Link
+              href={`/admin/chapters/${chapter.id}/unlocks`}
+              className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+            >
+              <span>Team Unlocks</span>
+              <span className="ad-text-muted">&rarr;</span>
+            </Link>
+            <Link
               href={`/admin/chapters/${chapter.id}/challenges`}
               className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
             >
