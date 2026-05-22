@@ -166,7 +166,6 @@ function RadioGroup({
               checked={value === o.value}
               onChange={() => onChange?.(o.value)}
               className="sr-only"
-              required={required}
             />
             {o.label}
           </label>
@@ -252,8 +251,6 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
   const [discoverySource, setDiscoverySource] = useState<string[]>(
     (userProfile?.formData?.discoverySource as string[]) ?? []
   );
-  const [consentCore, setConsentCore] = useState(false);
-  const [consentChallenge, setConsentChallenge] = useState(false);
   const [consentSharing, setConsentSharing] = useState(false);
   const [wantsCv, setWantsCv] = useState("");
 
@@ -344,11 +341,11 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
     formData.set("dietaryRestrictions", dietaryRestrictions);
     formData.set("tshirtCut", tshirtCut);
     formData.set("tshirtSize", tshirtSize);
-    // Map consolidated consents to individual DB fields
-    formData.set("consentAttendance", consentCore.toString());
-    formData.set("consentPrivacy", consentCore.toString());
-    formData.set("consentMedia", consentCore.toString());
-    formData.set("consentIpTransfer", consentChallenge.toString());
+    // Required consents are implied by submitting (inline text, no checkbox)
+    formData.set("consentAttendance", "true");
+    formData.set("consentPrivacy", "true");
+    formData.set("consentMedia", "true");
+    formData.set("consentIpTransfer", "true");
     formData.set("consentNewsletter", consentSharing.toString());
     formData.set("consentRecruiting", consentSharing.toString());
     formData.set("consentSponsorData", consentSharing.toString());
@@ -402,7 +399,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
   const showForm = isLoggedIn || (email && !accountExists);
 
   return (
-    <form onSubmit={handleSubmit} className="relative mx-auto max-w-2xl">
+    <form onSubmit={handleSubmit} noValidate className="relative mx-auto max-w-2xl">
       {/* Auth banner for logged-in users */}
       {isLoggedIn && (
         <Card className="mb-6 border-gold/20">
@@ -848,59 +845,31 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
             </div>
           </Card>
 
-          {/* Consent */}
-          <Card className="mb-6">
-            <h2 className="text-lg font-bold">Consent</h2>
-            <p className="mt-1 text-xs text-text-muted">
-              Required consents are marked with *. See our <a href="/privacy" className="text-gold hover:underline">privacy policy</a> for details.
+          {/* Optional consent + legal terms */}
+          <div className="mb-6 space-y-4">
+            <label className="flex items-start gap-3 cursor-pointer rounded-lg border border-white/10 bg-surface-card p-4 transition-colors hover:border-gold/20">
+              <input
+                type="checkbox"
+                checked={consentSharing}
+                onChange={(e) => setConsentSharing(e.target.checked)}
+                className="mt-0.5 h-5 w-5 shrink-0 rounded border-white/20 bg-surface-deep accent-gold"
+              />
+              <div>
+                <span className="text-sm font-medium text-text-primary">
+                  Yes, keep me updated about EHL events and share my profile with recruiters and sponsors.
+                </span>
+                <p className="mt-0.5 text-xs text-text-muted">You can unsubscribe anytime.</p>
+              </div>
+            </label>
+
+            <p className="text-xs text-text-muted text-center">
+              By submitting, you agree to our{" "}
+              <a href="/privacy" target="_blank" className="text-gold hover:underline">Privacy Policy</a>
+              {" "}and{" "}
+              <a href="/privacy#challenge-terms" target="_blank" className="text-gold hover:underline">Challenge Terms</a>
+              , including processing of personal data, media usage at events, and intellectual property conditions for sponsor challenges.
             </p>
-            <div className="mt-4 space-y-4">
-              {/* Required: Core consent */}
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={consentCore}
-                  onChange={(e) => setConsentCore(e.target.checked)}
-                  required
-                  className="mt-1 h-4 w-4 rounded border-white/20 bg-surface-deep accent-gold"
-                />
-                <span className="text-sm text-text-secondary">
-                  I confirm my availability and agree to the{" "}
-                  <a href="/privacy" target="_blank" className="text-gold hover:underline">privacy policy</a>
-                  , including processing of personal data, media usage at events, and special categories of data for event organization. <span className="text-error">*</span>
-                </span>
-              </label>
-
-              {/* Required: Challenge terms */}
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={consentChallenge}
-                  onChange={(e) => setConsentChallenge(e.target.checked)}
-                  required
-                  className="mt-1 h-4 w-4 rounded border-white/20 bg-surface-deep accent-gold"
-                />
-                <span className="text-sm text-text-secondary">
-                  I agree to the{" "}
-                  <a href="/privacy#challenge-terms" target="_blank" className="text-gold hover:underline">challenge terms</a>
-                  {" "}including intellectual property conditions for sponsor challenges. <span className="text-error">*</span>
-                </span>
-              </label>
-
-              {/* Optional: Sharing */}
-              <label className="flex items-start gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={consentSharing}
-                  onChange={(e) => setConsentSharing(e.target.checked)}
-                  className="mt-1 h-4 w-4 rounded border-white/20 bg-surface-deep accent-gold"
-                />
-                <span className="text-sm text-text-secondary">
-                  I consent to receiving newsletters and sharing my profile with recruiters and event sponsors.
-                </span>
-              </label>
-            </div>
-          </Card>
+          </div>
 
           {error && (
             <div ref={errorRef} className="mb-6 rounded-lg border border-error/20 bg-error/5 p-4">
@@ -911,7 +880,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
           <Turnstile ref={turnstileRef} />
 
           <div className="flex justify-end">
-            <Button type="submit" disabled={loading || !consentCore || !consentChallenge}>
+            <Button type="submit" disabled={loading}>
               {loading ? "Submitting..." : "Submit Application"}
             </Button>
           </div>

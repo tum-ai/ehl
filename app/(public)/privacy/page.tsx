@@ -40,20 +40,25 @@ export default function PrivacyPage() {
         </h2>
         <ul className="list-disc list-inside space-y-2 text-text-secondary">
           <li>
-            Registration: name, email, password (hashed)
+            <strong>Registration:</strong> name, email, password (hashed)
           </li>
           <li>
-            Applications: personal info (name, DOB, gender, nationality,
-            university), skills, dietary preferences, t-shirt size, CV
-            (optional)
+            <strong>Applications:</strong> personal info (name, date of birth, gender, nationality,
+            location), academic background (university, degree, field of study),
+            skills, hackathon experience, dietary preferences, t-shirt size, CV (optional),
+            social media links (optional)
           </li>
           <li>
-            Event participation: check-in status, team membership, challenge
-            registrations, submissions
+            <strong>Event participation:</strong> check-in status and timestamps, team membership and role,
+            challenge registrations, project submissions (including repository URLs and project descriptions)
           </li>
           <li>
-            Technical: IP addresses (for rate limiting, retained 90 days),
-            browser info (for error reporting)
+            <strong>Technical data:</strong> IP addresses (for rate limiting and abuse prevention),
+            browser user agent strings (for error reporting), page URLs visited when errors occur
+          </li>
+          <li>
+            <strong>Consent records:</strong> your consent choices (privacy policy, challenge terms,
+            newsletter, recruiter sharing) are stored with your application
           </li>
         </ul>
       </div>
@@ -64,17 +69,38 @@ export default function PrivacyPage() {
           3. How We Use Your Data
         </h2>
         <ul className="list-disc list-inside space-y-2 text-text-secondary">
-          <li>Event organization, team matching, catering planning</li>
-          <li>Scoring, certificates, leaderboard</li>
+          <li>Event organization, team matching, and catering planning</li>
+          <li>Application screening and acceptance decisions</li>
+          <li>QR code generation for event check-in</li>
+          <li>Scoring, certificates, and leaderboard rankings</li>
           <li>Communication about events you are registered for</li>
           <li>Platform improvement and error tracking</li>
         </ul>
       </div>
 
-      {/* 4. Special Categories of Data */}
+      {/* 4. Public Information */}
+      <div className="mb-8" id="public-data">
+        <h2 className="text-xl font-bold text-text-primary mb-4">
+          4. Public Information
+        </h2>
+        <p className="text-text-secondary mb-4">
+          The following information is publicly visible on the EHL website:
+        </p>
+        <ul className="list-disc list-inside space-y-2 text-text-secondary">
+          <li>Team names, universities, and cities on the leaderboard and team pages</li>
+          <li>Placement results and points for each match</li>
+          <li>Team member names (first name and last initial) on team pages</li>
+        </ul>
+        <p className="text-text-secondary mt-4">
+          Your email, date of birth, dietary preferences, and other personal
+          details are never publicly displayed.
+        </p>
+      </div>
+
+      {/* 5. Special Categories of Data */}
       <div className="mb-8" id="special-data">
         <h2 className="text-xl font-bold text-text-primary mb-4">
-          4. Special Categories of Data
+          5. Special Categories of Data
         </h2>
         <p className="text-text-secondary mb-4">
           Dietary preferences, date of birth, gender, and nationality are
@@ -83,22 +109,22 @@ export default function PrivacyPage() {
         </p>
       </div>
 
-      {/* 5. Media Usage */}
+      {/* 6. Media Usage */}
       <div className="mb-8" id="media">
         <h2 className="text-xl font-bold text-text-primary mb-4">
-          5. Media Usage
+          6. Media Usage
         </h2>
         <p className="text-text-secondary mb-4">
           Photos and videos taken during events may be used for marketing, social
           media, press, and event documentation by EHL and event sponsors. You
-          can revoke this consent at any time.
+          can revoke this consent at any time by contacting us.
         </p>
       </div>
 
-      {/* 6. Challenge Terms & Intellectual Property */}
+      {/* 7. Challenge Terms & Intellectual Property */}
       <div className="mb-8" id="challenge-terms">
         <h2 className="text-xl font-bold text-text-primary mb-4">
-          6. Challenge Terms & Intellectual Property
+          7. Challenge Terms & Intellectual Property
         </h2>
         <p className="text-text-secondary mb-4">
           Challenge data provided by sponsors is to be used solely for the
@@ -108,15 +134,98 @@ export default function PrivacyPage() {
         </p>
       </div>
 
-      {/* 7. Third-Party Sharing */}
+      {/* 8. Submission Processing & Code Review */}
+      <div className="mb-8" id="submissions">
+        <h2 className="text-xl font-bold text-text-primary mb-4">
+          8. Submission Processing & Code Review
+        </h2>
+        <p className="text-text-secondary mb-4">
+          When you submit a project, the following processing occurs:
+        </p>
+        <ul className="list-disc list-inside space-y-2 text-text-secondary">
+          <li>
+            <strong>Repository snapshots:</strong> Your GitHub/GitLab repository is forked into the
+            EHL organization for archival and jury review. Jury members are granted
+            read access to your repository as GitHub collaborators.
+          </li>
+          <li>
+            <strong>AI-powered code review:</strong> Your submission (including repository code and
+            challenge brief) may be analyzed by AI models via OpenRouter for automated
+            code quality assessment. This analysis is used alongside human jury evaluation.
+          </li>
+          <li>
+            <strong>Jury evaluation:</strong> Submissions are reviewed and ranked by human jury members.
+            Jury rankings and feedback are stored to determine final placements.
+          </li>
+        </ul>
+      </div>
+
+      {/* 9. Application Screening */}
+      <div className="mb-8" id="screening">
+        <h2 className="text-xl font-bold text-text-primary mb-4">
+          9. Application Screening
+        </h2>
+        <p className="text-text-secondary mb-4">
+          Applications are reviewed and scored by human screeners to determine acceptance.
+          Screening scores are stored with the screener identity for quality assurance.
+          Acceptance and rejection decisions are communicated via email.
+        </p>
+      </div>
+
+      {/* 10. Third-Party Service Providers */}
+      <div className="mb-8" id="service-providers">
+        <h2 className="text-xl font-bold text-text-primary mb-4">
+          10. Third-Party Service Providers
+        </h2>
+        <p className="text-text-secondary mb-4">
+          We use the following service providers to operate the platform. Data is
+          shared with them only as necessary for the stated purpose:
+        </p>
+        <ul className="list-disc list-inside space-y-2 text-text-secondary">
+          <li>
+            <strong>Supabase</strong> (EU, database and authentication): stores all account data,
+            applications, and event records
+          </li>
+          <li>
+            <strong>Vercel</strong> (hosting): serves the website, processes requests, and provides
+            infrastructure logging
+          </li>
+          <li>
+            <strong>Google Drive</strong> (file storage): stores uploaded CVs and event-related documents
+          </li>
+          <li>
+            <strong>GitHub</strong> (repository hosting): stores submission repository snapshots,
+            provides jury access to code
+          </li>
+          <li>
+            <strong>OpenRouter</strong> (AI processing): processes submission code for automated
+            code review using AI models (Google Gemini, Anthropic Claude)
+          </li>
+          <li>
+            <strong>Cloudflare Turnstile</strong> (bot protection): verifies that form submissions
+            are made by humans, processes IP addresses and browser signals
+          </li>
+          <li>
+            <strong>Upstash</strong> (rate limiting): temporarily stores IP addresses to prevent
+            abuse (data retained only during the rate limit window)
+          </li>
+          <li>
+            <strong>Gmail SMTP</strong> (email delivery): sends transactional emails (confirmations,
+            acceptances, rejections, certificates)
+          </li>
+        </ul>
+        <p className="text-text-secondary mt-4">We never sell your data.</p>
+      </div>
+
+      {/* 11. Third-Party Sharing (Optional Consent) */}
       <div className="mb-8" id="third-party-sharing">
         <h2 className="text-xl font-bold text-text-primary mb-4">
-          7. Third-Party Sharing
+          11. Third-Party Sharing (Optional)
         </h2>
         <p className="text-text-secondary mb-4">
           With your optional consent, we may share:
         </p>
-        <ul className="list-disc list-inside space-y-2 text-text-secondary mb-4">
+        <ul className="list-disc list-inside space-y-2 text-text-secondary">
           <li>
             Your profile and CV with recruiters and sponsors for job
             opportunities
@@ -125,44 +234,64 @@ export default function PrivacyPage() {
             Your name, university, and contact info with event sponsors for
             follow-up
           </li>
-          <li>Newsletter subscription data with our email service provider</li>
+          <li>Newsletter updates about EHL events and results</li>
         </ul>
-        <p className="text-text-secondary">We never sell your data.</p>
-      </div>
-
-      {/* 8. Newsletters */}
-      <div className="mb-8" id="newsletters">
-        <h2 className="text-xl font-bold text-text-primary mb-4">
-          8. Newsletters
-        </h2>
-        <p className="text-text-secondary mb-4">
-          Optional. You can unsubscribe at any time via the link in each email.
+        <p className="text-text-secondary mt-4">
+          You can withdraw this consent at any time by contacting us.
         </p>
       </div>
 
-      {/* 9. Data Retention */}
-      <div className="mb-8" id="data-retention">
+      {/* 12. Technical Data & Error Reporting */}
+      <div className="mb-8" id="technical-data">
         <h2 className="text-xl font-bold text-text-primary mb-4">
-          9. Data Retention
+          12. Technical Data & Error Reporting
         </h2>
-        <ul className="list-disc list-inside space-y-2 text-text-secondary mb-4">
-          <li>Account data: retained while your account is active</li>
+        <ul className="list-disc list-inside space-y-2 text-text-secondary">
           <li>
-            Applications: retained for the duration of the season + 1 year
+            <strong>Rate limiting:</strong> IP addresses are temporarily stored to prevent abuse.
+            Rate limit data is retained only for the duration of the limit window (typically 60 seconds
+            to 1 hour).
           </li>
           <li>
-            Event logs: retained indefinitely for audit/compliance (anonymized
-            after account deletion)
+            <strong>Error reporting:</strong> When browser errors occur, we collect the error message,
+            page URL, and browser user agent string for debugging purposes. This data is logged
+            automatically and retained with event logs.
           </li>
-          <li>IP addresses: 90 days</li>
-          <li>You can request deletion at any time.</li>
+          <li>
+            <strong>Bot protection:</strong> Cloudflare Turnstile processes browser signals and
+            IP addresses to verify that form submissions are human. No cookies are set.
+          </li>
         </ul>
       </div>
 
-      {/* 10. Your Rights */}
+      {/* 13. Data Retention */}
+      <div className="mb-8" id="data-retention">
+        <h2 className="text-xl font-bold text-text-primary mb-4">
+          13. Data Retention
+        </h2>
+        <ul className="list-disc list-inside space-y-2 text-text-secondary">
+          <li>Account data: retained while your account is active</li>
+          <li>
+            Applications and screening scores: retained for the duration of the season plus 1 year
+          </li>
+          <li>
+            Submissions and code reviews: retained for the duration of the season plus 1 year
+          </li>
+          <li>
+            Event logs: retained indefinitely for audit and compliance purposes.
+            Logs record actions such as application submissions, status changes, and check-ins.
+            Personal identifiers are removed upon account deletion, but anonymized log entries
+            are preserved.
+          </li>
+          <li>Rate limiting data (IP addresses): retained for the rate limit window only</li>
+          <li>You can request deletion of your data at any time.</li>
+        </ul>
+      </div>
+
+      {/* 14. Your Rights */}
       <div className="mb-8" id="your-rights">
         <h2 className="text-xl font-bold text-text-primary mb-4">
-          10. Your Rights
+          14. Your Rights
         </h2>
         <p className="text-text-secondary mb-4">
           Under GDPR, you have the right to: access, rectification, deletion,
@@ -176,15 +305,20 @@ export default function PrivacyPage() {
           </a>
           .
         </p>
+        <p className="text-text-secondary">
+          You also have the right to lodge a complaint with the Bavarian Data Protection
+          Authority (BayLDA).
+        </p>
       </div>
 
-      {/* 11. Changes */}
+      {/* 15. Changes */}
       <div className="mb-8" id="changes">
         <h2 className="text-xl font-bold text-text-primary mb-4">
-          11. Changes
+          15. Changes
         </h2>
         <p className="text-text-secondary mb-4">
-          We may update this policy. Changes will be posted on this page.
+          We may update this policy. Changes will be posted on this page with an
+          updated date.
         </p>
       </div>
 
