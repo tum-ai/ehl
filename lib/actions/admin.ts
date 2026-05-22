@@ -150,9 +150,12 @@ async function getStatusChecks(
 
   // ─── Applications Open ────────────────────────────────
   if (targetIdx >= 2) {
+    // Date must be exact (not approximate). Approximate dates are stored as YYYY-MM-01.
+    const dateStr = chapter.date ? String(chapter.date) : null;
+    const hasExactDate = !!dateStr && new Date(dateStr + "T00:00:00").getDate() !== 1;
     checks.push({
-      label: "Start date is set",
-      passed: !!chapter.date,
+      label: "Exact start date is set (not approximate)",
+      passed: hasExactDate,
     });
     checks.push({
       label: "Application deadline is set",
