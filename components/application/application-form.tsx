@@ -215,6 +215,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
   const [lookingUp, setLookingUp] = useState(false);
   const [accountExists, setAccountExists] = useState(false);
   const turnstileRef = useRef<TurnstileRef>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   // Form state
   const [email, setEmail] = useState(userProfile?.email ?? "");
@@ -283,9 +284,53 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
     setLookingUp(false);
   }, [email, isLoggedIn]);
 
+  function getMissingFields(form: HTMLFormElement): string[] {
+    const missing: string[] = [];
+    if (!firstName.trim()) missing.push("First Name");
+    if (!lastName.trim()) missing.push("Last Name");
+    if (!email.trim()) missing.push("Email");
+    const dob = (form.elements.namedItem("dateOfBirth") as HTMLInputElement)?.value;
+    if (!dob) missing.push("Date of Birth");
+    if (!gender) missing.push("Gender");
+    const city = (form.elements.namedItem("locationCity") as HTMLInputElement)?.value;
+    if (!city) missing.push("Current Location (City)");
+    const country = (form.elements.namedItem("locationCountry") as HTMLInputElement)?.value;
+    if (!country) missing.push("Country");
+    const nationality = (form.elements.namedItem("nationality") as HTMLInputElement)?.value;
+    if (!nationality) missing.push("Nationality");
+    if (!currentlyStudying) missing.push("Currently Studying");
+    if (currentlyStudying === "true") {
+      if (!university) missing.push("University");
+      if (university === "Other" && !universityOther.trim()) missing.push("University Name");
+      if (!degree) missing.push("Degree");
+      if (!fieldOfStudy) missing.push("Field of Study");
+      if (fieldOfStudy === "Other" && !fieldOfStudyOther.trim()) missing.push("Field of Study Name");
+    }
+    if (!hasProgrammingSkills) missing.push("Programming Skills");
+    if (!isTumaiMember) missing.push("TUM.ai Member");
+    const experience = (form.elements.namedItem("hackathonExperience") as HTMLTextAreaElement)?.value;
+    if (!experience?.trim()) missing.push("Hackathon Experience");
+    if (!hasTeam) missing.push("Team Status");
+    if (!dietaryRestrictions) missing.push("Dietary Restrictions");
+    if (!tshirtCut) missing.push("T-Shirt Cut");
+    if (!tshirtSize) missing.push("T-Shirt Size");
+    if (discoverySource.length === 0) missing.push("How did you find out about us");
+    if (!wantsCv) missing.push("CV Upload Decision");
+    return missing;
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
+
+    // Client-side validation for required fields (especially radio/select that browser can't validate)
+    const missing = getMissingFields(e.currentTarget);
+    if (missing.length > 0) {
+      setError(`Please fill in the following required fields: ${missing.join(", ")}`);
+      setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+      return;
+    }
+
     setLoading(true);
 
     const turnstileToken = turnstileRef.current?.getToken() ?? "";
@@ -858,7 +903,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
           </Card>
 
           {error && (
-            <div className="mb-6 rounded-lg border border-error/20 bg-error/5 p-4">
+            <div ref={errorRef} className="mb-6 rounded-lg border border-error/20 bg-error/5 p-4">
               <p className="text-sm text-error">{error}</p>
             </div>
           )}
