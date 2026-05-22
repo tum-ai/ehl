@@ -161,6 +161,16 @@ export default async function ParticipantDashboard() {
         </Card>
       </div>
 
+      {/* Solo team warning */}
+      {members.length < 2 && (
+        <div className="mt-4 rounded-lg border border-gold/30 bg-gold/5 p-4">
+          <p className="text-sm font-medium text-gold">Your team needs more members</p>
+          <p className="mt-1 text-sm text-text-secondary">
+            You need at least 2 team members to participate in a match. Invite someone or accept join requests to get started.
+          </p>
+        </div>
+      )}
+
       {/* Team Management (captain only) */}
       {isPresident && (
         <div className="mt-8">
