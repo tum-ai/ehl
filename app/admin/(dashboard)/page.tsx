@@ -8,8 +8,10 @@ import {
   getAllPartners,
   getSeasonStats,
 } from "@/lib/queries";
+import { requireAdminPage } from "@/lib/admin-auth";
 
 export default async function AdminDashboard() {
+  await requireAdminPage();
   const [teams, chapters, partners, seasonStats] = await Promise.all([
     getTeams(),
     getChaptersAdmin(),

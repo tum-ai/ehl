@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { getChaptersAdmin } from "@/lib/queries";
 import { formatDate } from "@/lib/utils";
+import { requireAdminPage } from "@/lib/admin-auth";
 
 const statusVariant: Record<string, "completed" | "announced" | "upcoming"> = {
   completed: "completed",
@@ -18,6 +19,7 @@ const statusLabel: Record<string, string> = {
 };
 
 export default async function AdminChaptersPage() {
+  await requireAdminPage();
   const chapters = await getChaptersAdmin();
   return (
     <div>

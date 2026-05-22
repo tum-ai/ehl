@@ -21,14 +21,16 @@ import uuid
 
 # ─── Configuration ───────────────────────────────────────
 
-PROD_REF = "fdoeygfcjllrzogoymsf"
+PROD_REF = os.environ.get("SUPABASE_PROD_REF")  # Set in .env.supabase
 INIT_DATA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "init-data")
 GUESTS_CSV = os.path.join(INIT_DATA, "TUM.ai Makeathon 2026 - Guests - 2026-05-21-09-45-58.csv")
 TALLY_CSV = os.path.join(INIT_DATA, "Application for TUM.ai Makeathon 2026_Submissions_2026-05-21.csv")
 SUBS_CSV = os.path.join(INIT_DATA, "Final Submission_ Makeathon 2026_Submissions_2026-05-21.csv")
 DECL_CSV = os.path.join(INIT_DATA, "Team Declaration_Submissions_2026-05-21.csv")
 
-ADMIN_EMAILS = {"julian.sikora@tum-ai.com", "makeathon@tum-ai.com", "e2e-admin@test-ehl.com"}
+ADMIN_EMAILS = set(
+    e.strip() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()
+)  # Set in .env.supabase, comma-separated
 
 # Known email aliases (same person, different email addresses)
 EMAIL_ALIASES = {
@@ -71,6 +73,7 @@ def esc(s):
     return s
 
 def load_config():
+    global PROD_REF, ADMIN_EMAILS
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
     env = {}
     for f in [".env.supabase", ".env.local"]:
@@ -85,6 +88,16 @@ def load_config():
     token = env.get("SUPABASE_ACCESS_TOKEN")
     if not token:
         print("ERROR: SUPABASE_ACCESS_TOKEN not found"); sys.exit(1)
+    # Set globals from env file if not already set from environment
+    if not PROD_REF:
+        PROD_REF = env.get("SUPABASE_PROD_REF")
+    if not PROD_REF:
+        print("ERROR: SUPABASE_PROD_REF not found in env or .env.supabase"); sys.exit(1)
+    if not ADMIN_EMAILS:
+        raw = env.get("ADMIN_EMAILS", "")
+        ADMIN_EMAILS = set(e.strip() for e in raw.split(",") if e.strip())
+    if not ADMIN_EMAILS:
+        print("ERROR: ADMIN_EMAILS not found in env or .env.supabase"); sys.exit(1)
     return token
 
 def sql_exec(sql, token, label=""):
@@ -755,7 +768,8 @@ SUMMARY
 
     # --- Call 6: applications batch ---
     # Get admin user ID for checked_in_by
-    admin_r = sql_exec("SELECT id FROM profiles WHERE email = 'julian.sikora@tum-ai.com'", token)
+    admin_email = sorted(ADMIN_EMAILS)[0]  # Use first admin email alphabetically
+    admin_r = sql_exec(f"SELECT id FROM profiles WHERE email = '{esc(admin_email)}'", token)
     admin_id = admin_r[0]["id"] if admin_r and len(admin_r) > 0 else "NULL"
 
     print(f"\n[6/8] Batch creating {len(guests)} applications...")

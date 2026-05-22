@@ -78,12 +78,9 @@ export async function GET(request: Request) {
     .single();
 
   if (!profile) {
-    // Auto-assign role based on context
-    const role = (await isAdminEmail(email))
-      ? "admin"
-      : next === "/jury"
-        ? "jury"
-        : "participant";
+    // Auto-assign role: only admin (via allowlist) or participant.
+    // Jury profiles are created exclusively via the inviteJury() admin action.
+    const role = (await isAdminEmail(email)) ? "admin" : "participant";
 
     await adminClient.from("profiles").upsert({
       id: user.id,
@@ -94,9 +91,6 @@ export async function GET(request: Request) {
 
     if (role === "admin") {
       return NextResponse.redirect(`${origin}/admin`);
-    }
-    if (role === "jury") {
-      return NextResponse.redirect(`${origin}/jury`);
     }
     return NextResponse.redirect(`${origin}/dashboard`);
   }

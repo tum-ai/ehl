@@ -6,6 +6,11 @@ import { requireAdminAction } from "@/lib/admin-auth";
 import type { AppSetting } from "@/lib/settings";
 import { logEvent } from "@/lib/event-log";
 
+function maskSettingValue(value: string): string {
+  if (value.length <= 12) return "****";
+  return value.slice(0, 8) + "..." + value.slice(-4);
+}
+
 export async function getSettings(): Promise<AppSetting[]> {
   const adminErr = await requireAdminAction();
   if (adminErr) return [];
@@ -18,10 +23,28 @@ export async function getSettings(): Promise<AppSetting[]> {
 
   return (data ?? []).map((row) => ({
     key: row.key as string,
-    value: row.value as string,
+    value: maskSettingValue(row.value as string),
     expiresAt: (row.expires_at as string) ?? null,
     updatedAt: row.updated_at as string,
   }));
+}
+
+/**
+ * Fetch the full (unmasked) value of a single setting.
+ * Used only when an admin is actively editing a setting.
+ */
+export async function getSettingFullValue(key: string): Promise<string | null> {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return null;
+
+  const adminClient = createAdminClient();
+  const { data } = await adminClient
+    .from("app_settings")
+    .select("value")
+    .eq("key", key)
+    .single();
+
+  return (data?.value as string) ?? null;
 }
 
 export async function upsertSetting(

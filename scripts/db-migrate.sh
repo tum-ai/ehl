@@ -2,17 +2,17 @@
 # Run a SQL migration on both Production and Test Supabase databases.
 # Usage: ./scripts/db-migrate.sh path/to/migration.sql
 #
-# Requires: .env.supabase with SUPABASE_ACCESS_TOKEN=...
-# Project refs are hardcoded (see .claude/CLAUDE.md for details).
+# Requires: .env.supabase with:
+#   SUPABASE_ACCESS_TOKEN=...
+#   SUPABASE_PROD_REF=...
+#   SUPABASE_TEST_REF=...
 
 set -euo pipefail
 
-PROD_REF="fdoeygfcjllrzogoymsf"
-TEST_REF="wbplmgiykuxzfkqxczzf"
 ENV_FILE="$(dirname "$0")/../.env.supabase"
 
 if [ ! -f "$ENV_FILE" ]; then
-  echo "Error: .env.supabase not found. Create it with SUPABASE_ACCESS_TOKEN=..."
+  echo "Error: .env.supabase not found. Create it with SUPABASE_ACCESS_TOKEN, SUPABASE_PROD_REF, SUPABASE_TEST_REF"
   exit 1
 fi
 
@@ -22,6 +22,19 @@ if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ]; then
   echo "Error: SUPABASE_ACCESS_TOKEN not set in .env.supabase"
   exit 1
 fi
+
+if [ -z "${SUPABASE_PROD_REF:-}" ]; then
+  echo "Error: SUPABASE_PROD_REF not set in .env.supabase"
+  exit 1
+fi
+
+if [ -z "${SUPABASE_TEST_REF:-}" ]; then
+  echo "Error: SUPABASE_TEST_REF not set in .env.supabase"
+  exit 1
+fi
+
+PROD_REF="$SUPABASE_PROD_REF"
+TEST_REF="$SUPABASE_TEST_REF"
 
 if [ $# -eq 0 ]; then
   echo "Usage: $0 <migration.sql>"

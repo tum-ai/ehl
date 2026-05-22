@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   getSettings,
+  getSettingFullValue,
   upsertSetting,
   deleteSetting,
   getEnvFallbackStatus,
@@ -75,11 +76,6 @@ function getExpiryStatus(
   return { label: `Expires in ${daysLeft}d`, variant: "completed" };
 }
 
-function maskValue(value: string): string {
-  if (value.length <= 12) return "****";
-  return value.slice(0, 8) + "..." + value.slice(-4);
-}
-
 export default function SettingsPage() {
   const [settings, setSettings] = useState<AppSetting[]>([]);
   const [envFallbacks, setEnvFallbacks] = useState<Record<string, boolean>>({});
@@ -111,14 +107,16 @@ export default function SettingsPage() {
     return settings.find((s) => s.key === key);
   }
 
-  function startEdit(config: SettingConfig) {
-    const existing = getSetting(config.key);
+  async function startEdit(config: SettingConfig) {
     setEditing(config.key);
+    // Fetch the full (unmasked) value on demand
+    const fullValue = await getSettingFullValue(config.key);
     setValues((prev) => ({
       ...prev,
-      [config.key]: existing?.value ?? "",
+      [config.key]: fullValue ?? "",
     }));
     if (config.hasExpiry) {
+      const existing = getSetting(config.key);
       setExpiries((prev) => ({
         ...prev,
         [config.key]: existing?.expiresAt
@@ -314,7 +312,7 @@ export default function SettingsPage() {
               {setting && !isEditing && (
                 <div className="mt-3 rounded-lg ad-bg-elevated px-3 py-2">
                   <p className="font-mono text-xs ad-text-secondary">
-                    {maskValue(setting.value)}
+                    {setting.value}
                   </p>
                   <p className="mt-1 text-xs ad-text-muted">
                     Last updated:{" "}

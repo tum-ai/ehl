@@ -6,12 +6,14 @@ import { ChapterStatsPanel } from "@/components/admin/stats/chapter-stats-panel"
 import Link from "next/link";
 import { ChapterEditWrapper } from "./chapter-edit-wrapper";
 import type { ChapterStatus } from "@/lib/types";
+import { requireAdminPage } from "@/lib/admin-auth";
 
 interface PageProps {
   params: Promise<{ id: string }>;
 }
 
 export default async function AdminChapterEditPage({ params }: PageProps) {
+  await requireAdminPage();
   const { id } = await params;
   const chapter = await getChapterByIdAdmin(id);
 

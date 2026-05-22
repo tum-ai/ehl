@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { redirect } from "next/navigation";
 import { getSession } from "@/lib/actions/auth";
 
 /**
@@ -25,6 +26,18 @@ export async function requireAdmin(): Promise<NextResponse | null> {
  *   const adminError = await requireAdminAction();
  *   if (adminError) return { error: adminError };
  */
+/**
+ * Verify the caller is an authenticated admin (for Server Component pages).
+ * Redirects to /admin/login if not authorized. Call at the top of admin pages
+ * as defense-in-depth behind middleware.
+ */
+export async function requireAdminPage(): Promise<void> {
+  const session = await getSession();
+  if (!session || session.profile?.role !== "admin") {
+    redirect("/admin/login");
+  }
+}
+
 export async function requireAdminAction(): Promise<string | null> {
   const session = await getSession();
   if (!session || session.profile?.role !== "admin") {

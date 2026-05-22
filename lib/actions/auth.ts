@@ -299,7 +299,6 @@ export async function requestPasswordReset(formData: FormData) {
       to: email,
       subject: "Reset your EHL password",
       html,
-      skipRateLimit: true,
     });
   } catch (err) {
     console.error("Failed to send password reset email:", err);
