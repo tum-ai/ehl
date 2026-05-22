@@ -25,8 +25,9 @@ export function WelcomeEmail({ teamName, presidentName, members, isPresident, re
 
       {isPresident ? (
         <Text>
-          As team president, you manage the roster and handle all match registrations.
-          Make sure to check the upcoming matches and register your team.
+          As team president, you must be present at every match your team participates in
+          and are responsible for selecting challenges. Each member still applies individually,
+          but you coordinate participation and represent the team on match day.
         </Text>
       ) : (
         <Text>

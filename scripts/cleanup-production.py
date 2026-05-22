@@ -841,7 +841,7 @@ SUMMARY
     print(f"\n[8/8] Finalizing...")
     sql_exec("""
         UPDATE chapters SET status = 'completed' WHERE slug = 'munich-1';
-        UPDATE chapters SET status = 'announced' WHERE slug != 'munich-1' AND status = 'draft';
+        UPDATE chapters SET status = 'announced' WHERE slug != 'munich-1';
         UPDATE chapters SET date = '2026-06-01', date_end = NULL WHERE slug = 'berlin';
         CREATE TRIGGER event_log_no_update
             BEFORE UPDATE OR DELETE ON event_log

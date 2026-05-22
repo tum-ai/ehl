@@ -17,7 +17,7 @@ export function TeamInviteEmail({
   inviteToken,
 }: TeamInviteEmailProps) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ehl.gg";
-  const inviteUrl = `${baseUrl}/register?invite=${inviteToken}`;
+  const inviteUrl = `${baseUrl}/invite/${inviteToken}`;
   const displayName = recipientName || recipientEmail;
 
   return (
