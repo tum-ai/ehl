@@ -89,6 +89,31 @@ export async function addAdminEmail(email: string) {
     return { error: error.message };
   }
 
+  // Pre-provision auth user so Google OAuth login works
+  // (Supabase has signups disabled; without this, first OAuth login fails with signup_disabled)
+  const { data: existingProfile } = await adminClient
+    .from("profiles")
+    .select("id")
+    .eq("email", normalized)
+    .single();
+
+  if (!existingProfile) {
+    const { data: authUser } = await adminClient.auth.admin.createUser({
+      email: normalized,
+      email_confirm: true,
+      user_metadata: { name: normalized.split("@")[0] },
+    });
+
+    if (authUser?.user) {
+      await adminClient.from("profiles").insert({
+        id: authUser.user.id,
+        email: normalized,
+        name: normalized.split("@")[0],
+        role: "admin",
+      });
+    }
+  }
+
   logEvent({
     action: "admin.email_added",
     entityType: "admin_emails",
