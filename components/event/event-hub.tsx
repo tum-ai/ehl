@@ -276,6 +276,13 @@ export function EventHub({ chapterId, chapterName, chapterSlug }: EventHubProps)
                 <p className="text-sm text-text-secondary">
                   Challenge registration is not open yet. The organizers will enable it soon.
                 </p>
+              ) : teamMembers.length < 2 ? (
+                <div className="rounded-lg border border-gold/30 bg-gold/5 p-4">
+                  <p className="text-sm font-medium text-gold">Your team needs more members</p>
+                  <p className="mt-1 text-sm text-text-secondary">
+                    You need at least 2 team members to register for a challenge. Invite someone from your dashboard or accept join requests.
+                  </p>
+                </div>
               ) : (
                 <ChallengeSelector
                   chapterId={chapterId}
