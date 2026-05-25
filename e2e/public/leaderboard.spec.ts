@@ -8,7 +8,7 @@ test.describe("Leaderboard page", () => {
 
   test("page loads with heading and match count", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "Standings" })).toBeVisible();
-    await expect(page.getByText(/of 6 matches completed/)).toBeVisible();
+    await expect(page.getByText(/of \d+ matches completed/)).toBeVisible();
   });
 
   test("shows all 6 teams in the table", async ({ page }) => {

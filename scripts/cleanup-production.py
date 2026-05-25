@@ -660,6 +660,7 @@ SUMMARY
     DELETE FROM profiles WHERE email NOT IN ({admin_list});
     DELETE FROM auth.users WHERE email NOT IN ({admin_list});
     DELETE FROM challenges;
+    DELETE FROM chapters WHERE slug = 'berlin';
     COMMIT;
     """
     r = sql_exec(nuke_sql, token, "NUKE")
@@ -856,7 +857,6 @@ SUMMARY
     sql_exec("""
         UPDATE chapters SET status = 'completed' WHERE slug = 'munich-1';
         UPDATE chapters SET status = 'announced' WHERE slug != 'munich-1';
-        UPDATE chapters SET date = '2026-06-01', date_end = NULL WHERE slug = 'berlin';
         CREATE TRIGGER event_log_no_update
             BEFORE UPDATE OR DELETE ON event_log
             FOR EACH ROW EXECUTE FUNCTION prevent_event_log_mutation();

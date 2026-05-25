@@ -46,6 +46,7 @@ export {
   getChapterBySlug,
   getChapterById,
   getChapterByIdAdmin,
+  getChapterStats,
   getCompletedChaptersCount,
   getScores,
   getScoresForChapter,

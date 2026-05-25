@@ -309,6 +309,48 @@ export async function getChapterReadiness(chapterId: string) {
   return { checks, nextStatus };
 }
 
+// ─── Create Chapter ───────────────────────────────────────
+
+export async function createNewChapter(): Promise<{ error?: string; id?: string }> {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const adminClient = createAdminClient();
+
+  const slug = `new-chapter-${Date.now()}`;
+  const { data, error } = await adminClient
+    .from("chapters")
+    .insert({
+      name: "New Chapter",
+      slug,
+      city: "",
+      country: "",
+      country_code: "",
+      description: "",
+      status: "draft",
+      is_finale: false,
+    })
+    .select("id")
+    .single();
+
+  if (error) return { error: error.message };
+
+  await recalculateMatchNumbers(adminClient);
+
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "chapter.created",
+    entityType: "chapter",
+    entityId: data.id,
+    actorId,
+    actorType: "admin",
+    delta: { slug },
+  });
+
+  revalidatePath("/admin/chapters");
+  revalidatePath("/matches");
+  return { id: data.id };
+}
+
 // ─── Chapter Details (unified save) ──────────────────────
 
 export async function updateChapterDetails(

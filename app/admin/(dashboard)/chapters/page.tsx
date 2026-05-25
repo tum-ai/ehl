@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { getChaptersAdmin } from "@/lib/queries";
 import { formatDate } from "@/lib/utils";
 import { requireAdminPage } from "@/lib/admin-auth";
+import { CreateChapterButton } from "./create-chapter-button";
 
 const statusVariant: Record<string, "completed" | "announced" | "upcoming"> = {
   completed: "completed",
@@ -30,6 +31,7 @@ export default async function AdminChaptersPage() {
             Manage Season 1 matches
           </p>
         </div>
+        <CreateChapterButton />
       </div>
 
       <div className="mt-8 overflow-x-auto">

@@ -72,7 +72,7 @@ export function WelcomeEmail({ teamName, presidentName, members, isPresident, re
       </Button>
 
       <Text muted>
-        Season 1: 6 matches across 4 European cities. Top 15 teams qualify for the Grand Finale in Munich.
+        Season 1: Matches across European cities. Top 15 teams qualify for the Grand Finale in Munich.
       </Text>
     </EmailLayout>
   );

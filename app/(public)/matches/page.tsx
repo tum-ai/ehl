@@ -5,13 +5,16 @@ import { Section } from "@/components/ui/section";
 import { Badge } from "@/components/ui/badge";
 import { CityIcon } from "@/components/ui/city-icon";
 import { TimelineScrollHighlight } from "@/components/chapter/TimelineScrollHighlight";
-import { getChapters, getAllPartners } from "@/lib/queries";
+import { getChapters, getAllPartners, getChapterStats } from "@/lib/queries";
 import { formatDateRange, cn } from "@/lib/utils";
 
-export const metadata: Metadata = {
-  title: "Matches",
-  description: "The Tour: 6 matches across Europe",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const { totalMatches } = await getChapterStats();
+  return {
+    title: "Matches",
+    description: `The Tour: ${totalMatches} matches across Europe`,
+  };
+}
 
 const statusBadgeVariant: Record<string, "completed" | "announced" | "upcoming"> = {
   completed: "completed",
@@ -29,9 +32,10 @@ const statusLabel: Record<string, string> = {
 };
 
 export default async function ChaptersPage() {
-  const [chapters, allPartners] = await Promise.all([
+  const [chapters, allPartners, stats] = await Promise.all([
     getChapters(),
     getAllPartners(),
+    getChapterStats(),
   ]);
 
   return (
@@ -47,7 +51,7 @@ export default async function ChaptersPage() {
           <span className="shimmer-text">The Tour</span>
         </h1>
         <p className="mt-3 font-hero-body text-text-secondary">
-          6 hackathon matches across Europe
+          {stats.totalMatches} hackathon matches across Europe
         </p>
       </div>
 

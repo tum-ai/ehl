@@ -63,6 +63,18 @@ export async function getChapterByIdAdmin(
   return data ? toChapter(data) : null;
 }
 
+export async function getChapterStats(): Promise<{ totalMatches: number; cities: number; cityNames: string[] }> {
+  const supabase = getClient();
+  const { data } = await supabase.from("chapters").select("city");
+  const chapters = data ?? [];
+  const citySet = new Set(chapters.map((c) => c.city).filter(Boolean));
+  return {
+    totalMatches: chapters.length,
+    cities: citySet.size,
+    cityNames: [...citySet],
+  };
+}
+
 export async function getCompletedChaptersCount(): Promise<number> {
   const supabase = getClient();
   const { count } = await supabase

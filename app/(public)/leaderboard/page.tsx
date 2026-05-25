@@ -3,7 +3,7 @@ import { Section } from "@/components/ui/section";
 import { Podium } from "@/components/leaderboard/podium";
 import { LeaderboardTable } from "@/components/leaderboard/table";
 import { ScoringExplainer } from "@/components/leaderboard/scoring-explainer";
-import { getLeaderboard, getCompletedChaptersCount } from "@/lib/queries";
+import { getLeaderboard, getCompletedChaptersCount, getChapterStats } from "@/lib/queries";
 import { LimitBanner } from "@/components/ui/limit-banner";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 
@@ -13,9 +13,10 @@ export const metadata: Metadata = {
 };
 
 export default async function LeaderboardPage() {
-  const [leaderboard, completedCount] = await Promise.all([
+  const [leaderboard, completedCount, stats] = await Promise.all([
     getLeaderboard(),
     getCompletedChaptersCount(),
+    getChapterStats(),
   ]);
 
   return (
@@ -31,7 +32,7 @@ export default async function LeaderboardPage() {
           <span className="shimmer-text">Standings</span>
         </h1>
         <p className="mt-3 font-hero-body text-text-secondary">
-          {completedCount} of 6 matches completed
+          {completedCount} of {stats.totalMatches} matches completed
         </p>
       </div>
 

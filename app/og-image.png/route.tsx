@@ -102,7 +102,7 @@ export async function GET() {
             marginTop: 24,
           }}
         >
-          Munich · Paris · Berlin · Zurich
+          Munich · Paris · Zurich
         </div>
       </div>
     ),

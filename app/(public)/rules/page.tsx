@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Section } from "@/components/ui/section";
 import { PLACEMENT_POINTS, PARTICIPATION_POINTS } from "@/lib/scoring";
 import { getPlacementLabel, cn } from "@/lib/utils";
+import { getChapterStats } from "@/lib/queries";
 
 export const metadata: Metadata = {
   title: "Rules",
@@ -126,10 +127,10 @@ function ScoringDiagram() {
 }
 
 // ── Visual: Season Flow ─────────────────────────────────────
-function SeasonFlowDiagram() {
+function SeasonFlowDiagram({ totalMatches, totalCities }: { totalMatches: number; totalCities: number }) {
   const steps = [
     { label: "Register Team", desc: "Form a team of 2-5 members", icon: "team", color: "purple" as const },
-    { label: "6 Matches", desc: "Compete across 4 European cities", icon: "hack", color: "purple" as const },
+    { label: `${totalMatches} Matches`, desc: `Compete across ${totalCities} European cities`, icon: "hack", color: "purple" as const },
     { label: "Earn Points", desc: "Top 5 placements score points", icon: "points", color: "gold" as const },
     { label: "Top 15 Qualify", desc: "Season leaderboard ranking", icon: "qualify", color: "gold" as const },
     { label: "Grand Finale", desc: "Championship in Munich", icon: "trophy", color: "gold" as const },
@@ -198,7 +199,8 @@ function SeasonFlowDiagram() {
   );
 }
 
-export default function RulesPage() {
+export default async function RulesPage() {
+  const { totalMatches, cities } = await getChapterStats();
   return (
     <Section className="relative overflow-hidden">
       {/* Ambient glow */}
@@ -219,7 +221,7 @@ export default function RulesPage() {
 
       {/* Visual diagrams */}
       <div className="relative mb-16 grid gap-6 lg:grid-cols-3">
-        <SeasonFlowDiagram />
+        <SeasonFlowDiagram totalMatches={totalMatches} totalCities={cities} />
         <TeamStructureDiagram />
         <ScoringDiagram />
       </div>

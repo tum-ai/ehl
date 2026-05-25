@@ -8,7 +8,7 @@ test.describe("Chapters timeline page", () => {
 
   test("page loads with heading", async ({ page }) => {
     await expect(page.getByRole("heading", { name: "The Tour" })).toBeVisible();
-    await expect(page.getByText("6 hackathon matches across Europe")).toBeVisible();
+    await expect(page.getByText(/\d+ hackathon matches across Europe/)).toBeVisible();
   });
 
   test("shows non-draft chapters (Munich and Zurich visible, Berlin hidden)", async ({ page }) => {

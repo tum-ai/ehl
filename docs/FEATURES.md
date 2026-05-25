@@ -21,7 +21,7 @@ Complete list of every feature the platform provides. Organized by user role.
 Accessible to everyone without login.
 
 ### Landing Page (`/`)
-- Animated hero with map of Europe and city markers (Munich, Paris, Berlin, Zurich)
+- Animated hero with map of Europe and city markers (dynamic from DB, animation includes all configured cities)
 - Dynamic "Apply Now" CTA when a chapter has open applications (falls back to "View Leaderboard")
 - "How it Works" explainer section
 - Tour timeline showing all season matches
@@ -49,7 +49,7 @@ Accessible to everyone without login.
 - Season scores per match
 
 ### Rules (`/rules`)
-- Season structure (6 matches, 4 cities)
+- Season structure (dynamic match/city counts from DB)
 - Scoring system explanation
 - Team formation rules
 

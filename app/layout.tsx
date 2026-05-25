@@ -48,7 +48,7 @@ export const metadata: Metadata = {
     template: "%s | EHL",
   },
   description:
-    "Europe's first competitive hackathon league. 6 matches across Europe. One leaderboard. One champion.",
+    "Europe's first competitive hackathon league. Matches across Europe. One leaderboard. One champion.",
   metadataBase: new URL("https://ehl.gg"),
   openGraph: {
     type: "website",
@@ -56,7 +56,7 @@ export const metadata: Metadata = {
     siteName: "European Hackathon League",
     title: "European Hackathon League",
     description:
-      "Europe's first competitive hackathon league. 6 matches across Europe. One leaderboard. One champion.",
+      "Europe's first competitive hackathon league. Matches across Europe. One leaderboard. One champion.",
     images: [
       {
         url: "/og-image.png",
@@ -70,7 +70,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "European Hackathon League",
     description:
-      "Europe's first competitive hackathon league. 6 matches across Europe. One leaderboard. One champion.",
+      "Europe's first competitive hackathon league. Matches across Europe. One leaderboard. One champion.",
     images: ["/og-image.png"],
   },
 };

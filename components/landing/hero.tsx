@@ -1,7 +1,10 @@
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
+import { getChapterStats } from "@/lib/queries";
 
-export function Hero() {
+export async function Hero() {
+  const { totalMatches, cities } = await getChapterStats();
+
   return (
     <section className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden px-4 text-center">
       {/* ── Noise texture ── */}
@@ -54,7 +57,7 @@ export function Hero() {
         </p>
 
         <p className="animate-fade-in-up mt-4 max-w-lg text-base text-text-secondary sm:text-lg" style={{ animationDelay: "0.5s" }}>
-          6 matches. 4 cities. One champion.
+          {totalMatches} matches. {cities} cities. One champion.
         </p>
 
         {/* CTAs */}

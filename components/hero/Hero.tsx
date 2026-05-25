@@ -80,7 +80,7 @@ function useMapDimensions() {
   return dimensions;
 }
 
-export function HeroSection({ applyHref, applyChapterName }: { applyHref?: string; applyChapterName?: string } = {}) {
+export function HeroSection({ applyHref, applyChapterName, totalMatches, totalCities, cityNames }: { applyHref?: string; applyChapterName?: string; totalMatches?: number; totalCities?: number; cityNames?: string[] } = {}) {
   const phase = useHeroAnimation();
   const { width, height } = useMapDimensions();
   const [cityPositions, setCityPositions] = useState<CityPosition[]>([]);
@@ -230,7 +230,7 @@ export function HeroSection({ applyHref, applyChapterName }: { applyHref?: strin
             ease: EASING.enter,
           }}
         >
-          6 matches. 4 cities. One champion.
+          {totalMatches ?? 5} matches. {totalCities ?? 3} cities. One champion.
         </motion.p>
 
         {/* CTAs */}
@@ -296,7 +296,7 @@ export function HeroSection({ applyHref, applyChapterName }: { applyHref?: strin
         animate={phase === "complete" ? { opacity: 1 } : { opacity: 0 }}
         transition={{ duration: 0.5, delay: 0.4 }}
       >
-        Munich &middot; Paris &middot; Berlin &middot; Zurich
+        {(cityNames ?? ["Munich", "Paris", "Zurich"]).join(" \u00B7 ")}
       </motion.p>
     </section>
   );
