@@ -857,6 +857,22 @@ SUMMARY
     sql_exec("""
         UPDATE chapters SET status = 'completed' WHERE slug = 'munich-1';
         UPDATE chapters SET status = 'announced' WHERE slug != 'munich-1';
+
+        -- Recalculate match_number sequentially by date order
+        WITH numbered AS (
+            SELECT id, name, is_finale,
+                   ROW_NUMBER() OVER (ORDER BY COALESCE(date, '9999-12-31'), created_at) AS rn
+            FROM chapters
+        )
+        UPDATE chapters c
+        SET match_number = n.rn,
+            name = CASE
+                WHEN NOT n.is_finale AND c.name ~ '^Match [0-9]+$' THEN 'Match ' || n.rn
+                ELSE c.name
+            END
+        FROM numbered n
+        WHERE c.id = n.id;
+
         CREATE TRIGGER event_log_no_update
             BEFORE UPDATE OR DELETE ON event_log
             FOR EACH ROW EXECUTE FUNCTION prevent_event_log_mutation();
