@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { lockSubmissionsInternal } from "@/lib/actions/submissions";
+import { lockSubmissionsCore } from "@/lib/submissions-lock";
 
 // Called by Vercel cron or external scheduler to auto-close applications/challenge selection
 export async function GET(request: Request) {
@@ -73,8 +73,8 @@ export async function GET(request: Request) {
       .eq("chapter_id", chapter.id);
 
     for (const challenge of challenges ?? []) {
-      // lockSubmissionsInternal handles forking+syncing+jury access (no session auth needed for cron)
-      await lockSubmissionsInternal(challenge.id);
+      // lockSubmissionsCore handles forking+syncing+jury access (no session auth needed for cron)
+      await lockSubmissionsCore(challenge.id);
 
       // Queue code reviews for challenges with review enabled
       if (challenge.code_review_enabled) {
