@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { requireAdminAction } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
+import { sendEmailAfterResponse } from "@/lib/email-deferred";
 import {
   renderApplicationReceivedEmail,
   renderApplicationAcceptedEmail,
@@ -212,20 +213,22 @@ export async function submitApplication(formData: FormData) {
     delta: { created: { email, chapter_id: chapterId } },
   });
 
-  // Send confirmation email (fire and forget)
+  // Send confirmation email after the response; a floating promise would be
+  // dropped when the serverless instance freezes.
   const dateStr = formatDateRange(chapter.date, chapter.date_end);
-  renderApplicationReceivedEmail({
-    firstName,
-    chapterName: chapter.name as string,
-    chapterCity: `${chapter.city}, ${chapter.country}`,
-    chapterDate: dateStr,
-  }).then((html) =>
-    sendEmail({
+  sendEmailAfterResponse(`application confirmation to ${email}`, async () => {
+    const html = await renderApplicationReceivedEmail({
+      firstName,
+      chapterName: chapter.name as string,
+      chapterCity: `${chapter.city}, ${chapter.country}`,
+      chapterDate: dateStr,
+    });
+    await sendEmail({
       to: email,
       subject: `Application received: ${chapter.name}`,
       html,
-    })
-  ).catch((err) => console.error("Failed to send confirmation email:", err));
+    });
+  });
 
   return { success: true, cvUploadFailed };
 }

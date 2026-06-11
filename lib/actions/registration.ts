@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
+import { sendEmailAfterResponse } from "@/lib/email-deferred";
 import {
   renderWelcomeEmail,
   renderVerificationCodeEmail,
@@ -537,17 +538,19 @@ export async function verifyAndRegister(verificationId: string, code: string, re
         inviteToken: invite.token as string,
       });
 
-      sendEmail({
-        to: member.email,
-        subject: `Join ${teamName} in the European Hackathon League`,
-        html: inviteHtml,
-      }).catch((err) => console.error(`Failed to send invite to ${member.email}:`, err));
+      sendEmailAfterResponse(`team invite to ${member.email}`, () =>
+        sendEmail({
+          to: member.email,
+          subject: `Join ${teamName} in the European Hackathon League`,
+          html: inviteHtml,
+        })
+      );
     }
   }
 
   // Send welcome email to president
-  sendWelcomeEmails({ teamName, presidentName, presidentEmail, members }).catch(
-    (err) => console.error("Failed to send welcome emails:", err)
+  sendEmailAfterResponse(`welcome emails for ${teamName}`, () =>
+    sendWelcomeEmails({ teamName, presidentName, presidentEmail, members })
   );
 
   // Delete the consumed verification record (encrypted password no longer needed).

@@ -174,7 +174,7 @@ This is an **open-source public repository**. Every commit, branch name, PR titl
 
 ### Email
 - Every email must use the EHL branded layout from `lib/emails/layout.tsx`. Never send plain text or default Supabase templates.
-- Verification code emails are awaited (blocking). Invite/welcome emails are fire-and-forget with error logging.
+- Verification code emails are awaited (blocking). All other transactional emails (confirmations, invites, welcome) must be sent via `sendEmailAfterResponse()` from `lib/email-deferred.ts`. Never use floating promises for emails: on Vercel the function freezes after the response and un-awaited sends are silently dropped.
 - Add new email templates to `lib/emails/`, add render function to `lib/emails/render.ts`.
 
 ### Admin Panel
