@@ -22,8 +22,10 @@ export function LandingPodiumClient({ entries }: LandingPodiumClientProps) {
 
   const rank1 = entries.filter((e) => e.rank === 1);
 
-  // All tied for 1st (current state: 4 teams)
-  if (rank1.length > 2) {
+  // Two or more tied for 1st: there is no distinct rank 2, so render the tied
+  // leaders consistently (matches components/leaderboard/podium.tsx) instead of
+  // the 2nd/1st/3rd layout, which would have no rank-2 entry to show.
+  if (rank1.length >= 2) {
     return (
       <div ref={ref}>
         {/* Trophy + tied banner */}

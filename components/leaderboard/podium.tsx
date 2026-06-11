@@ -168,45 +168,8 @@ export function Podium({ entries, compact = false }: PodiumProps) {
     return null;
   }
 
-  if (top3.length < 3) {
-    // 2 tied for 1st
-    if (rank1.length === 2) {
-      return (
-        <div ref={ref}>
-          <div className="mb-10 flex flex-col items-center gap-3">
-            <TrophyIcon
-              className="h-10 w-10 text-ci-jasmine drop-shadow-[0_0_20px_rgba(255,206,119,0.5)] sm:h-12 sm:w-12"
-            />
-            <div className="flex items-center gap-3">
-              <div className="h-px w-10 bg-gradient-to-r from-transparent to-ci-jasmine/40" />
-              <span className="font-hero-heading text-xs font-black uppercase tracking-[0.3em] text-ci-jasmine">
-                2 Teams Tied for 1st
-              </span>
-              <div className="h-px w-10 bg-gradient-to-l from-transparent to-ci-jasmine/40" />
-            </div>
-          </div>
-          <div className="flex items-end justify-center gap-3 sm:gap-5">
-            {rank1.map((entry, i) => (
-              <div key={entry.team.id} className="w-full max-w-[30%] sm:max-w-[200px]">
-                <GlassPillar
-                  rank={1}
-                  teamName={entry.team.name}
-                  points={entry.totalPoints}
-                  color={RANK_COLORS[1]}
-                  height={heights[1] ?? "h-44 sm:h-56"}
-                  delay={i * 0.12}
-                  isInView={isInView}
-                />
-              </div>
-            ))}
-          </div>
-          <div className="mx-auto mt-0 h-[2px] max-w-lg bg-gradient-to-r from-transparent via-ci-jasmine/20 to-transparent" />
-        </div>
-      );
-    }
-    return null;
-  }
-
+  // Only reached when ranks 1, 2 and 3 are all distinct (guaranteed by
+  // hasDistinctTop3 above), so these are present.
   const second = top3.find((e) => e.rank === 2)!;
   const first = top3.find((e) => e.rank === 1)!;
   const third = top3.find((e) => e.rank === 3)!;
