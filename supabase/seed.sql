@@ -286,11 +286,14 @@ INSERT INTO screening_scores (application_id, screener_id, score, notes) VALUES
 -- PARTNERS
 -- ═══════════════════════════════════════════════════════════════
 
+-- Logo URLs must use an `images.remotePatterns` host (next.config.ts derives
+-- it from NEXT_PUBLIC_SUPABASE_URL) or next/image throws and 500s the landing
+-- page. Use the Supabase Storage public path so it works in any environment.
 INSERT INTO partners (id, name, logo_url, url, tier, description, display_order, chapter_id) VALUES
-  ('50000000-0000-0000-0000-000000000001', 'TechCorp', 'https://example.com/techcorp.png', 'https://techcorp.example.com', 'title', 'Title sponsor for Match 1', 1, 'e0000000-0000-0000-0000-000000000001'),
-  ('50000000-0000-0000-0000-000000000002', 'EcoTech', 'https://example.com/ecotech.png', 'https://ecotech.example.com', 'challenge', 'Challenge sponsor', 2, 'e0000000-0000-0000-0000-000000000001'),
-  ('50000000-0000-0000-0000-000000000003', 'DevTools Inc', 'https://example.com/devtools.png', 'https://devtools.example.com', 'tech', 'Tech partner', 3, 'e0000000-0000-0000-0000-000000000001'),
-  ('50000000-0000-0000-0000-000000000004', 'UrbanAI', 'https://example.com/urbanai.png', 'https://urbanai.example.com', 'challenge', 'Challenge sponsor for Match 2', 1, 'e0000000-0000-0000-0000-000000000002');
+  ('50000000-0000-0000-0000-000000000001', 'TechCorp', '/images/ehl-logo.png', 'https://techcorp.example.com', 'title', 'Title sponsor for Match 1', 1, 'e0000000-0000-0000-0000-000000000001'),
+  ('50000000-0000-0000-0000-000000000002', 'EcoTech', '/images/ehl-logo.png', 'https://ecotech.example.com', 'challenge', 'Challenge sponsor', 2, 'e0000000-0000-0000-0000-000000000001'),
+  ('50000000-0000-0000-0000-000000000003', 'DevTools Inc', '/images/ehl-logo.png', 'https://devtools.example.com', 'tech', 'Tech partner', 3, 'e0000000-0000-0000-0000-000000000001'),
+  ('50000000-0000-0000-0000-000000000004', 'UrbanAI', '/images/ehl-logo.png', 'https://urbanai.example.com', 'challenge', 'Challenge sponsor for Match 2', 1, 'e0000000-0000-0000-0000-000000000002');
 
 COMMIT;
 

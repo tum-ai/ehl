@@ -95,6 +95,79 @@ export function Podium({ entries, compact = false }: PodiumProps) {
 
   // Classic top 3 (2nd / 1st / 3rd order)
   const top3 = entries.filter((e) => e.rank <= 3).slice(0, 3);
+
+  // The classic 2nd/1st/3rd podium only works when distinct ranks 1, 2 and 3
+  // all exist. With ties (e.g. ranks [1,1,3] — two share 1st, so there is no
+  // rank 2) those slots are missing; render the tied-for-1st layout instead of
+  // crashing on a missing entry.
+  const hasDistinctTop3 =
+    top3.length === 3 &&
+    top3.some((e) => e.rank === 1) &&
+    top3.some((e) => e.rank === 2) &&
+    top3.some((e) => e.rank === 3);
+
+  if (!hasDistinctTop3) {
+    // 2+ tied for 1st (with or without additional ranked teams below)
+    if (rank1.length >= 2) {
+      const tied = rank1.slice(0, 3);
+      return (
+        <div ref={ref}>
+          <div className="mb-10 flex flex-col items-center gap-3">
+            <TrophyIcon className="h-10 w-10 text-ci-jasmine drop-shadow-[0_0_20px_rgba(255,206,119,0.5)] sm:h-12 sm:w-12" />
+            <div className="flex items-center gap-3">
+              <div className="h-px w-10 bg-gradient-to-r from-transparent to-ci-jasmine/40" />
+              <span className="font-hero-heading text-xs font-black uppercase tracking-[0.3em] text-ci-jasmine">
+                {rank1.length} Teams Tied for 1st
+              </span>
+              <div className="h-px w-10 bg-gradient-to-l from-transparent to-ci-jasmine/40" />
+            </div>
+          </div>
+          <div className="flex items-end justify-center gap-3 sm:gap-5">
+            {tied.map((entry, i) => (
+              <div key={entry.team.id} className="w-full max-w-[30%] sm:max-w-[200px]">
+                <GlassPillar
+                  rank={1}
+                  teamName={entry.team.name}
+                  points={entry.totalPoints}
+                  color={RANK_COLORS[1]}
+                  height={heights[1] ?? "h-44 sm:h-56"}
+                  delay={i * 0.12}
+                  isInView={isInView}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mx-auto mt-0 h-[2px] max-w-lg bg-gradient-to-r from-transparent via-ci-jasmine/20 to-transparent" />
+        </div>
+      );
+    }
+    // A single leader but no clean 2nd/3rd (e.g. ranks [1,3,3]): show whatever
+    // top entries exist as equal pillars rather than forcing the 3-slot layout.
+    if (top3.length > 0) {
+      return (
+        <div ref={ref} className="mx-auto max-w-2xl">
+          <div className="flex items-end justify-center gap-1.5 sm:gap-5">
+            {top3.map((entry, i) => (
+              <div key={entry.team.id} className="w-full min-w-0 max-w-[33%] sm:max-w-[200px]">
+                <GlassPillar
+                  rank={entry.rank}
+                  teamName={entry.team.name}
+                  points={entry.totalPoints}
+                  color={RANK_COLORS[entry.rank] ?? RANK_COLORS[3]}
+                  height={heights[entry.rank] ?? "h-24 sm:h-32"}
+                  delay={i * 0.12}
+                  isInView={isInView}
+                />
+              </div>
+            ))}
+          </div>
+          <div className="mx-auto mt-0 h-[2px] max-w-lg bg-gradient-to-r from-transparent via-ci-jasmine/20 to-transparent" />
+        </div>
+      );
+    }
+    return null;
+  }
+
   if (top3.length < 3) {
     // 2 tied for 1st
     if (rank1.length === 2) {
