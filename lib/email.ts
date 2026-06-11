@@ -10,6 +10,12 @@ const transporter = nodemailer.createTransport({
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD,
   },
+  // Pool connections so bulk sends (acceptance/rejection for hundreds of
+  // applicants) reuse a few TCP/auth sessions instead of opening one per
+  // message — the latter made each send ~1-2s and timed out the function.
+  pool: true,
+  maxConnections: 3,
+  maxMessages: 100,
   connectionTimeout: 10_000,  // 10s to connect
   greetingTimeout: 10_000,    // 10s for greeting
   socketTimeout: 15_000,      // 15s for socket inactivity
