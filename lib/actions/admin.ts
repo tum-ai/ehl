@@ -8,6 +8,15 @@ import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
 import { logEvent, logEventStrict } from "@/lib/event-log";
+import type { ChapterStatus } from "@/lib/types";
+import {
+  isBackwardTransition,
+  getTargetIndex,
+  getNextStatus,
+  getStatusChecksForTarget,
+  type StatusCheck,
+  type StatusCheckCounts,
+} from "@/lib/chapter-validation";
 
 // ─── Helpers ──────────────────────────────────────────────
 
@@ -106,177 +115,90 @@ export async function updateChapterStatus(chapterId: string, status: string) {
   return { success: true };
 }
 
-interface StatusCheck {
-  label: string;
-  passed: boolean;
-}
-
 async function getStatusChecks(
   adminClient: ReturnType<typeof createAdminClient>,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   chapter: any,
   targetStatus: string
 ): Promise<StatusCheck[]> {
-  const checks: StatusCheck[] = [];
+  const currentStatus = chapter.status as ChapterStatus;
+  const target = targetStatus as ChapterStatus;
 
-  // Going backwards is always allowed (no checks)
-  const flow = [
-    "draft", "announced", "applications_open", "preparation", "challenge_selection",
-    "submissions_open", "pitching", "completed",
-  ];
-  const currentIdx = flow.indexOf(chapter.status);
-  const targetIdx = flow.indexOf(targetStatus);
-  if (targetIdx <= currentIdx) return [];
+  // Backward transitions need no checks.
+  if (isBackwardTransition(currentStatus, target)) return [];
 
-  // ─── Announced ────────────────────────────────────────
-  if (targetIdx >= 1) {
-    checks.push({
-      label: "Name is set",
-      passed: !!chapter.name?.trim(),
-    });
-    checks.push({
-      label: "City is set",
-      passed: !!chapter.city?.trim(),
-    });
-    checks.push({
-      label: "Country is set",
-      passed: !!chapter.country?.trim(),
-    });
-    checks.push({
-      label: "Description is set",
-      passed: !!chapter.description?.trim(),
-    });
-  }
+  const targetIdx = getTargetIndex(target);
+  const idxOf = (s: ChapterStatus) => getTargetIndex(s);
 
-  // ─── Applications Open ────────────────────────────────
-  if (targetIdx >= 2) {
-    // Date must be exact (not approximate). Approximate dates are stored as YYYY-MM-01.
-    const dateStr = chapter.date ? String(chapter.date) : null;
-    const hasExactDate = !!dateStr && new Date(dateStr + "T00:00:00").getDate() !== 1;
-    checks.push({
-      label: "Exact start date is set (not approximate)",
-      passed: hasExactDate,
-    });
-    checks.push({
-      label: "Application deadline is set",
-      passed: !!chapter.application_deadline,
-    });
-  }
+  // Gather only the DB-derived counts the target actually needs, then hand the
+  // flow/field logic to the pure (tested) getStatusChecksForTarget.
+  const counts: StatusCheckCounts = {};
 
-  // ─── Screening/Preparation (idx 3) — no extra checks
-
-  // ─── Challenge Selection / registration_open (idx 4) ──
-  if (targetIdx >= 4) {
-    checks.push({
-      label: "Start date is set",
-      passed: !!chapter.date,
-    });
-    checks.push({
-      label: "End date is set",
-      passed: !!chapter.date_end,
-    });
-
-    const { count: challengeCount } = await adminClient
+  if (targetIdx >= idxOf("challenge_selection")) {
+    const { count } = await adminClient
       .from("challenges")
       .select("id", { count: "exact", head: true })
       .eq("chapter_id", chapter.id);
-
-    checks.push({
-      label: "At least one challenge exists",
-      passed: (challengeCount ?? 0) > 0,
-    });
-    checks.push({
-      label: "Challenge selection deadline is set",
-      passed: !!chapter.challenge_selection_deadline,
-    });
+    counts.challengeCount = count ?? 0;
   }
 
-  // ─── Submissions Open (idx 5) ──────────────────────────
-  if (targetIdx >= 5) {
-    const { count: registrationCount } = await adminClient
+  if (targetIdx >= idxOf("hacking")) {
+    const { count } = await adminClient
       .from("challenge_registrations")
       .select("id", { count: "exact", head: true })
       .eq("chapter_id", chapter.id);
+    counts.registrationCount = count ?? 0;
 
-    checks.push({
-      label: "At least one team is registered",
-      passed: (registrationCount ?? 0) > 0,
-    });
-    checks.push({
-      label: "Submission deadline is set",
-      passed: !!chapter.submission_deadline,
-    });
-
-    // Check code review config for challenges that have review enabled
     const { data: reviewChallenges } = await adminClient
       .from("challenges")
       .select("id, title, code_review_enabled, code_review_config")
       .eq("chapter_id", chapter.id)
       .eq("code_review_enabled", true);
 
-    if (reviewChallenges && reviewChallenges.length > 0) {
-      const unconfigured = reviewChallenges.filter(
-        (c) => !c.code_review_config ||
+    counts.unconfiguredReviewChallenges = (reviewChallenges ?? [])
+      .filter(
+        (c) =>
+          !c.code_review_config ||
           !(c.code_review_config as Record<string, unknown>).models ||
           !(c.code_review_config as Record<string, unknown>).weights
-      );
-      checks.push({
-        label: unconfigured.length > 0
-          ? `Code review not configured for: ${unconfigured.map((c) => c.title).join(", ")}`
-          : "Code review is configured for all challenges with review enabled",
-        passed: unconfigured.length === 0,
-      });
-    }
+      )
+      .map((c) => c.title as string);
   }
 
-  // ─── Pitching (idx 6) ─────────────────────────────────
-  if (targetIdx >= 6) {
+  if (targetIdx >= idxOf("pitching")) {
     const { data: challenges } = await adminClient
       .from("challenges")
       .select("id")
       .eq("chapter_id", chapter.id);
+    const challengeIds = (challenges ?? []).map((c) => c.id);
 
-    if (challenges && challenges.length > 0) {
+    if (challengeIds.length > 0) {
       const { count: submissionCount } = await adminClient
         .from("submissions")
         .select("id", { count: "exact", head: true })
-        .in("challenge_id", challenges.map((c) => c.id));
-
-      checks.push({
-        label: "At least one submission exists",
-        passed: (submissionCount ?? 0) > 0,
-      });
+        .in("challenge_id", challengeIds);
+      counts.submissionCount = submissionCount ?? 0;
+    } else {
+      counts.submissionCount = 0;
     }
 
     const { count: juryCount } = await adminClient
       .from("jury_assignments")
       .select("user_id", { count: "exact", head: true })
-      .in(
-        "challenge_id",
-        (challenges ?? []).map((c) => c.id)
-      );
-
-    checks.push({
-      label: "Jury is assigned to at least one challenge",
-      passed: (juryCount ?? 0) > 0,
-    });
+      .in("challenge_id", challengeIds);
+    counts.juryCount = juryCount ?? 0;
   }
 
-  // ─── Completed (idx 7) ─────────────────────────────────
-  if (targetIdx >= 7) {
-    const { count: scoreCount } = await adminClient
+  if (targetIdx >= idxOf("completed")) {
+    const { count } = await adminClient
       .from("scores")
       .select("id", { count: "exact", head: true })
       .eq("chapter_id", chapter.id)
       .eq("published", true);
-
-    checks.push({
-      label: "Scores are published",
-      passed: (scoreCount ?? 0) > 0,
-    });
+    counts.publishedScoreCount = count ?? 0;
   }
 
-  return checks;
+  return getStatusChecksForTarget(currentStatus, target, chapter, counts);
 }
 
 /**
@@ -296,12 +218,7 @@ export async function getChapterReadiness(chapterId: string) {
 
   if (!chapter) return { checks: [] };
 
-  const flow = [
-    "draft", "announced", "applications_open", "preparation", "challenge_selection",
-    "submissions_open", "pitching", "completed",
-  ];
-  const currentIdx = flow.indexOf(chapter.status as string);
-  const nextStatus = currentIdx < flow.length - 1 ? flow[currentIdx + 1] : null;
+  const nextStatus = getNextStatus(chapter.status as ChapterStatus);
 
   if (!nextStatus) return { checks: [], nextStatus: null };
 
