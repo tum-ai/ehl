@@ -83,7 +83,7 @@ test.describe("Auth guards", () => {
       const response = await page.goto("/register");
 
       expect(response?.status()).toBeLessThan(400);
-      await expect(page.getByText("Register Your Team")).toBeVisible();
+      await expect(page.getByText("Join the EHL")).toBeVisible();
     });
   });
 });

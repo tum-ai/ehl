@@ -12,7 +12,8 @@ export default async function EventPage({ params }: PageProps) {
 
   const session = await getSession();
   if (!session) {
-    redirect(`/auth/login?redirect=/event/${slug}`);
+    // The participant login route is /login (not /auth/login, which 404s).
+    redirect(`/login?redirect=/event/${slug}`);
   }
 
   const chapter = await getChapterBySlug(slug);

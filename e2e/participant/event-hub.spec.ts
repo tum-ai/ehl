@@ -7,7 +7,7 @@ test.describe("Event hub page (unauthenticated)", () => {
 
     // Server-side redirect should send unauthenticated users to the auth login
     // with a redirect parameter back to the event page
-    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 10000 });
+    await expect(page).toHaveURL(/\/login/, { timeout: 10000 });
   });
 
   test("redirect URL includes the original event path", async ({ page }) => {
@@ -30,9 +30,9 @@ test.describe("Event hub page (non-existent event)", () => {
     // If not redirected to login, should show not found message
     // If redirected to login (no session), that is also acceptable
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       // Unauthenticated: redirect is expected
-      expect(url).toContain("/auth/login");
+      expect(url).toContain("/login");
     } else {
       // Authenticated but chapter does not exist
       await expect(page.getByText("Event not found")).toBeVisible({
@@ -54,7 +54,7 @@ test.describe("Event hub page structure (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       // Expected without auth: test documents the redirect behavior
       test.skip(true, "Skipped: requires authenticated session");
       return;
@@ -72,7 +72,7 @@ test.describe("Event hub page structure (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }
@@ -86,7 +86,7 @@ test.describe("Event hub page structure (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }
@@ -102,7 +102,7 @@ test.describe("Event hub page structure (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }
