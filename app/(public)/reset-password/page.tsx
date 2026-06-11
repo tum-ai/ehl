@@ -118,7 +118,7 @@ export default function ResetPasswordPage() {
                   name="password"
                   autoComplete="new-password"
                   required
-                  placeholder="Min. 6 characters"
+                  placeholder="Min. 8 characters"
                   className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
                 />
               </div>

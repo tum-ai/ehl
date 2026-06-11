@@ -16,19 +16,28 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+// Keys must match the chapter_status enum (see lib/types.ts). After migration
+// 00037, the active phases are preparation / challenge_selection / hacking /
+// submissions_open / pitching.
 const statusBadgeVariant: Record<string, "completed" | "announced" | "upcoming"> = {
   completed: "completed",
   announced: "announced",
   applications_open: "announced",
-  screening: "announced",
-  registration_open: "announced",
+  preparation: "announced",
+  challenge_selection: "announced",
+  hacking: "announced",
+  submissions_open: "announced",
+  pitching: "announced",
   draft: "upcoming",
 };
 
 const statusLabel: Record<string, string> = {
   applications_open: "Applications Open",
-  screening: "Preparation",
-  registration_open: "Challenge Selection",
+  preparation: "Preparation",
+  challenge_selection: "Challenge Selection",
+  hacking: "Hacking",
+  submissions_open: "Submissions Open",
+  pitching: "Pitching",
 };
 
 export default async function ChaptersPage() {

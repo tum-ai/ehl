@@ -288,7 +288,7 @@ function RegisterFlow() {
                 defaultValue={prefillEmail ?? undefined}
                 autoComplete="email"
               />
-              <InputField label="Password" name="password" type="password" required placeholder="Min. 6 characters" autoComplete="new-password" />
+              <InputField label="Password" name="password" type="password" required placeholder="Min. 8 characters" autoComplete="new-password" />
 
               {!inviteToken && (
                 <label className="flex items-center gap-3 rounded-lg border border-white/5 p-3">
@@ -441,7 +441,7 @@ function TeamRegistrationForm({
           <div className="mt-4 space-y-4">
             <InputField label="Name" name="presidentName" required placeholder="Your full name" autoComplete="name" />
             <InputField label="Email" name="presidentEmail" type="email" required placeholder="you@example.com" autoComplete="email" />
-            <InputField label="Password" name="password" type="password" required placeholder="Min. 6 characters" autoComplete="new-password" />
+            <InputField label="Password" name="password" type="password" required placeholder="Min. 8 characters" autoComplete="new-password" />
           </div>
         </Card>
 

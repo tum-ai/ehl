@@ -7,10 +7,13 @@ import { QUERY_LIMITS } from "@/lib/config/limits";
 
 export async function getChapters(): Promise<Chapter[]> {
   const supabase = getClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("chapters")
     .select("*")
     .order("match_number");
+  // Surface a DB failure to the error boundary rather than rendering an
+  // empty Tour / "0 matches" hero, which would look like real (wrong) data.
+  if (error) throw error;
   return (data ?? []).map(toChapter);
 }
 
@@ -65,7 +68,8 @@ export async function getChapterByIdAdmin(
 
 export async function getChapterStats(): Promise<{ totalMatches: number; cities: number; cityNames: string[] }> {
   const supabase = getClient();
-  const { data } = await supabase.from("chapters").select("city");
+  const { data, error } = await supabase.from("chapters").select("city");
+  if (error) throw error;
   const chapters = data ?? [];
   const citySet = new Set(chapters.map((c) => c.city).filter(Boolean));
   return {
@@ -88,11 +92,12 @@ export async function getCompletedChaptersCount(): Promise<number> {
 
 export async function getScores(): Promise<Score[]> {
   const supabase = getClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("scores")
     .select("*")
     .order("placement", { ascending: true, nullsFirst: false })
     .limit(QUERY_LIMITS.scores);
+  if (error) throw error;
   return (data ?? []).map(toScore);
 }
 
@@ -112,13 +117,14 @@ export async function getScoresForChapter(
 
 export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
   const supabase = getClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("leaderboard")
     .select("*")
     .order("rank")
     .order("sort_name")
     .limit(QUERY_LIMITS.leaderboard);
 
+  if (error) throw error;
   if (!data) return [];
 
   return data.map((row) => ({
