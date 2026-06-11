@@ -12,11 +12,11 @@ export async function GET(request: NextRequest) {
   const next = getSafeRedirect(searchParams.get("next")) ?? "/";
 
   // Collect cookies written by Supabase (session tokens from verifyOtp /
-  // exchangeCodeForSession) so we can attach them to whichever redirect
-  // response we ultimately return. Using next/headers cookies() in a Route
-  // Handler does not guarantee the Set-Cookie headers land on a separately
-  // constructed NextResponse.redirect(), so we wire the client directly to
-  // the request and forward cookies explicitly onto every redirect.
+  // exchangeCodeForSession) and attach them explicitly to whichever redirect
+  // response we return. Next.js also merges cookies() mutations into returned
+  // responses, but wiring the client to the request and forwarding cookies
+  // ourselves keeps the session handoff independent of that framework
+  // behavior (and matches the Supabase SSR middleware pattern).
   const pendingCookies: Parameters<NextResponse["cookies"]["set"]>[] = [];
 
   const supabase = createServerClient(
