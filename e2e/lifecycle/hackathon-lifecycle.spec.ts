@@ -24,6 +24,8 @@ import {
 import {
   createChapter,
   createChallenge,
+  createImportedParticipant,
+  generateRecoveryLink,
   setChapterStatus,
   setChapterDeadlines,
   registerForChallenge,
@@ -216,6 +218,50 @@ test.describe.serial("Block 1: Participant Registration", () => {
       await admin.from("profiles").delete().eq("id", presProfile.id);
       try { await admin.auth.admin.deleteUser(presProfile.id as string); } catch {}
     }
+  });
+
+  test("1.3 Imported user claims account via password recovery", async ({ page }) => {
+    // Regression test for the Match 1 import incident: users created by a
+    // bulk import (auth user without password) must be able to set a
+    // password through the recovery link and then sign in normally.
+    const email = "e2e-imported-member@test-ehl.com";
+    const newPassword = "ImportedClaim123!";
+    const admin = getAdminClient();
+
+    const userId = await createImportedParticipant({
+      email,
+      name: "E2E Imported Member",
+    });
+
+    // Recovery link exactly as requestPasswordReset() builds it. If the
+    // imported auth row is broken (e.g. NULL token columns), this throws
+    // with "Database error finding user".
+    const recoveryLink = await generateRecoveryLink(email);
+
+    // Following the link must establish a session and land on /reset-password
+    await page.goto(recoveryLink);
+    await page.waitForURL(/\/reset-password/, { timeout: 15000 });
+
+    // The form only renders once the client sees the session
+    await page.locator('input[name="password"]').waitFor({ timeout: 15000 });
+    await page.locator('input[name="password"]').fill(newPassword);
+    await page.locator('input[name="confirmPassword"]').fill(newPassword);
+    await page.getByRole("button", { name: /set new password/i }).click();
+
+    await expect(page.getByText("Password Updated")).toBeVisible({ timeout: 15000 });
+
+    // The new password must work for a fresh login
+    await page.context().clearCookies();
+    await page.goto("/login");
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="password"]').fill(newPassword);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL(/\/dashboard/, { timeout: 15000 });
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    // Cleanup
+    await admin.from("profiles").delete().eq("id", userId);
+    try { await admin.auth.admin.deleteUser(userId); } catch {}
   });
 });
 

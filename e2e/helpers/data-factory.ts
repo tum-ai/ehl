@@ -78,6 +78,43 @@ export async function createParticipant(opts: {
 }
 
 /**
+ * Create a participant the way bulk imports do: auth user WITHOUT a
+ * password + profile. These users can only get access via the password
+ * recovery flow. Returns the user ID.
+ * Idempotent: deletes any existing user with this email first so the
+ * "no password" state is guaranteed.
+ */
+export async function createImportedParticipant(opts: {
+  email: string;
+  name: string;
+}) {
+  const admin = getAdminClient();
+
+  const existing = await findAuthUserByEmail(admin, opts.email);
+  if (existing) {
+    await admin.from("profiles").delete().eq("id", existing.id);
+    await admin.auth.admin.deleteUser(existing.id);
+  }
+
+  const { data, error } = await admin.auth.admin.createUser({
+    email: opts.email,
+    email_confirm: true,
+    user_metadata: { name: opts.name },
+  });
+  if (error) throw new Error(`Failed to create imported participant ${opts.email}: ${error.message}`);
+  const userId = data.user.id;
+
+  await admin.from("profiles").upsert({
+    id: userId,
+    email: opts.email,
+    name: opts.name,
+    role: "participant",
+  });
+
+  return userId;
+}
+
+/**
  * Create an admin auth user + profile. Returns the user ID.
  * Idempotent: if the user already exists, updates the profile.
  *
@@ -176,6 +213,30 @@ export async function generateMagicLink(
   }
 
   return `${siteUrl}/auth/callback?token_hash=${data.properties.hashed_token}&type=magiclink&next=${redirectPath}`;
+}
+
+/**
+ * Generate a password recovery link routed through the auth callback,
+ * exactly like requestPasswordReset() builds it. Lets tests cover the
+ * recovery flow without receiving email.
+ */
+export async function generateRecoveryLink(email: string): Promise<string> {
+  const admin = getAdminClient();
+  const siteUrl = getSiteUrl();
+
+  const { data, error } = await admin.auth.admin.generateLink({
+    type: "recovery",
+    email,
+    options: {
+      redirectTo: `${siteUrl}/reset-password`,
+    },
+  });
+
+  if (error || !data.properties?.hashed_token) {
+    throw new Error(`Failed to generate recovery link for ${email}: ${error?.message}`);
+  }
+
+  return `${siteUrl}/auth/callback?token_hash=${data.properties.hashed_token}&type=recovery&next=/reset-password`;
 }
 
 // ─── Team Creation ──────────────────────────────────────────
