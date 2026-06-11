@@ -6,35 +6,41 @@ test.describe("Auth guards", () => {
     test("visiting /admin redirects to /admin/login", async ({ page }) => {
       await page.goto("/admin");
 
-      // Unauthenticated users should see the admin login page content
-      // The admin layout renders children without sidebar when not authenticated,
-      // and /admin should show the login or redirect to it
-      await expect(page).toHaveURL(/\/admin/);
-
-      // Should see the Google sign-in prompt for admin
+      // Middleware redirects unauthenticated users to the admin login page.
+      await expect(page).toHaveURL(/\/admin\/login/);
       await expect(
         page.getByText(/admin login/i).first()
       ).toBeVisible({ timeout: 10000 });
     });
 
-    test("visiting /admin/chapters shows admin login when unauthenticated", async ({
+    test("visiting /admin/chapters redirects to /admin/login when unauthenticated", async ({
       page,
     }) => {
       await page.goto("/admin/chapters");
-
-      // Without a valid admin session, the layout won't show the sidebar
-      // and the page should either redirect or show login content
-      // The admin layout checks session and renders without sidebar if not admin
-      await expect(page).toHaveURL(/\/admin/);
+      // Middleware must redirect an unauthenticated user to the login page,
+      // not merely leave them somewhere under /admin.
+      await expect(page).toHaveURL(/\/admin\/login/);
     });
   });
 
   test.describe("Jury routes redirect unauthenticated users", () => {
     test("visiting /jury redirects to /jury/login", async ({ page }) => {
       await page.goto("/jury");
+      // Must actually land on the jury login page (a non-redirect would be a
+      // guard failure, which the old |\/jury alternative silently allowed).
+      await expect(page).toHaveURL(/\/jury\/login/);
+    });
 
-      // Should end up at jury login
-      await expect(page).toHaveURL(/\/jury\/login|\/jury/);
+    test("visiting /jury/rankings redirects to /jury/login when unauthenticated", async ({ page }) => {
+      await page.goto("/jury/rankings");
+      await expect(page).toHaveURL(/\/jury\/login/);
+    });
+  });
+
+  test.describe("Participant routes redirect unauthenticated users", () => {
+    test("visiting /dashboard redirects to /login when unauthenticated", async ({ page }) => {
+      await page.goto("/dashboard");
+      await expect(page).toHaveURL(/\/login/);
     });
   });
 
