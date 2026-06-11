@@ -1,34 +1,34 @@
-import { test, expect } from "@playwright/test";
-import { SEED } from "../helpers/auth";
+import { test, expect, type Page } from "@playwright/test";
+
+// The register page is a mode picker ("Join the EHL" → Register Solo /
+// Create a Team). The team form only appears after choosing "Create a Team".
+async function openTeamForm(page: Page) {
+  await page.goto("/register");
+  await page.getByRole("heading", { name: "Create a Team" }).click();
+  await expect(page.locator('input[name="teamName"]')).toBeVisible();
+}
 
 test.describe("Registration page", () => {
-  test("page loads with registration form", async ({ page }) => {
+  test("mode picker offers solo and team registration", async ({ page }) => {
     await page.goto("/register");
 
-    // Main heading
-    await expect(page.getByText("Register Your Team")).toBeVisible();
+    await expect(page.getByText("Join the EHL")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Register Solo" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Create a Team" })).toBeVisible();
+  });
 
-    // Section headings
-    await expect(page.getByText("Team Information")).toBeVisible();
-    await expect(page.getByText("Team President")).toBeVisible();
-    await expect(page.getByText("Team Members")).toBeVisible();
+  test("team form shows its core fields after choosing Create a Team", async ({ page }) => {
+    await openTeamForm(page);
 
-    // Core fields should be visible
     await expect(page.locator('input[name="teamName"]')).toBeVisible();
     await expect(page.locator('input[name="presidentName"]')).toBeVisible();
     await expect(page.locator('input[name="presidentEmail"]')).toBeVisible();
     await expect(page.locator('input[name="password"]')).toBeVisible();
-
-    // Continue button
-    await expect(
-      page.getByRole("button", { name: /continue/i })
-    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /continue/i })).toBeVisible();
   });
 
-  test("validation: password too short (min 6 characters)", async ({
-    page,
-  }) => {
-    await page.goto("/register");
+  test("validation: password too short", async ({ page }) => {
+    await openTeamForm(page);
 
     // Fill all required fields with valid data except password
     await page.locator('input[name="teamName"]').fill("Test Team");
@@ -47,29 +47,31 @@ test.describe("Registration page", () => {
     // Submit the form
     await page.getByRole("button", { name: /continue/i }).click();
 
-    // Server-side validation should return an error about password length
-    const errorMessage = page.locator(".text-error");
-    await expect(errorMessage).toBeVisible({ timeout: 10000 });
+    // Server-side validation should return an error about password length.
+    // Scope to the error banner, not the required-field asterisks (also .text-error).
+    await expect(page.locator("div.bg-error\\/5")).toBeVisible({ timeout: 10000 });
   });
 
-  test("validation: team needs at least 2 members total (president + 1 member)", async ({
-    page,
-  }) => {
-    await page.goto("/register");
+  test("member counter starts at 1 and can go down to 0", async ({ page }) => {
+    await openTeamForm(page);
 
-    // The form always starts with 1 member field (so president + 1 member = 2 total).
-    // The minimum member count is 1, meaning you cannot go below 1 additional member.
-    // The "-" button should be disabled when memberCount is 1.
-    const minusButton = page.locator("button", { hasText: "-" });
-    await expect(minusButton).toBeDisabled();
-
-    // Member 0 fields should be visible (enforcing at least 1 additional member)
+    // The team form starts with 1 additional member field and the counter at 1.
+    await expect(page.locator(".font-mono.text-gold")).toHaveText("1");
     await expect(page.locator('input[name="memberName0"]')).toBeVisible();
     await expect(page.locator('input[name="memberEmail0"]')).toBeVisible();
+
+    // "-" is enabled at 1 (a president may register with no extra members);
+    // it becomes disabled only at 0.
+    const minusButton = page.locator("button", { hasText: "-" });
+    await expect(minusButton).toBeEnabled();
+    await minusButton.click();
+    await expect(page.locator(".font-mono.text-gold")).toHaveText("0");
+    await expect(minusButton).toBeDisabled();
+    await expect(page.locator('input[name="memberName0"]')).not.toBeVisible();
   });
 
   test("can add member fields", async ({ page }) => {
-    await page.goto("/register");
+    await openTeamForm(page);
 
     // Initially 1 member
     await expect(page.locator('input[name="memberName0"]')).toBeVisible();
@@ -88,7 +90,7 @@ test.describe("Registration page", () => {
   });
 
   test("can remove member fields", async ({ page }) => {
-    await page.goto("/register");
+    await openTeamForm(page);
 
     // Add two more members first (start with 1, add to get to 3)
     const plusButton = page.locator("button", { hasText: "+" });
@@ -110,7 +112,7 @@ test.describe("Registration page", () => {
   });
 
   test("cannot add more than 4 additional members", async ({ page }) => {
-    await page.goto("/register");
+    await openTeamForm(page);
 
     const plusButton = page.locator("button", { hasText: "+" });
 
