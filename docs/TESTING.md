@@ -442,10 +442,12 @@ test DB and can be wiped via `pnpm test:setup-db`.
 
 ### Caveats
 
-- **Other branch previews still use PRODUCTION env vars** (they were
-  created before env separation and only the team owner can rescope
-  them). Until the owner scopes the shared Supabase/SMTP/Turnstile vars
-  to Production-only, treat non-staging preview URLs as production:
-  do not run test registrations there.
+- **Only `main` and `staging` auto-deploy** (`git.deploymentEnabled` in
+  `vercel.json`). Preview env vars are shared with production, so an
+  ad-hoc branch preview would hit the production database. To get a
+  testable deployment, push your branch to `staging`. If the team owner
+  rescopes the shared Supabase/SMTP/Turnstile env vars to
+  Production-only and adds preview values for the test instance, this
+  restriction can be lifted.
 - Admin Google OAuth is not configured on the test Supabase instance;
   test admin flows locally (`pnpm test:e2e`) or via role-seeded users.
