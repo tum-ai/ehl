@@ -26,12 +26,19 @@ const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN!;
 const TEST_REF = process.env.SUPABASE_TEST_REF!;
 
-if (SUPABASE_URL.includes("fdoeygfcjllrzogoymsf")) {
-  console.error("REFUSING: this points at the PRODUCTION Supabase.");
-  process.exit(1);
-}
 if (!ACCESS_TOKEN || !TEST_REF) {
   console.error("Missing SUPABASE_ACCESS_TOKEN / SUPABASE_TEST_REF (from .env.supabase)");
+  process.exit(1);
+}
+
+// Safety: this script wipes and reseeds the database, so refuse to run unless
+// the target URL is the configured TEST project. SUPABASE_TEST_REF comes from
+// .env.supabase (gitignored) — no project ref is hardcoded here.
+if (!SUPABASE_URL.includes(TEST_REF)) {
+  console.error(
+    "REFUSING: NEXT_PUBLIC_SUPABASE_URL does not match SUPABASE_TEST_REF. " +
+      "This script only runs against the test instance."
+  );
   process.exit(1);
 }
 
