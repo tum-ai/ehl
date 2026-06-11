@@ -44,8 +44,26 @@ export function formatDateRange(date: string | null, dateEnd: string | null): st
     return d.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
   }
   const dEnd = new Date(dateEnd + "T00:00:00");
+  // Cross-month / cross-year ranges must name both months (and both years)
+  // rather than collapsing to the start month, e.g. "30 May - 1 June 2026".
+  if (d.getMonth() !== dEnd.getMonth() || d.getFullYear() !== dEnd.getFullYear()) {
+    return `${formatDayMonth(d, dEnd)} ${dEnd.getFullYear()}`;
+  }
   const month = d.toLocaleDateString("en-US", { month: "long" });
   return `${d.getDate()}-${dEnd.getDate()} ${month} ${d.getFullYear()}`;
+}
+
+/**
+ * "30 May - 1 June" style for a range crossing a month boundary. Includes the
+ * year on the start side only when the years differ.
+ */
+function formatDayMonth(d: Date, dEnd: Date): string {
+  const startMonth = d.toLocaleDateString("en-US", { month: "long" });
+  const endMonth = dEnd.toLocaleDateString("en-US", { month: "long" });
+  if (d.getFullYear() !== dEnd.getFullYear()) {
+    return `${d.getDate()} ${startMonth} ${d.getFullYear()} - ${dEnd.getDate()} ${endMonth}`;
+  }
+  return `${d.getDate()} ${startMonth} - ${dEnd.getDate()} ${endMonth}`;
 }
 
 export function formatDateFull(date: string | null, dateEnd?: string | null): string {
@@ -62,6 +80,9 @@ export function formatDateFull(date: string | null, dateEnd?: string | null): st
     });
   }
   const dEnd = new Date(dateEnd + "T00:00:00");
+  if (d.getMonth() !== dEnd.getMonth() || d.getFullYear() !== dEnd.getFullYear()) {
+    return `${formatDayMonth(d, dEnd)} ${dEnd.getFullYear()}`;
+  }
   const month = d.toLocaleDateString("en-US", { month: "long" });
   return `${d.getDate()}-${dEnd.getDate()} ${month} ${d.getFullYear()}`;
 }
