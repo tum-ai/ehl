@@ -229,7 +229,7 @@ export async function getChapterDetailStats(
         .in("challenge_id", challengeIds),
       adminClient
         .from("jury_rankings")
-        .select("challenge_id, jury_user_id")
+        .select("challenge_id, entered_by")
         .in("challenge_id", challengeIds),
     ]);
     allAssignments = assignRes.data ?? [];
@@ -252,7 +252,7 @@ export async function getChapterDetailStats(
       juryVoted: new Set(
         allRankings
           .filter((r) => r.challenge_id === cId)
-          .map((r) => r.jury_user_id as string)
+          .map((r) => r.entered_by as string)
       ).size,
     };
   });

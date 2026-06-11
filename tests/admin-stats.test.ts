@@ -3,9 +3,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const mockFrom = vi.fn<any>();
 
+// Set by the mockFrom wrapper so chain() knows which table it represents.
+let currentTable: string | undefined;
+
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    from: mockFrom,
+    // Record the table being queried so chain() can validate selected columns
+    // against that table's real schema.
+    from: (table: string) => {
+      currentTable = table;
+      return mockFrom(table);
+    },
   }),
 }));
 
@@ -22,9 +30,35 @@ import { getSeasonStats, getChapterDetailStats } from "@/lib/queries/admin-stats
 
 // ─── Mock chain builder ──────────────────────────────────
 
-function chain(data: unknown) {
+// Known columns per table (from supabase/migrations). The mock validates that
+// any selected column actually exists, so a query selecting a non-existent
+// column (e.g. jury_rankings.jury_user_id) fails the test the same way it
+// fails in production with "column ... does not exist".
+const KNOWN_COLUMNS: Record<string, Set<string>> = {
+  jury_assignments: new Set(["id", "user_id", "challenge_id", "chapter_id", "status"]),
+  jury_rankings: new Set(["id", "challenge_id", "entered_by", "ranking", "submitted_at", "is_final"]),
+  challenge_registrations: new Set(["id", "challenge_id", "team_id", "chapter_id", "registered_at"]),
+  submissions: new Set(["id", "challenge_id", "team_id", "fields", "is_locked", "fork_url"]),
+  challenges: new Set(["id", "title", "sponsor_name", "chapter_id", "code_review_enabled"]),
+  applications: new Set(["id", "email", "status", "chapter_id", "first_name", "last_name"]),
+};
+
+function chain(data: unknown, table: string | undefined = currentTable) {
+  function validateColumns(arg: unknown) {
+    if (typeof arg !== "string" || !table || !KNOWN_COLUMNS[table]) return;
+    const cols = arg
+      .split(",")
+      .map((c) => c.trim().split("(")[0].trim())
+      .filter((c) => c && c !== "*" && c !== "count");
+    for (const col of cols) {
+      if (!KNOWN_COLUMNS[table].has(col)) {
+        throw new Error(`column ${table}.${col} does not exist`);
+      }
+    }
+  }
+
   const obj: Record<string, unknown> = {
-    select: vi.fn().mockReturnThis(),
+    select: vi.fn((arg: unknown) => validateColumns(arg)),
     eq: vi.fn().mockReturnThis(),
     in: vi.fn().mockReturnThis(),
     order: vi.fn().mockReturnThis(),
@@ -231,7 +265,7 @@ describe("getChapterDetailStats", () => {
           ]);
         case "jury_rankings":
           return chain([
-            { challenge_id: "c1", jury_user_id: "j1" },
+            { challenge_id: "c1", entered_by: "j1" },
             // j2 hasn't voted yet for c1
           ]);
         default:
