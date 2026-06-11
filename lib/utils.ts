@@ -3,10 +3,18 @@ import { twMerge } from "tailwind-merge";
 
 /**
  * Returns the base site URL. Uses NEXT_PUBLIC_SITE_URL env var,
- * falls back to https://ehl.gg in production or http://localhost:3000 in dev.
+ * falls back to the deployment's own URL on Vercel preview deployments
+ * (so auth links in emails stay on the preview instead of pointing at
+ * production), then https://ehl.gg in production or localhost in dev.
+ *
+ * NEXT_PUBLIC_SITE_URL is therefore scoped to Production only in Vercel.
  */
 export function getSiteUrl(): string {
   if (process.env.NEXT_PUBLIC_SITE_URL) return process.env.NEXT_PUBLIC_SITE_URL;
+  if (process.env.VERCEL_ENV === "preview") {
+    const previewHost = process.env.VERCEL_BRANCH_URL || process.env.VERCEL_URL;
+    if (previewHost) return `https://${previewHost}`;
+  }
   if (process.env.NODE_ENV === "development") return "http://localhost:3000";
   return "https://ehl.gg";
 }

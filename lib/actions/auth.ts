@@ -269,13 +269,14 @@ export async function requestPasswordReset(formData: FormData) {
   // Generate a password reset link via the admin API
   const { data, error } = await adminClient.auth.admin.generateLink({
     type: "recovery",
-    email,
+    email: email.trim().toLowerCase(),
     options: {
       redirectTo: `${siteUrl}/reset-password`,
     },
   });
 
   if (error || !data.properties?.hashed_token) {
+    console.error("[requestPasswordReset] generateLink failed:", error?.message ?? "no token");
     // Don't reveal whether the email exists
     return { success: true };
   }

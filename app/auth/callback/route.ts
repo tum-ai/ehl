@@ -1,17 +1,44 @@
-import { NextResponse } from "next/server";
-import { createClient } from "@/lib/supabase/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminEmail } from "@/lib/admin-allowlist";
 import { getSafeRedirect } from "@/lib/utils";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type");
   const next = getSafeRedirect(searchParams.get("next")) ?? "/";
 
-  const supabase = await createClient();
+  // Collect cookies written by Supabase (session tokens from verifyOtp /
+  // exchangeCodeForSession) and attach them explicitly to whichever redirect
+  // response we return. Next.js also merges cookies() mutations into returned
+  // responses, but wiring the client to the request and forwarding cookies
+  // ourselves keeps the session handoff independent of that framework
+  // behavior (and matches the Supabase SSR middleware pattern).
+  const pendingCookies: Parameters<NextResponse["cookies"]["set"]>[] = [];
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll: () => request.cookies.getAll(),
+        setAll: (cookies) =>
+          cookies.forEach(({ name, value, options }) =>
+            pendingCookies.push([name, value, options])
+          ),
+      },
+    }
+  );
+
+  function redirectWithCookies(url: string): NextResponse {
+    const response = NextResponse.redirect(url);
+    pendingCookies.forEach((args) => response.cookies.set(...args));
+    return response;
+  }
+
   let authenticated = false;
 
   // PKCE flow: exchange code for session
@@ -30,14 +57,13 @@ export async function GET(request: Request) {
   }
 
   if (!authenticated) {
-    // Redirect to appropriate login page based on where they were going
     if (next === "/jury") {
-      return NextResponse.redirect(`${origin}/jury/login?error=auth_failed`);
+      return redirectWithCookies(`${origin}/jury/login?error=auth_failed`);
     }
     if (next === "/admin") {
-      return NextResponse.redirect(`${origin}/admin/login?error=auth_failed`);
+      return redirectWithCookies(`${origin}/admin/login?error=auth_failed`);
     }
-    return NextResponse.redirect(`${origin}/login?error=auth_failed`);
+    return redirectWithCookies(`${origin}/login?error=auth_failed`);
   }
 
   const {
@@ -45,7 +71,7 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.redirect(`${origin}/login?error=auth_failed`);
+    return redirectWithCookies(`${origin}/login?error=auth_failed`);
   }
 
   const email = user.email ?? "";
@@ -55,9 +81,7 @@ export async function GET(request: Request) {
   if (next === "/admin") {
     if (!(await isAdminEmail(email))) {
       await supabase.auth.signOut();
-      return NextResponse.redirect(
-        `${origin}/admin/login?error=not_authorized`
-      );
+      return redirectWithCookies(`${origin}/admin/login?error=not_authorized`);
     }
 
     await adminClient.from("profiles").upsert({
@@ -67,7 +91,7 @@ export async function GET(request: Request) {
       role: "admin",
     });
 
-    return NextResponse.redirect(`${origin}/admin`);
+    return redirectWithCookies(`${origin}/admin`);
   }
 
   // Check existing profile or create one
@@ -90,22 +114,22 @@ export async function GET(request: Request) {
     });
 
     if (role === "admin") {
-      return NextResponse.redirect(`${origin}/admin`);
+      return redirectWithCookies(`${origin}/admin`);
     }
-    return NextResponse.redirect(`${origin}/dashboard`);
+    return redirectWithCookies(`${origin}/dashboard`);
   }
 
   const role = profile.role as string;
 
   // Route based on role and intended destination
   if (next === "/jury" && (role === "jury" || role === "admin")) {
-    return NextResponse.redirect(`${origin}/jury`);
+    return redirectWithCookies(`${origin}/jury`);
   }
   if (role === "admin") {
-    return NextResponse.redirect(`${origin}/admin`);
+    return redirectWithCookies(`${origin}/admin`);
   }
   if (role === "jury") {
-    return NextResponse.redirect(`${origin}/jury`);
+    return redirectWithCookies(`${origin}/jury`);
   }
-  return NextResponse.redirect(`${origin}${next}`);
+  return redirectWithCookies(`${origin}${next}`);
 }

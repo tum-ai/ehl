@@ -11,6 +11,7 @@ import { ApplicationRejectedEmail } from "./application-rejected";
 import { TeamInviteEmail } from "./team-invite";
 import { JoinRequestEmail } from "./join-request";
 import { CertificateEmail } from "./certificate";
+import { AccountClaimEmail } from "./account-claim";
 
 type WelcomeProps = Parameters<typeof WelcomeEmail>[0];
 type PasswordResetProps = Parameters<typeof PasswordResetEmail>[0];
@@ -23,6 +24,7 @@ type ApplicationRejectedProps = Parameters<typeof ApplicationRejectedEmail>[0];
 type TeamInviteProps = Parameters<typeof TeamInviteEmail>[0];
 type JoinRequestProps = Parameters<typeof JoinRequestEmail>[0];
 type CertificateProps = Parameters<typeof CertificateEmail>[0];
+type AccountClaimProps = Parameters<typeof AccountClaimEmail>[0];
 
 export async function renderWelcomeEmail(props: WelcomeProps): Promise<string> {
   return render(createElement(WelcomeEmail, props));
@@ -30,6 +32,10 @@ export async function renderWelcomeEmail(props: WelcomeProps): Promise<string> {
 
 export async function renderPasswordResetEmail(props: PasswordResetProps): Promise<string> {
   return render(createElement(PasswordResetEmail, props));
+}
+
+export async function renderAccountClaimEmail(props: AccountClaimProps): Promise<string> {
+  return render(createElement(AccountClaimEmail, props));
 }
 
 export async function renderVerificationCodeEmail(props: VerificationCodeProps): Promise<string> {

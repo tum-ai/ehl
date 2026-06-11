@@ -24,7 +24,7 @@ import { logEvent } from "@/lib/event-log";
 
 export async function startSoloRegistration(formData: FormData) {
   const name = formData.get("name") as string;
-  const email = formData.get("email") as string;
+  const email = (formData.get("email") as string)?.trim().toLowerCase();
   const password = formData.get("password") as string;
   const lookingForTeam = formData.get("lookingForTeam") === "true";
   const turnstileToken = formData.get("cf-turnstile-response") as string;
@@ -243,7 +243,9 @@ export async function verifyAndRegisterSolo(
 export async function startRegistration(formData: FormData) {
   const teamName = formData.get("teamName") as string;
   const presidentName = formData.get("presidentName") as string;
-  const presidentEmail = formData.get("presidentEmail") as string;
+  const presidentEmail = (formData.get("presidentEmail") as string)
+    ?.trim()
+    .toLowerCase();
   const password = formData.get("password") as string;
   const university = (formData.get("university") as string) || null;
   const city = (formData.get("city") as string) || null;
@@ -253,7 +255,7 @@ export async function startRegistration(formData: FormData) {
   const members: { name: string; email: string }[] = [];
   for (let i = 0; i < 4; i++) {
     const name = formData.get(`memberName${i}`) as string;
-    const email = formData.get(`memberEmail${i}`) as string;
+    const email = (formData.get(`memberEmail${i}`) as string)?.trim().toLowerCase();
     if (name && email) {
       members.push({ name, email });
     }
