@@ -3,6 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { sendEmail } from "@/lib/email";
+import { sendEmailAfterResponse } from "@/lib/email-deferred";
 import {
   renderTeamInviteEmail,
   renderJoinRequestEmail,
@@ -550,11 +551,13 @@ export async function requestToJoinTeam(teamId: string) {
       teamName: team.name as string,
     });
 
-    sendEmail({
-      to: captainProfile.email as string,
-      subject: `${(requesterProfile?.name as string) || "Someone"} wants to join ${team.name}`,
-      html,
-    }).catch((err) => console.error("Failed to send join request email:", err));
+    sendEmailAfterResponse(`join request to ${captainProfile.email}`, () =>
+      sendEmail({
+        to: captainProfile.email as string,
+        subject: `${(requesterProfile?.name as string) || "Someone"} wants to join ${team.name}`,
+        html,
+      })
+    );
   }
 
   return { success: true };
