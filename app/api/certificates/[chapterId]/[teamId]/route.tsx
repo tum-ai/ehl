@@ -141,7 +141,9 @@ export async function GET(
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${filename}"`,
-      "Cache-Control": "public, max-age=31536000, immutable",
+      // Auth-gated, personalized PDF: never cache in shared/CDN caches, and
+      // always re-fetch so a republished score isn't served stale.
+      "Cache-Control": "private, no-store",
     },
   });
 }
