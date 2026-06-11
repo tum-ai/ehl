@@ -211,6 +211,7 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [cvUploadFailed, setCvUploadFailed] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [accountExists, setAccountExists] = useState(false);
   const turnstileRef = useRef<TurnstileRef>(null);
@@ -363,14 +364,38 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
       formData.set("existingTeamId", existingTeam.teamId);
     }
 
-    const result = await submitApplication(formData);
+    // Client-side CV size guard so oversized files fail fast with a clear
+    // message instead of being rejected opaquely by the server body limit.
+    const cv = formData.get("cv");
+    if (cv instanceof File && cv.size > 10 * 1024 * 1024) {
+      setError("Your CV is too large. Please upload a PDF under 10MB.");
+      setLoading(false);
+      setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+      return;
+    }
 
-    setLoading(false);
-    if (result?.error) {
-      setError(result.error);
+    try {
+      const result = await submitApplication(formData);
+      if (result?.error) {
+        setError(result.error);
+        turnstileRef.current?.reset();
+      } else if (result?.success) {
+        setCvUploadFailed(!!result.cvUploadFailed);
+        setSuccess(true);
+      } else {
+        setError("Something went wrong. Please try again.");
+        turnstileRef.current?.reset();
+      }
+    } catch {
+      // Thrown errors (network drop on shared event WiFi, body-limit
+      // rejection, unexpected server error) must not leave the button stuck.
+      setError(
+        "We couldn't submit your application. Please check your connection and try again."
+      );
       turnstileRef.current?.reset();
-    } else if (result?.success) {
-      setSuccess(true);
+      setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -388,8 +413,17 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
           <h1 className="text-2xl font-black">Application Submitted!</h1>
           <p className="mt-3 text-text-secondary">
             Thanks for applying to <strong className="text-gold">{chapterName}</strong>.
-            We sent a confirmation to your email. We will review your application and get back to you soon.
+            You will receive a confirmation email shortly. We will review your application and get back to you soon.
           </p>
+          {cvUploadFailed && (
+            <div className="mt-5 rounded-lg border border-gold/30 bg-gold/5 p-4 text-left">
+              <p className="text-sm text-gold">
+                Your application was saved, but we could not upload your CV.
+                You can reply to the confirmation email with your CV attached,
+                and we will add it to your application.
+              </p>
+            </div>
+          )}
         </div>
       </Section>
     );

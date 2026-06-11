@@ -1,6 +1,12 @@
 import { google, drive_v3 } from "googleapis";
 import { Readable } from "stream";
 
+// Drive calls default to no timeout; a hung request would otherwise hang the
+// whole submission until the serverless function is killed. Bound them so a
+// Drive outage surfaces as a fast error instead of a stuck spinner.
+const DRIVE_TIMEOUT_MS = 10_000; // metadata ops (list/create folder)
+const DRIVE_UPLOAD_TIMEOUT_MS = 30_000; // file upload (larger payload)
+
 // ─── Auth ───────────────────────────────────────────────────
 
 function getCredentials() {
@@ -38,30 +44,36 @@ async function findOrCreateFolder(
   parentId: string
 ): Promise<string> {
   // Search for existing folder
-  const res = await drive.files.list({
-    q: `name='${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
-    fields: "files(id, name)",
-    spaces: "drive",
-    includeItemsFromAllDrives: true,
-    supportsAllDrives: true,
-    corpora: "drive",
-    driveId: getRootFolderId(),
-  });
+  const res = await drive.files.list(
+    {
+      q: `name='${name.replace(/'/g, "\\'")}' and '${parentId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: "files(id, name)",
+      spaces: "drive",
+      includeItemsFromAllDrives: true,
+      supportsAllDrives: true,
+      corpora: "drive",
+      driveId: getRootFolderId(),
+    },
+    { timeout: DRIVE_TIMEOUT_MS }
+  );
 
   if (res.data.files && res.data.files.length > 0) {
     return res.data.files[0].id!;
   }
 
   // Create folder
-  const folder = await drive.files.create({
-    requestBody: {
-      name,
-      mimeType: "application/vnd.google-apps.folder",
-      parents: [parentId],
+  const folder = await drive.files.create(
+    {
+      requestBody: {
+        name,
+        mimeType: "application/vnd.google-apps.folder",
+        parents: [parentId],
+      },
+      fields: "id",
+      supportsAllDrives: true,
     },
-    fields: "id",
-    supportsAllDrives: true,
-  });
+    { timeout: DRIVE_TIMEOUT_MS }
+  );
 
   return folder.data.id!;
 }
@@ -123,18 +135,21 @@ export async function uploadFile(
     body = Readable.from(file);
   }
 
-  const res = await drive.files.create({
-    requestBody: {
-      name: fileName,
-      parents: [folderId],
+  const res = await drive.files.create(
+    {
+      requestBody: {
+        name: fileName,
+        parents: [folderId],
+      },
+      media: {
+        mimeType,
+        body,
+      },
+      fields: "id, webViewLink, webContentLink",
+      supportsAllDrives: true,
     },
-    media: {
-      mimeType,
-      body,
-    },
-    fields: "id, webViewLink, webContentLink",
-    supportsAllDrives: true,
-  });
+    { timeout: DRIVE_UPLOAD_TIMEOUT_MS }
+  );
 
   const fileId = res.data.id!;
 

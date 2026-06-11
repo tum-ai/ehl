@@ -14,7 +14,11 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      bodySizeLimit: "4mb",
+      // CVs (PDF) are uploaded through the apply server action. The UI
+      // advertises a 10MB cap and the action validates 20MB, so the
+      // framework body limit must be above both or large CVs are rejected
+      // by Next before the action's friendly validation runs.
+      bodySizeLimit: "25mb",
     },
   },
   async headers() {
@@ -39,7 +43,7 @@ const nextConfig: NextConfig = {
               "default-src 'self'",
               "script-src 'self' 'unsafe-inline' https://challenges.cloudflare.com",
               "style-src 'self' 'unsafe-inline'",
-              `img-src 'self' data: blob: ${supabaseUrl}`,
+              `img-src 'self' data: blob: ${supabaseUrl} https://lh3.googleusercontent.com`,
               "font-src 'self'",
               `connect-src 'self' ${supabaseUrl} https://challenges.cloudflare.com`,
               "frame-src 'self' https://challenges.cloudflare.com https://www.youtube.com https://www.youtube-nocookie.com https://drive.google.com",

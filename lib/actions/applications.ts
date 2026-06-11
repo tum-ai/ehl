@@ -133,54 +133,75 @@ export async function submitApplication(formData: FormData) {
     }
   }
 
-  // Handle CV upload (Google Drive)
-  let cvUrl: string | null = null;
+  // Validate the CV before anything is written. The upload itself happens
+  // AFTER the application row is inserted, so a Drive outage or hang can
+  // never lose an application.
   const cvFile = formData.get("cv") as File | null;
-  if (cvFile && cvFile.size > 0) {
-    if (cvFile.size > 20 * 1024 * 1024) {
-      return { error: "CV file must be under 20MB." };
+  const hasCv = !!cvFile && cvFile.size > 0;
+  if (hasCv) {
+    if (cvFile!.size > 10 * 1024 * 1024) {
+      return { error: "CV file must be under 10MB." };
     }
-    const ext = cvFile.name.split(".").pop()?.toLowerCase();
+    const ext = cvFile!.name.split(".").pop()?.toLowerCase();
     if (ext !== "pdf") {
       return { error: "CV must be a PDF file." };
     }
+  }
+
+  // Insert application first (without CV), so the application is saved even
+  // if the CV upload later fails.
+  const { data: inserted, error: insertError } = await adminClient
+    .from("applications")
+    .insert({
+      chapter_id: chapterId,
+      email,
+      first_name: firstName,
+      last_name: lastName,
+      form_data: formDataJson,
+      cv_url: null,
+      existing_team_id: existingTeamId,
+      team_members: teamMembers,
+      consent_attendance: formData.get("consentAttendance") === "true",
+      consent_privacy: formData.get("consentPrivacy") === "true",
+      consent_newsletter: formData.get("consentNewsletter") === "true",
+      consent_recruiting: formData.get("consentRecruiting") === "true",
+      consent_media: formData.get("consentMedia") === "true",
+      consent_ip_transfer: formData.get("consentIpTransfer") === "true",
+      consent_sponsor_data: formData.get("consentSponsorData") === "true",
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !inserted) {
+    // Unique violation: same email already applied to this chapter.
+    if (insertError?.code === "23505") {
+      return { error: "You have already applied to this match with this email." };
+    }
+    console.error("Application insert error:", insertError);
+    return { error: "Failed to submit application. Please try again." };
+  }
+
+  // Upload the CV and attach it to the saved application. A failure here does
+  // not lose the application; the user is told the CV part failed.
+  let cvUploadFailed = false;
+  if (hasCv) {
     try {
       const chapterName = (chapter.name as string).replace(/[^a-zA-Z0-9 ]/g, "");
       const fileName = `${lastName}_${firstName}_CV.pdf`;
       const result = await uploadFile(
-        cvFile,
+        cvFile!,
         fileName,
         "application/pdf",
         ["CVs", chapterName]
       );
-      cvUrl = result.fileId;
+      await adminClient
+        .from("applications")
+        .update({ cv_url: result.fileId })
+        .eq("id", inserted.id);
     } catch (err) {
       console.error("CV upload error:", err);
+      cvUploadFailed = true;
     }
-  }
-
-  // Insert application
-  const { error: insertError } = await adminClient.from("applications").insert({
-    chapter_id: chapterId,
-    email,
-    first_name: firstName,
-    last_name: lastName,
-    form_data: formDataJson,
-    cv_url: cvUrl,
-    existing_team_id: existingTeamId,
-    team_members: teamMembers,
-    consent_attendance: formData.get("consentAttendance") === "true",
-    consent_privacy: formData.get("consentPrivacy") === "true",
-    consent_newsletter: formData.get("consentNewsletter") === "true",
-    consent_recruiting: formData.get("consentRecruiting") === "true",
-    consent_media: formData.get("consentMedia") === "true",
-    consent_ip_transfer: formData.get("consentIpTransfer") === "true",
-    consent_sponsor_data: formData.get("consentSponsorData") === "true",
-  });
-
-  if (insertError) {
-    console.error("Application insert error:", insertError);
-    return { error: "Failed to submit application. Please try again." };
   }
 
   logEvent({
@@ -206,7 +227,7 @@ export async function submitApplication(formData: FormData) {
     })
   ).catch((err) => console.error("Failed to send confirmation email:", err));
 
-  return { success: true };
+  return { success: true, cvUploadFailed };
 }
 
 // ─── Check if email is linked to an existing account ─────────
