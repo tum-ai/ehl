@@ -405,3 +405,47 @@ The event hub requires `application.status = 'checked_in'`. Test 4.2 sets this. 
 - Run tests against the production Supabase instance
 - Hardcode UUIDs or emails outside of `auth.ts` constants
 - Insert a test between existing serial tests without verifying variable dependencies
+
+---
+
+## 11. Manual Testing on Staging (Preview Deployment + Test DB)
+
+For changes that need a real-browser test on real infrastructure before
+production (auth flows, emails, redirects), use the `staging` branch.
+
+### How it works
+
+- Pushing to the `staging` branch creates a Vercel preview deployment at
+  **https://ehl-git-staging-tum-ai.vercel.app**
+- Branch-scoped env vars (Vercel > Settings > Environment Variables,
+  scoped to Preview / branch `staging`) point this deployment at the
+  **test Supabase instance**, Cloudflare Turnstile **test keys**
+  (always-pass), and `NEXT_PUBLIC_SITE_URL` set to the staging URL so
+  auth links in emails stay on staging.
+- SMTP is shared with production, so emails really send: use a real
+  inbox you control for manual tests.
+- The deployment is protected by Vercel Deployment Protection: open it
+  in a browser where you are logged in to the Vercel team.
+
+### Workflow
+
+```bash
+# Deploy your work to staging
+git push origin my-branch:staging --force
+
+# Optionally reset/seed the test DB first
+pnpm test:setup-db
+```
+
+Then test manually in the browser. Test users you create are in the
+test DB and can be wiped via `pnpm test:setup-db`.
+
+### Caveats
+
+- **Other branch previews still use PRODUCTION env vars** (they were
+  created before env separation and only the team owner can rescope
+  them). Until the owner scopes the shared Supabase/SMTP/Turnstile vars
+  to Production-only, treat non-staging preview URLs as production:
+  do not run test registrations there.
+- Admin Google OAuth is not configured on the test Supabase instance;
+  test admin flows locally (`pnpm test:e2e`) or via role-seeded users.
