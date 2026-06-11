@@ -6,6 +6,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireAdminAction } from "@/lib/admin-auth";
 import { PLACEMENT_POINTS, PARTICIPATION_POINTS } from "@/lib/scoring";
 import { logEvent, logEventStrict } from "@/lib/event-log";
+import { validateJuryRanking } from "@/lib/jury-validation";
 
 export async function removeJuryMember(userId: string): Promise<{ success?: boolean; error?: string }> {
   const adminErr = await requireAdminAction();
@@ -116,27 +117,6 @@ export async function submitJuryRanking(formData: FormData) {
     return { error: "Voting for this challenge has been finalized." };
   }
 
-  // Validate ranking: placements must be consecutive integers, teamIds must be real submissions
-  const places = Object.keys(ranking).map(Number);
-  const teamIds = Object.values(ranking);
-
-  if (places.length === 0) {
-    return { error: "Ranking cannot be empty." };
-  }
-
-  // Check placements are consecutive starting at 1
-  const sorted = [...places].sort((a, b) => a - b);
-  for (let i = 0; i < sorted.length; i++) {
-    if (sorted[i] !== i + 1) {
-      return { error: "Invalid placement values. Must be consecutive starting at 1." };
-    }
-  }
-
-  // Check no duplicate teamIds
-  if (new Set(teamIds).size !== teamIds.length) {
-    return { error: "Duplicate teams in ranking." };
-  }
-
   // Verify all teamIds are actual submissions for this challenge
   const { data: submissions } = await adminClient
     .from("submissions")
@@ -144,10 +124,11 @@ export async function submitJuryRanking(formData: FormData) {
     .eq("challenge_id", challengeId);
 
   const validTeamIds = new Set((submissions ?? []).map((s) => s.team_id as string));
-  for (const tid of teamIds) {
-    if (!validTeamIds.has(tid)) {
-      return { error: "Ranking contains invalid team." };
-    }
+
+  // Validate ranking shape (consecutive placements, no dupes, real teams)
+  const validationError = validateJuryRanking(ranking, validTeamIds);
+  if (validationError) {
+    return { error: validationError };
   }
 
   // Insert ranking (one vote per juror per challenge, no re-voting)
