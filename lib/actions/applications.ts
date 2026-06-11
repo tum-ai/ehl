@@ -491,23 +491,24 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
       chapter.date_end as string | null
     );
 
-    // Generate QR code as PNG buffer for CID attachment
-    const qrCodeBuffer = await QRCode.toBuffer(app.check_in_token as string, {
-      width: 400,
-      margin: 1,
-      color: { dark: "#0B0B1A", light: "#FFFFFF" },
-    });
-
-    const html = await renderApplicationAcceptedEmail({
-      firstName: app.first_name as string,
-      chapterName: chapter.name as string,
-      chapterCity: `${chapter.city}, ${chapter.country}`,
-      chapterDate: dateStr,
-      chapterSlug: chapter.slug as string,
-      checkInToken: app.check_in_token as string,
-    });
-
     try {
+      // QR generation and render are inside the try so one bad row (e.g. a
+      // null check_in_token) fails only that applicant, not the whole batch.
+      const qrCodeBuffer = await QRCode.toBuffer(app.check_in_token as string, {
+        width: 400,
+        margin: 1,
+        color: { dark: "#0B0B1A", light: "#FFFFFF" },
+      });
+
+      const html = await renderApplicationAcceptedEmail({
+        firstName: app.first_name as string,
+        chapterName: chapter.name as string,
+        chapterCity: `${chapter.city}, ${chapter.country}`,
+        chapterDate: dateStr,
+        chapterSlug: chapter.slug as string,
+        checkInToken: app.check_in_token as string,
+      });
+
       await sendEmail({
         to: app.email as string,
         subject: `You're in! Accepted for ${chapter.name}`,
@@ -619,23 +620,35 @@ export async function sendBulkEmails(chapterId: string) {
   const acceptedIds = (accepted ?? []).map((a) => a.id as string);
   const rejectedIds = (rejected ?? []).map((a) => a.id as string);
 
+  // Cap per invocation so a large pending set (hundreds of applicants) can't
+  // exceed the serverless function timeout. Progress is persisted per-applicant
+  // (acceptance/rejection_email_sent_at), so the UI re-invokes to send the rest.
+  const BATCH = 40;
+  const totalPending = acceptedIds.length + rejectedIds.length;
+
+  const acceptedBatch = acceptedIds.slice(0, BATCH);
+  const rejectedBatch = rejectedIds.slice(0, Math.max(0, BATCH - acceptedBatch.length));
+
   let acceptedSent = 0;
   let rejectedSent = 0;
 
-  if (acceptedIds.length > 0) {
-    const result = await sendAcceptanceEmails(acceptedIds);
+  if (acceptedBatch.length > 0) {
+    const result = await sendAcceptanceEmails(acceptedBatch);
     acceptedSent = result.sent ?? 0;
   }
 
-  if (rejectedIds.length > 0) {
-    const result = await sendRejectionEmails(rejectedIds);
+  if (rejectedBatch.length > 0) {
+    const result = await sendRejectionEmails(rejectedBatch);
     rejectedSent = result.sent ?? 0;
   }
+
+  const remaining = Math.max(0, totalPending - acceptedBatch.length - rejectedBatch.length);
 
   return {
     success: true,
     acceptedSent,
     rejectedSent,
+    remaining,
   };
 }
 

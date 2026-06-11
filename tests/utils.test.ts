@@ -6,6 +6,8 @@ import {
   formatDateFull,
   getPlacementLabel,
   getPlacementColor,
+  slugify,
+  getSafeRedirect,
 } from "@/lib/utils";
 
 // ─── cn() ───────────────────────────────────────────────────
@@ -81,6 +83,18 @@ describe("formatDateRange", () => {
   it("handles multi-day range", () => {
     const result = formatDateRange("2026-06-20", "2026-06-22");
     expect(result).toBe("20-22 June 2026");
+  });
+
+  it("names both months for a cross-month range", () => {
+    expect(formatDateRange("2026-05-30", "2026-06-01")).toBe(
+      "30 May - 1 June 2026"
+    );
+  });
+
+  it("names both years for a cross-year range", () => {
+    expect(formatDateRange("2026-12-31", "2027-01-02")).toBe(
+      "31 December 2026 - 2 January 2027"
+    );
   });
 });
 
@@ -171,5 +185,78 @@ describe("getPlacementColor", () => {
     expect(getPlacementColor(4)).toBe("text-text-secondary");
     expect(getPlacementColor(5)).toBe("text-text-secondary");
     expect(getPlacementColor(99)).toBe("text-text-secondary");
+  });
+});
+
+// ─── slugify() ─────────────────────────────────────────────
+
+describe("slugify", () => {
+  it("lowercases and hyphenates", () => {
+    expect(slugify("Team Alpha")).toBe("team-alpha");
+  });
+
+  it("collapses non-alphanumeric runs and trims separators", () => {
+    expect(slugify("  Hello,  World!! ")).toBe("hello-world");
+    expect(slugify("a---b")).toBe("a-b");
+  });
+
+  it("strips diacritics-adjacent characters (non-latin removed)", () => {
+    // Non [a-z0-9] characters are dropped; "Über" -> "ber"
+    expect(slugify("Über Team")).toBe("ber-team");
+  });
+
+  it("returns empty string when the name has no alphanumerics", () => {
+    // Documents the empty-slug case that team creation must reject before
+    // inserting (an empty slug produces an unreachable /team/ URL).
+    expect(slugify("!!!")).toBe("");
+    expect(slugify("🔥🔥")).toBe("");
+    expect(slugify("")).toBe("");
+  });
+
+  it("keeps numbers", () => {
+    expect(slugify("Team 42")).toBe("team-42");
+  });
+});
+
+// ─── getSafeRedirect() (open-redirect guard) ───────────────
+
+describe("getSafeRedirect", () => {
+  it("allows a plain internal path", () => {
+    expect(getSafeRedirect("/dashboard")).toBe("/dashboard");
+    expect(getSafeRedirect("/admin/chapters")).toBe("/admin/chapters");
+  });
+
+  it("returns null for null/undefined/empty", () => {
+    expect(getSafeRedirect(null)).toBeNull();
+    expect(getSafeRedirect(undefined)).toBeNull();
+    expect(getSafeRedirect("")).toBeNull();
+  });
+
+  it("rejects protocol-relative URLs", () => {
+    expect(getSafeRedirect("//evil.com")).toBeNull();
+    expect(getSafeRedirect("//evil.com/path")).toBeNull();
+  });
+
+  it("rejects backslash tricks", () => {
+    expect(getSafeRedirect("/\\evil.com")).toBeNull();
+  });
+
+  it("rejects absolute URLs with a scheme", () => {
+    expect(getSafeRedirect("https://evil.com")).toBeNull();
+    expect(getSafeRedirect("http://evil.com")).toBeNull();
+  });
+
+  it("rejects a path that does not start with /", () => {
+    expect(getSafeRedirect("dashboard")).toBeNull();
+    expect(getSafeRedirect("evil.com")).toBeNull();
+  });
+
+  it("rejects URL-encoded protocol-relative bypass", () => {
+    // decodeURIComponent turns %2F%2F into //, which must still be blocked
+    expect(getSafeRedirect("%2F%2Fevil.com")).toBeNull();
+  });
+
+  it("rejects an embedded scheme like /javascript:", () => {
+    expect(getSafeRedirect("/javascript:alert(1)")).toBeNull();
   });
 });

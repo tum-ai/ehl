@@ -3,7 +3,15 @@ import { Redis } from "@upstash/redis";
 
 function createRedis() {
   // Vercel KV sets KV_REST_API_URL + KV_REST_API_TOKEN automatically
-  // Redis.fromEnv() reads these (and UPSTASH_REDIS_REST_* as fallback)
+  // Redis.fromEnv() reads these (and UPSTASH_REDIS_REST_* as fallback).
+  // NOTE: fromEnv() does NOT throw when the vars are absent — it returns a
+  // client with empty credentials — so we must check presence ourselves,
+  // otherwise the in-memory fallback would never engage when Redis is
+  // unconfigured (only when a live request errors).
+  const url = process.env.KV_REST_API_URL ?? process.env.UPSTASH_REDIS_REST_URL;
+  const token =
+    process.env.KV_REST_API_TOKEN ?? process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (!url || !token) return null;
   try {
     return Redis.fromEnv();
   } catch {
@@ -16,75 +24,57 @@ const redis = createRedis();
 // ─── Rate Limiters ──────────────────────────────────────
 // Limits are generous: 500+ participants share one WiFi at hackathon events.
 // Turnstile CAPTCHA is the primary bot defense; IP limits are a safety net.
-
-// Auth endpoints: 500 requests per 60 seconds per IP
-// Turnstile CAPTCHA is the real bot gate; this just prevents extreme abuse
-export const authLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(500, "60 s"), prefix: "rl:auth" })
-  : null;
-
-// Registration: 500 requests per 60 seconds per IP
-export const registerLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(500, "60 s"), prefix: "rl:register" })
-  : null;
-
-// Password reset: 500 requests per 60 seconds per IP
-export const resetLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(500, "60 s"), prefix: "rl:reset" })
-  : null;
-
-// Application submit: 500 requests per 60 seconds per IP
-export const applicationLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(500, "60 s"), prefix: "rl:apply" })
-  : null;
-
-// File upload: 50 requests per hour per user
-export const uploadLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(50, "3600 s"), prefix: "rl:upload" })
-  : null;
-
-// General API: 1000 requests per 60 seconds per IP
-export const apiLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(1000, "60 s"), prefix: "rl:api" })
-  : null;
-
-// Certificate PDF generation: 30 per 60 seconds per IP (CPU-intensive)
-export const certLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(30, "60 s"), prefix: "rl:cert" })
-  : null;
-
-// Email sending: 10 per hour per address
-export const emailLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(10, "3600 s"), prefix: "rl:email" })
-  : null;
-
-// Client error reports: 10 per 60 seconds per IP
-export const errorReportLimiter = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(10, "60 s"), prefix: "rl:error" })
-  : null;
-
-// ─── Per-limiter in-memory fallback configuration ────────────
-// When Redis is unavailable, each limiter uses its own fallback limits
-// instead of a single generous default. This prevents auth-sensitive
-// endpoints from being more permissive than their Redis configuration.
+//
+// Each limiter carries BOTH its Redis limiter (null when Redis is absent) and
+// its own in-memory fallback config. The fallback is attached to the limiter
+// itself — not a side map keyed by object reference — so it still applies when
+// Redis is unconfigured/down (otherwise every endpoint would silently collapse
+// to one tiny default limit, blocking legitimate users on shared event WiFi).
 
 interface MemoryFallbackConfig {
   limit: number;
   windowMs: number;
 }
 
+export interface RateLimiter {
+  limiter: Ratelimit | null;
+  fallback: MemoryFallbackConfig;
+}
+
 const DEFAULT_FALLBACK: MemoryFallbackConfig = { limit: 10, windowMs: 60_000 };
 
-const memoryFallbackConfig = new Map<Ratelimit | null, MemoryFallbackConfig>();
-if (authLimiter) memoryFallbackConfig.set(authLimiter, { limit: 500, windowMs: 60_000 });
-if (registerLimiter) memoryFallbackConfig.set(registerLimiter, { limit: 500, windowMs: 60_000 });
-if (resetLimiter) memoryFallbackConfig.set(resetLimiter, { limit: 500, windowMs: 60_000 });
-if (applicationLimiter) memoryFallbackConfig.set(applicationLimiter, { limit: 500, windowMs: 60_000 });
-if (uploadLimiter) memoryFallbackConfig.set(uploadLimiter, { limit: 10, windowMs: 60_000 });
-if (apiLimiter) memoryFallbackConfig.set(apiLimiter, { limit: 200, windowMs: 60_000 });
-if (certLimiter) memoryFallbackConfig.set(certLimiter, { limit: 30, windowMs: 60_000 });
-if (emailLimiter) memoryFallbackConfig.set(emailLimiter, { limit: 5, windowMs: 60_000 });
-if (errorReportLimiter) memoryFallbackConfig.set(errorReportLimiter, { limit: 10, windowMs: 60_000 });
+function makeLimiter(
+  prefix: string,
+  perWindow: number,
+  window: `${number} s`,
+  fallback: MemoryFallbackConfig
+): RateLimiter {
+  return {
+    limiter: redis
+      ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(perWindow, window), prefix })
+      : null,
+    fallback,
+  };
+}
+
+// Auth endpoints: 500 requests per 60 seconds per IP
+export const authLimiter = makeLimiter("rl:auth", 500, "60 s", { limit: 500, windowMs: 60_000 });
+// Registration: 500 per 60s per IP
+export const registerLimiter = makeLimiter("rl:register", 500, "60 s", { limit: 500, windowMs: 60_000 });
+// Password reset: 500 per 60s per IP
+export const resetLimiter = makeLimiter("rl:reset", 500, "60 s", { limit: 500, windowMs: 60_000 });
+// Application submit: 500 per 60s per IP
+export const applicationLimiter = makeLimiter("rl:apply", 500, "60 s", { limit: 500, windowMs: 60_000 });
+// File upload: 50 per hour per user (fallback tighter: 10/min)
+export const uploadLimiter = makeLimiter("rl:upload", 50, "3600 s", { limit: 10, windowMs: 60_000 });
+// General API: 1000 per 60s per IP (fallback 200/min)
+export const apiLimiter = makeLimiter("rl:api", 1000, "60 s", { limit: 200, windowMs: 60_000 });
+// Certificate PDF generation: 30 per 60s per IP (CPU-intensive)
+export const certLimiter = makeLimiter("rl:cert", 30, "60 s", { limit: 30, windowMs: 60_000 });
+// Email sending: 10 per hour per address (fallback 5/min)
+export const emailLimiter = makeLimiter("rl:email", 10, "3600 s", { limit: 5, windowMs: 60_000 });
+// Client error reports: 10 per 60s per IP
+export const errorReportLimiter = makeLimiter("rl:error", 10, "60 s", { limit: 10, windowMs: 60_000 });
 
 // ─── In-memory fallback when Redis is unavailable ─────────
 // Simple sliding window: Map<identifier, timestamp[]>
@@ -133,20 +123,32 @@ export function _resetMemoryStore() {
   memoryStore.clear();
 }
 
+let fallbackWarned = false;
+function warnFallbackOnce() {
+  if (fallbackWarned) return;
+  fallbackWarned = true;
+  console.warn(
+    "[rate-limit] Redis unavailable; using in-memory per-limiter fallback. " +
+      "Limits are per-instance, not shared across serverless instances."
+  );
+}
+
 // Helper to check rate limit and return contextual error if exceeded
 export async function checkRateLimit(
-  limiter: Ratelimit | null,
+  rl: RateLimiter | null,
   identifier: string,
   context?: string
 ): Promise<{ limited: boolean; error?: string }> {
-  const config = memoryFallbackConfig.get(limiter) ?? DEFAULT_FALLBACK;
+  const config = rl?.fallback ?? DEFAULT_FALLBACK;
+  const limiter = rl?.limiter ?? null;
   const errorMsg = context
     ? `Too many ${context} requests. Please wait a minute and try again.`
     : "Too many requests. Please try again later.";
 
   if (!limiter) {
-    // No Redis available: use in-memory fallback with per-limiter limits
-    console.warn(`[rate-limit] Redis unavailable, using in-memory fallback for: ${identifier}`);
+    // No Redis available: use in-memory fallback with per-limiter limits.
+    // Warn once per process to avoid flooding logs under sustained traffic.
+    warnFallbackOnce();
     if (!checkMemoryLimit(identifier, config.limit, config.windowMs)) {
       return { limited: true, error: errorMsg };
     }

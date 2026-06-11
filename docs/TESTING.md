@@ -395,7 +395,13 @@ The event hub requires `application.status = 'checked_in'`. Test 4.2 sets this. 
 - Add tests when adding features
 - Use `e2e-*@test-ehl.com` emails and `E2E *` names for all test data
 - Use `data-factory.ts` helpers instead of raw SQL
-- Include API fallbacks for UI-dependent test steps
+- When a step has an API fallback, the UI path must still be asserted: if the
+  form/control is reachable, drive it and assert the DB row was created by the
+  UI. Fall back to an API insert ONLY when a precondition genuinely prevents
+  the UI from rendering, and push a `test.info().annotations` warning so the
+  fallback is visible (never a silent pass). See lifecycle tests 7.1 and 8.4.
+- Assert real outcomes (exact URL, exact DB values/counts), not just that a
+  page loaded or an element is visible.
 
 ### What You Must Never Do
 - Delete an existing test case
@@ -405,6 +411,10 @@ The event hub requires `application.status = 'checked_in'`. Test 4.2 sets this. 
 - Run tests against the production Supabase instance
 - Hardcode UUIDs or emails outside of `auth.ts` constants
 - Insert a test between existing serial tests without verifying variable dependencies
+- Swallow a real failure into a green pass. Never `return` on a timeout/error
+  branch or `catch(() => "ok")` around an assertion. If a flow can break, the
+  test must go red. (A unit-test mock must likewise fail when the code queries
+  a non-existent column — see `tests/admin-stats.test.ts`.)
 
 ---
 

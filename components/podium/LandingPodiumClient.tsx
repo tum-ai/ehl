@@ -22,8 +22,10 @@ export function LandingPodiumClient({ entries }: LandingPodiumClientProps) {
 
   const rank1 = entries.filter((e) => e.rank === 1);
 
-  // All tied for 1st (current state: 4 teams)
-  if (rank1.length > 2) {
+  // Two or more tied for 1st: there is no distinct rank 2, so render the tied
+  // leaders consistently (matches components/leaderboard/podium.tsx) instead of
+  // the 2nd/1st/3rd layout, which would have no rank-2 entry to show.
+  if (rank1.length >= 2) {
     return (
       <div ref={ref}>
         {/* Trophy + tied banner */}
@@ -80,14 +82,21 @@ export function LandingPodiumClient({ entries }: LandingPodiumClientProps) {
   const top3 = entries.filter((e) => e.rank <= 3).slice(0, 3);
   if (top3.length < 3) return null;
 
-  const second = top3.find((e) => e.rank === 2)!;
-  const first = top3.find((e) => e.rank === 1)!;
-  const third = top3.find((e) => e.rank === 3)!;
-  const podiumOrder = [
-    { entry: second, rank: 2 },
-    { entry: first, rank: 1 },
-    { entry: third, rank: 3 },
-  ];
+  const second = top3.find((e) => e.rank === 2);
+  const first = top3.find((e) => e.rank === 1);
+  const third = top3.find((e) => e.rank === 3);
+
+  // With ties there may be no distinct rank 2 or 3 (e.g. ranks [1,1,3]). Build
+  // the podium from whatever ranks actually exist, in 2nd/1st/3rd visual order,
+  // so a tied leaderboard renders instead of crashing on a missing entry.
+  const podiumOrder: { entry: LeaderboardEntry; rank: number }[] = [];
+  if (second) podiumOrder.push({ entry: second, rank: 2 });
+  if (first) podiumOrder.push({ entry: first, rank: 1 });
+  if (third) podiumOrder.push({ entry: third, rank: 3 });
+
+  if (podiumOrder.length === 0) {
+    return null;
+  }
 
   return (
     <div ref={ref} className="relative mx-auto max-w-2xl">

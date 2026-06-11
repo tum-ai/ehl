@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lockSubmissionsCore } from "@/lib/submissions-lock";
+import { logEvent } from "@/lib/event-log";
 
 // Called by Vercel cron or external scheduler to auto-close applications/challenge selection
 export async function GET(request: Request) {
@@ -23,7 +24,17 @@ export async function GET(request: Request) {
   const now = new Date().toISOString();
   const transitions: string[] = [];
 
-  // Auto-close applications: applications_open -> screening
+  // Purge expired verification codes. Each holds an AES-encrypted password in
+  // metadata; once expired it is useless and should not be retained.
+  {
+    const { error } = await adminClient
+      .from("verification_codes")
+      .delete()
+      .lt("expires_at", now);
+    if (error) console.error("[cron] Failed to purge expired verification codes:", error.message);
+  }
+
+  // Auto-close applications: applications_open -> preparation
   const { data: appChapters } = await adminClient
     .from("chapters")
     .select("id, name, application_deadline")
@@ -32,14 +43,25 @@ export async function GET(request: Request) {
     .lte("application_deadline", now);
 
   for (const chapter of appChapters ?? []) {
-    await adminClient
+    const { error } = await adminClient
       .from("chapters")
       .update({ status: "preparation" })
       .eq("id", chapter.id);
-    transitions.push(`${chapter.name}: applications_open -> screening`);
+    if (error) {
+      console.error(`[cron] Failed to advance ${chapter.name} to preparation:`, error.message);
+      continue;
+    }
+    transitions.push(`${chapter.name}: applications_open -> preparation`);
+    logEvent({
+      action: "chapter.status_changed",
+      entityType: "chapter",
+      entityId: chapter.id as string,
+      actorType: "system",
+      delta: { from: "applications_open", to: "preparation", reason: "deadline" },
+    });
   }
 
-  // Auto-close challenge selection: registration_open -> submissions_open
+  // Auto-close challenge selection: challenge_selection -> submissions_open
   const { data: csChapters } = await adminClient
     .from("chapters")
     .select("id, name, challenge_selection_deadline")
@@ -48,11 +70,22 @@ export async function GET(request: Request) {
     .lte("challenge_selection_deadline", now);
 
   for (const chapter of csChapters ?? []) {
-    await adminClient
+    const { error } = await adminClient
       .from("chapters")
       .update({ status: "submissions_open" })
       .eq("id", chapter.id);
-    transitions.push(`${chapter.name}: registration_open -> submissions_open`);
+    if (error) {
+      console.error(`[cron] Failed to advance ${chapter.name} to submissions_open:`, error.message);
+      continue;
+    }
+    transitions.push(`${chapter.name}: challenge_selection -> submissions_open`);
+    logEvent({
+      action: "chapter.status_changed",
+      entityType: "chapter",
+      entityId: chapter.id as string,
+      actorType: "system",
+      delta: { from: "challenge_selection", to: "submissions_open", reason: "deadline" },
+    });
   }
 
   // Auto-lock submissions when deadline passes
@@ -107,11 +140,22 @@ export async function GET(request: Request) {
     }
 
     // Advance status to pitching
-    await adminClient
+    const { error: pitchErr } = await adminClient
       .from("chapters")
       .update({ status: "pitching" })
       .eq("id", chapter.id);
+    if (pitchErr) {
+      console.error(`[cron] Failed to advance ${chapter.name} to pitching:`, pitchErr.message);
+      continue;
+    }
     transitions.push(`${chapter.name}: submissions_open -> pitching`);
+    logEvent({
+      action: "chapter.status_changed",
+      entityType: "chapter",
+      entityId: chapter.id as string,
+      actorType: "system",
+      delta: { from: "submissions_open", to: "pitching", reason: "deadline" },
+    });
   }
 
   // Dispatch GitHub Actions workflow if reviews were queued

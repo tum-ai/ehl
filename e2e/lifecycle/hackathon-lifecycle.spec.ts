@@ -25,7 +25,10 @@ import {
   createChapter,
   createChallenge,
   createImportedParticipant,
+  createParticipant,
+  createTeam,
   generateRecoveryLink,
+  getTeamInviteToken,
   setChapterStatus,
   setChapterDeadlines,
   registerForChallenge,
@@ -87,32 +90,19 @@ test.describe.serial("Block 1: Participant Registration", () => {
     // Submit form
     await page.getByRole("button", { name: /continue/i }).click();
 
-    // Wait for verification step or error
-    // SMTP email sending can take 30-60s for non-existent domains
+    // The verification code is written to the DB inside the server action
+    // BEFORE the email is sent, and the "Verify Your Email" screen renders as
+    // soon as the action returns — so this does not depend on SMTP. If a
+    // server error surfaces, fail loudly: a broken registration flow must not
+    // pass green. (Surface the error text in the failure for diagnosis.)
     const verifyOrError = await Promise.race([
-      page.getByText("Verify Your Email").waitFor({ timeout: 60000 }).then(() => "verify" as const),
-      page.locator(".text-error").waitFor({ timeout: 60000 }).then(() => "error" as const),
-    ]).catch(() => "timeout" as const);
+      page.getByText("Verify Your Email").waitFor({ timeout: 30000 }).then(() => "verify" as const),
+      page.locator("div.bg-error\\/5").waitFor({ timeout: 30000 }).then(() => "error" as const),
+    ]);
 
     if (verifyOrError === "error") {
-      const errorText = await page.locator(".text-error").textContent();
-      console.log(`[Registration] Server returned error: ${errorText}`);
-      // Registration might fail due to email rate limiting or SMTP issues
-      // Still pass the test if the error is about email delivery, not registration logic
-      test.info().annotations.push({
-        type: "warning",
-        description: `Registration had an error: ${errorText}`,
-      });
-      return;
-    }
-
-    if (verifyOrError === "timeout") {
-      console.log("[Registration] Timed out waiting for verification screen");
-      test.info().annotations.push({
-        type: "warning",
-        description: "Registration timed out - SMTP may be slow or failing for test domain",
-      });
-      return;
+      const errorText = await page.locator("div.bg-error\\/5").textContent();
+      throw new Error(`Solo registration returned an error instead of the verification screen: ${errorText}`);
     }
 
     // Read verification code from DB
@@ -176,22 +166,16 @@ test.describe.serial("Block 1: Participant Registration", () => {
     // Submit
     await page.getByRole("button", { name: /continue/i }).click();
 
-    // Wait for verification step or error
+    // Verification screen must appear (the code is persisted before the email
+    // is sent, so this is SMTP-independent). A server error fails the test.
     const verifyOrError = await Promise.race([
-      page.getByText("Verify Your Email").waitFor({ timeout: 60000 }).then(() => "verify" as const),
-      page.locator(".text-error").waitFor({ timeout: 60000 }).then(() => "error" as const),
-    ]).catch(() => "timeout" as const);
+      page.getByText("Verify Your Email").waitFor({ timeout: 30000 }).then(() => "verify" as const),
+      page.locator("div.bg-error\\/5").waitFor({ timeout: 30000 }).then(() => "error" as const),
+    ]);
 
-    if (verifyOrError !== "verify") {
-      const msg = verifyOrError === "error"
-        ? await page.locator(".text-error").textContent()
-        : "Timed out waiting for verification screen";
-      console.log(`[Team Registration] ${msg}`);
-      test.info().annotations.push({
-        type: "warning",
-        description: `Team registration issue: ${msg}`,
-      });
-      return;
+    if (verifyOrError === "error") {
+      const errorText = await page.locator("div.bg-error\\/5").textContent();
+      throw new Error(`Team registration returned an error instead of the verification screen: ${errorText}`);
     }
 
     // Read verification code from DB
@@ -262,6 +246,71 @@ test.describe.serial("Block 1: Participant Registration", () => {
     // Cleanup
     await admin.from("profiles").delete().eq("id", userId);
     try { await admin.auth.admin.deleteUser(userId); } catch {}
+  });
+
+  test("1.4 Logged-in invitee confirms a team invite via the confirm page", async ({ page }) => {
+    test.setTimeout(60000);
+    const admin = getAdminClient();
+    const inviteeEmail = "e2e-invite-confirm@test-ehl.com";
+    const teamName = "E2E Invite Team";
+
+    // Clean up any prior data
+    {
+      const prev = await getProfileByEmail(inviteeEmail);
+      const { data: teams } = await admin.from("teams").select("id").eq("name", teamName);
+      const teamIds = (teams ?? []).map((t) => t.id as string);
+      if (teamIds.length) {
+        await admin.from("team_invites").delete().in("team_id", teamIds);
+        await admin.from("team_members").delete().in("team_id", teamIds);
+        await admin.from("teams").delete().in("id", teamIds);
+      }
+      if (prev) {
+        await admin.from("team_members").delete().eq("user_id", prev.id);
+        await admin.from("profiles").delete().eq("id", prev.id);
+        try { await admin.auth.admin.deleteUser(prev.id as string); } catch {}
+      }
+    }
+
+    // A president with a team, and a separate invitee account (not yet on a team)
+    const presidentId = await createParticipant({ email: "e2e-invite-pres@test-ehl.com", name: "E2E Invite Pres" });
+    const teamId = await createTeam({ name: teamName, presidentUserId: presidentId });
+    const inviteeId = await createParticipant({ email: inviteeEmail, name: "E2E Invitee" });
+
+    // Pending invite addressed to the invitee's email
+    await admin.from("team_invites").insert({
+      team_id: teamId, email: inviteeEmail, name: "E2E Invitee", invited_by: presidentId,
+    });
+    const token = await getTeamInviteToken(inviteeEmail);
+
+    // Sign in AS the invitee, then open the invite link
+    await loginAsParticipant(page, inviteeEmail);
+    await page.goto(`/invite/${token}`, { waitUntil: "networkidle" });
+
+    // Must show the confirm step (NOT auto-accept on GET)
+    await expect(page.getByRole("heading", { name: new RegExp(`Join ${teamName}`, "i") })).toBeVisible({ timeout: 10000 });
+
+    // Confirm
+    await page.getByRole("button", { name: new RegExp(`Join ${teamName}`, "i") }).click();
+    await page.waitForURL(/\/dashboard/, { timeout: 15000 });
+
+    // The membership must now exist in the DB
+    const { data: membership } = await admin
+      .from("team_members")
+      .select("team_id, role")
+      .eq("user_id", inviteeId)
+      .eq("team_id", teamId)
+      .maybeSingle();
+    expect(membership).toBeTruthy();
+    expect(membership!.role).toBe("member");
+
+    // Cleanup
+    await admin.from("team_invites").delete().eq("team_id", teamId);
+    await admin.from("team_members").delete().eq("team_id", teamId);
+    await admin.from("teams").delete().eq("id", teamId);
+    for (const id of [presidentId, inviteeId]) {
+      await admin.from("profiles").delete().eq("id", id);
+      try { await admin.auth.admin.deleteUser(id); } catch {}
+    }
   });
 });
 
@@ -433,6 +482,125 @@ test.describe.serial("Hackathon Lifecycle", () => {
       const content2 = await page.textContent("body");
       expect(content2).not.toContain("Applications Closed");
     }
+  });
+
+  test("3.1b Submit an application through the UI form (with CV upload)", async ({ page }) => {
+    test.setTimeout(90000);
+    const admin = getAdminClient();
+    const email = "e2e-apply-ui@test-ehl.com";
+
+    // Ensure applications are open and clean any prior row for this email.
+    const { data: ch } = await admin.from("chapters").select("status").eq("id", chapterId).single();
+    if (ch?.status !== "applications_open") {
+      await setChapterStatus(chapterId, "applications_open");
+    }
+    await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
+
+    await page.goto(`/apply/${chapterSlug}`, { waitUntil: "networkidle" });
+
+    // Entering an email with no account reveals the form (showForm gate).
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="email"]').blur();
+
+    await page.locator('input[name="firstName"]').fill("E2E");
+    await page.locator('input[name="lastName"]').fill("ApplyUI");
+    await page.locator('input[name="dateOfBirth"]').fill("2000-01-15");
+    await page.locator('input[name="gender"][value="Male"]').check({ force: true });
+    await page.locator('input[name="locationCity"]').fill("Munich");
+    await page.locator('input[name="locationCountry"]').fill("Germany");
+    await page.locator('input[name="nationality"]').fill("German");
+    // currentlyStudying = No avoids the university sub-fields
+    await page.locator('input[name="currentlyStudying"][value="false"]').check({ force: true });
+    await page.locator('input[name="hasProgrammingSkills"][value="true"]').check({ force: true });
+    await page.locator('input[name="isTumaiMember"][value="false"]').check({ force: true });
+    await page.locator('textarea[name="hackathonExperience"]').fill("One previous hackathon.");
+    await page.locator('input[name="hasTeam"][value="false"]').check({ force: true });
+    await page.locator('input[name="dietaryRestrictions"][value="None"]').check({ force: true });
+    await page.locator('input[name="tshirtCut"][value="men\'s"]').check({ force: true });
+    await page.locator('input[name="tshirtSize"][value="M"]').check({ force: true });
+    // Discovery source is a checkbox group; tick LinkedIn by its visible label.
+    await page.getByText("LinkedIn", { exact: true }).click();
+    // Upload a CV (exercises the hardened CV path).
+    await page.locator('input[name="wantsCv"][value="true"]').check({ force: true });
+    await page.locator('input[name="cv"]').setInputFiles({
+      name: "cv.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\n%E2E test CV\n"),
+    });
+
+    await page.getByRole("button", { name: /submit application/i }).click();
+
+    // The success screen must appear — proving the UI submit succeeded.
+    await expect(page.getByText("Application Submitted!")).toBeVisible({ timeout: 30000 });
+
+    // And the row must exist in the DB, created BY THE UI (not seeded).
+    const { data: app } = await admin
+      .from("applications")
+      .select("first_name, last_name, cv_url, status")
+      .eq("chapter_id", chapterId)
+      .eq("email", email)
+      .single();
+    expect(app).toBeTruthy();
+    expect(app!.first_name).toBe("E2E");
+    expect(app!.last_name).toBe("ApplyUI");
+    // CV upload may legitimately fail if Drive isn't configured in the test env;
+    // if it ran, cv_url is set. We assert the application itself persisted
+    // regardless (the hardening guarantees the app is saved even if CV fails).
+    expect(app!.status).toBe("pending");
+
+    // Cleanup
+    await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
+  });
+
+  test("3.1c Reject a CV that is not a PDF through the UI", async ({ page }) => {
+    test.setTimeout(60000);
+    const admin = getAdminClient();
+    const email = "e2e-apply-badcv@test-ehl.com";
+    const { data: ch } = await admin.from("chapters").select("status").eq("id", chapterId).single();
+    if (ch?.status !== "applications_open") {
+      await setChapterStatus(chapterId, "applications_open");
+    }
+    await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
+
+    await page.goto(`/apply/${chapterSlug}`, { waitUntil: "networkidle" });
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="email"]').blur();
+
+    await page.locator('input[name="firstName"]').fill("E2E");
+    await page.locator('input[name="lastName"]').fill("BadCV");
+    await page.locator('input[name="dateOfBirth"]').fill("2000-01-15");
+    await page.locator('input[name="gender"][value="Male"]').check({ force: true });
+    await page.locator('input[name="locationCity"]').fill("Munich");
+    await page.locator('input[name="locationCountry"]').fill("Germany");
+    await page.locator('input[name="nationality"]').fill("German");
+    await page.locator('input[name="currentlyStudying"][value="false"]').check({ force: true });
+    await page.locator('input[name="hasProgrammingSkills"][value="true"]').check({ force: true });
+    await page.locator('input[name="isTumaiMember"][value="false"]').check({ force: true });
+    await page.locator('textarea[name="hackathonExperience"]').fill("x");
+    await page.locator('input[name="hasTeam"][value="false"]').check({ force: true });
+    await page.locator('input[name="dietaryRestrictions"][value="None"]').check({ force: true });
+    await page.locator('input[name="tshirtCut"][value="men\'s"]').check({ force: true });
+    await page.locator('input[name="tshirtSize"][value="M"]').check({ force: true });
+    await page.getByText("LinkedIn", { exact: true }).click();
+    await page.locator('input[name="wantsCv"][value="true"]').check({ force: true });
+    // A .txt masquerading by mime — the server checks the .pdf extension.
+    await page.locator('input[name="cv"]').setInputFiles({
+      name: "resume.txt",
+      mimeType: "text/plain",
+      buffer: Buffer.from("not a pdf"),
+    });
+
+    await page.getByRole("button", { name: /submit application/i }).click();
+
+    // The server rejects a non-PDF; an error must show and no row is created.
+    await expect(page.locator("div.bg-error\\/5")).toBeVisible({ timeout: 30000 });
+    const { data: app } = await admin
+      .from("applications")
+      .select("id")
+      .eq("chapter_id", chapterId)
+      .eq("email", email)
+      .maybeSingle();
+    expect(app).toBeNull();
   });
 
   test("3.2 Submit applications via API", async () => {
@@ -640,8 +808,12 @@ test.describe.serial("Hackathon Lifecycle", () => {
     // We find them by placeholder text.
     const projectNameInput = page.locator('input[placeholder="Your project name"]');
     const isFormVisible = await projectNameInput.isVisible({ timeout: 5000 }).catch(() => false);
+    const admin = getAdminClient();
 
     if (isFormVisible) {
+      // The form is reachable: drive it through the UI and require that the UI
+      // path actually persists the submission. (Previously this fell back to an
+      // API insert even after the form rendered, so a broken submit passed green.)
       await projectNameInput.fill("E2E Project Alpha");
 
       const descInput = page.locator('textarea[placeholder="What does your project do?"]');
@@ -649,30 +821,37 @@ test.describe.serial("Hackathon Lifecycle", () => {
         await descInput.fill("An E2E test project submission");
       }
 
-      // Dynamic field: GitHub repo URL (configured in challenge submission_fields)
       const repoInput = page.locator('input[placeholder*="github"]');
       if (await repoInput.isVisible().catch(() => false)) {
         await repoInput.fill("https://github.com/european-hackathon-league/e2e-test-submission");
       }
 
       const submitBtn = page.getByRole("button", { name: /submit project/i });
-      if (await submitBtn.isEnabled().catch(() => false)) {
-        await submitBtn.click();
-        // Wait for submission to be processed (server action + potential GitHub fork)
-        await page.waitForLoadState("networkidle");
-      }
-    }
+      await expect(submitBtn).toBeEnabled({ timeout: 5000 });
+      await submitBtn.click();
+      await page.waitForLoadState("networkidle");
 
-    // Verify submission was saved - if UI didn't work, use API fallback
-    const admin = getAdminClient();
-    const { data: existing } = await admin
-      .from("submissions")
-      .select("id")
-      .eq("challenge_id", challengeId)
-      .eq("team_id", teamAlphaId);
-
-    if (!existing || existing.length === 0) {
-      console.log("[Submission Alpha] UI submission not saved, using API fallback");
+      // The UI submit MUST have created the row. A GitHub-fork failure in the
+      // test env does not prevent the submission row from being written, so a
+      // missing row here is a real UI/server failure, not an env quirk.
+      await expect
+        .poll(async () => {
+          const { data } = await admin
+            .from("submissions")
+            .select("id")
+            .eq("challenge_id", challengeId)
+            .eq("team_id", teamAlphaId);
+          return data?.length ?? 0;
+        }, { timeout: 15000 })
+        .toBeGreaterThan(0);
+    } else {
+      // Precondition not met in this env (e.g. submitter not checked in): the
+      // submission UI legitimately doesn't render. Seed via API so later steps
+      // can run, but record that the UI path was NOT exercised — not a silent pass.
+      test.info().annotations.push({
+        type: "warning",
+        description: "Submission form did not render (precondition); seeded submission via API instead of UI.",
+      });
       await admin.from("submissions").insert({
         challenge_id: challengeId,
         team_id: teamAlphaId,
@@ -768,44 +947,44 @@ test.describe.serial("Hackathon Lifecycle", () => {
     const teamsVisible = await teamsSection.isVisible({ timeout: 10000 }).catch(() => false);
 
     if (teamsVisible) {
-      // Click teams by team name to add them to ranking slots (1st: Alpha, 2nd: Beta)
+      // Drive the ranking UI and require that it persists the vote. The jury
+      // rank page has no check-in precondition, so a missing row after a
+      // successful submit is a real UI/server failure, not an env quirk.
       const alphaBtn = page.getByRole("button", { name: /E2E Alpha/i });
       const betaBtn = page.getByRole("button", { name: /E2E Beta/i });
 
-      if (await alphaBtn.isVisible().catch(() => false)) {
-        await alphaBtn.click();
-        // Wait for the team to move from "Available" to a ranking slot
-        await expect(alphaBtn).not.toBeVisible({ timeout: 3000 }).catch(() => {});
-      }
-      if (await betaBtn.isVisible().catch(() => false)) {
-        await betaBtn.click();
-        await expect(betaBtn).not.toBeVisible({ timeout: 3000 }).catch(() => {});
-      }
+      await alphaBtn.click();
+      await expect(alphaBtn).not.toBeVisible({ timeout: 3000 }).catch(() => {});
+      await betaBtn.click();
+      await expect(betaBtn).not.toBeVisible({ timeout: 3000 }).catch(() => {});
 
-      // Submit Vote button should be enabled now (both slots filled)
       const submitBtn = page.getByRole("button", { name: /submit vote/i });
-      if (await submitBtn.isEnabled({ timeout: 3000 }).catch(() => false)) {
-        await submitBtn.click();
-        // Confirmation dialog appears with its own "Submit Vote" button
-        const confirmDialog = page.locator(".fixed.inset-0");
-        if (await confirmDialog.isVisible({ timeout: 3000 }).catch(() => false)) {
-          const confirmBtn = confirmDialog.getByRole("button", { name: /submit vote/i });
-          await confirmBtn.click();
-          // Wait for navigation back to jury challenge page
-          await page.waitForURL(/\/jury\//, { timeout: 10000 }).catch(() => {});
-        }
+      await expect(submitBtn).toBeEnabled({ timeout: 5000 });
+      await submitBtn.click();
+      const confirmDialog = page.locator(".fixed.inset-0");
+      if (await confirmDialog.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await confirmDialog.getByRole("button", { name: /submit vote/i }).click();
+        await page.waitForURL(/\/jury\//, { timeout: 10000 }).catch(() => {});
       }
-    }
 
-    // Verify ranking was saved - if not, use API fallback
-    const { data: existing } = await admin
-      .from("jury_rankings")
-      .select("id")
-      .eq("challenge_id", challengeId)
-      .eq("entered_by", jury1UserId);
-
-    if (!existing || existing.length === 0) {
-      console.log("[Jury 1] UI ranking not saved, using API fallback");
+      // The vote MUST be persisted by the UI (jury_rankings is INSERT-only).
+      await expect
+        .poll(async () => {
+          const { data } = await admin
+            .from("jury_rankings")
+            .select("id")
+            .eq("challenge_id", challengeId)
+            .eq("entered_by", jury1UserId);
+          return data?.length ?? 0;
+        }, { timeout: 15000 })
+        .toBeGreaterThan(0);
+    } else {
+      // Teams section never rendered (precondition/env). Seed via API so later
+      // steps run, but record that the UI path was NOT exercised.
+      test.info().annotations.push({
+        type: "warning",
+        description: "Jury rank UI did not render; seeded jury ranking via API instead of UI.",
+      });
       await admin.from("jury_rankings").insert({
         challenge_id: challengeId,
         entered_by: jury1UserId,

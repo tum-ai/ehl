@@ -6,15 +6,21 @@ export interface StatusCheck {
 }
 
 const STATUS_FLOW: ChapterStatus[] = [
-  "draft",           // 0
-  "announced",       // 1
-  "applications_open", // 2
-  "preparation",       // 3
-  "challenge_selection", // 4
-  "submissions_open",  // 5
-  "pitching",        // 6
-  "completed",       // 7
+  "draft",
+  "announced",
+  "applications_open",
+  "preparation",
+  "challenge_selection",
+  "hacking",
+  "submissions_open",
+  "pitching",
+  "completed",
 ];
+
+/** True when targetStatus is at or beyond `gate` in the flow. */
+function reaches(targetStatus: ChapterStatus, gate: ChapterStatus): boolean {
+  return getTargetIndex(targetStatus) >= getTargetIndex(gate);
+}
 
 export function isBackwardTransition(
   currentStatus: ChapterStatus,
@@ -44,6 +50,19 @@ interface ChapterFields {
   description?: string | null;
   date?: string | null;
   date_end?: string | null;
+  application_deadline?: string | null;
+  challenge_selection_deadline?: string | null;
+  submission_deadline?: string | null;
+}
+
+export interface StatusCheckCounts {
+  challengeCount?: number;
+  registrationCount?: number;
+  submissionCount?: number;
+  juryCount?: number;
+  publishedScoreCount?: number;
+  /** Titles of challenges with code review enabled but not fully configured. */
+  unconfiguredReviewChallenges?: string[];
 }
 
 export function validateAnnouncedReady(chapter: ChapterFields): StatusCheck[] {
@@ -66,35 +85,57 @@ export function validateApplicationsOpenReady(
 ): StatusCheck[] {
   return [
     {
-      label: "Exact date is set (not just month)",
+      label: "Exact start date is set (not approximate)",
       passed: isDateExact(chapter.date),
+    },
+    {
+      label: "Application deadline is set",
+      passed: !!chapter.application_deadline,
     },
   ];
 }
 
-export function validateRegistrationOpenReady(
+export function validateChallengeSelectionReady(
   chapter: ChapterFields,
   challengeCount: number
 ): StatusCheck[] {
   return [
-    { label: "Exact start date is set", passed: isDateExact(chapter.date) },
+    { label: "Start date is set", passed: !!chapter.date },
     { label: "End date is set", passed: !!chapter.date_end },
     {
       label: "At least one challenge exists",
       passed: challengeCount > 0,
     },
+    {
+      label: "Challenge selection deadline is set",
+      passed: !!chapter.challenge_selection_deadline,
+    },
   ];
 }
 
-export function validateHackingReady(
-  registrationCount: number
+export function validateSubmissionsOpenReady(
+  chapter: ChapterFields,
+  registrationCount: number,
+  unconfiguredReviewChallenges: string[] = []
 ): StatusCheck[] {
-  return [
+  const checks: StatusCheck[] = [
     {
       label: "At least one team is registered",
       passed: registrationCount > 0,
     },
+    {
+      label: "Submission deadline is set",
+      passed: !!chapter.submission_deadline,
+    },
   ];
+  // Only present a code-review readiness line when review is enabled somewhere.
+  if (unconfiguredReviewChallenges.length > 0) {
+    checks.push({
+      label: `Code review not configured for: ${unconfiguredReviewChallenges.join(", ")}`,
+      passed: false,
+    });
+  }
+  return checks;
 }
 
 export function validatePitchingReady(
@@ -122,53 +163,48 @@ export function validateCompletedReady(
 }
 
 /**
- * Get all status checks needed for a given target status.
- * This is the pure logic version without DB calls.
- * The counts (challengeCount, registrationCount, etc.) must be provided externally.
+ * Pure flow/field logic for status-readiness checks. The DB-dependent counts
+ * are gathered by the caller (lib/actions/admin.ts getStatusChecks) and passed
+ * in, so this function — and its tests — match the live transition gating.
  */
 export function getStatusChecksForTarget(
   currentStatus: ChapterStatus,
   targetStatus: ChapterStatus,
   chapter: ChapterFields,
-  counts: {
-    challengeCount?: number;
-    registrationCount?: number;
-    submissionCount?: number;
-    juryCount?: number;
-    publishedScoreCount?: number;
-  }
+  counts: StatusCheckCounts
 ): StatusCheck[] {
   if (isBackwardTransition(currentStatus, targetStatus)) return [];
 
-  const targetIdx = getTargetIndex(targetStatus);
   const checks: StatusCheck[] = [];
 
-  // Announced (idx 1)
-  if (targetIdx >= 1) {
+  if (reaches(targetStatus, "announced")) {
     checks.push(...validateAnnouncedReady(chapter));
   }
 
-  // Applications Open (idx 2)
-  if (targetIdx >= 2) {
+  if (reaches(targetStatus, "applications_open")) {
     checks.push(...validateApplicationsOpenReady(chapter));
   }
 
-  // Screening (idx 3) - no extra checks, just close applications
+  // Preparation - no extra checks, just close applications
 
-  // Challenge Selection / registration_open (idx 4)
-  if (targetIdx >= 4) {
+  if (reaches(targetStatus, "challenge_selection")) {
     checks.push(
-      ...validateRegistrationOpenReady(chapter, counts.challengeCount ?? 0)
+      ...validateChallengeSelectionReady(chapter, counts.challengeCount ?? 0)
     );
   }
 
-  // Submissions Open (idx 5) - require at least one registration
-  if (targetIdx >= 5) {
-    checks.push(...validateHackingReady(counts.registrationCount ?? 0));
+  // hacking / submissions_open both require a registered team + deadline
+  if (reaches(targetStatus, "hacking")) {
+    checks.push(
+      ...validateSubmissionsOpenReady(
+        chapter,
+        counts.registrationCount ?? 0,
+        counts.unconfiguredReviewChallenges ?? []
+      )
+    );
   }
 
-  // Pitching (idx 6)
-  if (targetIdx >= 6) {
+  if (reaches(targetStatus, "pitching")) {
     checks.push(
       ...validatePitchingReady(
         counts.submissionCount ?? 0,
@@ -177,8 +213,7 @@ export function getStatusChecksForTarget(
     );
   }
 
-  // Completed (idx 7)
-  if (targetIdx >= 7) {
+  if (reaches(targetStatus, "completed")) {
     checks.push(...validateCompletedReady(counts.publishedScoreCount ?? 0));
   }
 

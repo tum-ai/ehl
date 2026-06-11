@@ -11,6 +11,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { logEvent } from "@/lib/event-log";
 import { slugify } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
+import { randomUUID } from "crypto";
 
 /**
  * Check if a user is locked to their current team because
@@ -239,15 +240,26 @@ export async function inviteMember(teamId: string, email: string, name?: string)
 
   const captainName = (profile?.name as string) || "Your president";
 
-  // Create invite
+  // Upsert on (team_id, email). team_invites has UNIQUE(team_id, email) and
+  // rows are never deleted (decline/cancel/expiry just change status), so a
+  // plain insert when re-inviting a previously-declined/expired email would
+  // hit the constraint and surface a raw DB error. Upserting resets the row to
+  // a fresh pending invite with a new token and expiry.
   const { data: invite, error: inviteError } = await adminClient
     .from("team_invites")
-    .insert({
-      team_id: teamId,
-      email: email.toLowerCase(),
-      name: name || null,
-      invited_by: user.id,
-    })
+    .upsert(
+      {
+        team_id: teamId,
+        email: email.toLowerCase(),
+        name: name || null,
+        invited_by: user.id,
+        status: "pending",
+        token: randomUUID(),
+        expires_at: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString(),
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: "team_id,email" }
+    )
     .select("token")
     .single();
 
@@ -264,11 +276,20 @@ export async function inviteMember(teamId: string, email: string, name?: string)
     inviteToken: invite.token as string,
   });
 
-  await sendEmail({
-    to: email,
-    subject: `Join ${team.name} in the European Hackathon League`,
-    html,
-  });
+  try {
+    await sendEmail({
+      to: email,
+      subject: `Join ${team.name} in the European Hackathon League`,
+      html,
+    });
+  } catch (err) {
+    // The invite row exists; surface the email failure rather than throwing a
+    // raw server-action error with no feedback to the president.
+    console.error(`Failed to send team invite to ${email}:`, err);
+    return {
+      error: "Invite created, but the email could not be sent. They can still join from a link, or try again.",
+    };
+  }
 
   return { success: true };
 }

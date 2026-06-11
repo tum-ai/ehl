@@ -1,5 +1,32 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { checkMemoryLimit, _resetMemoryStore } from "@/lib/ratelimit";
+
+// Load a fresh copy of the rate-limit module with NO Redis env vars set, so
+// Redis.fromEnv() throws and every limiter is null. That forces checkRateLimit
+// down the in-memory fallback path, letting us assert the REAL per-limiter
+// fallback limits (auth/register = 500/min, upload = 10/min) without making
+// any network calls to a live Redis.
+async function loadRatelimitWithoutRedis() {
+  const REDIS_VARS = [
+    "KV_REST_API_URL",
+    "KV_REST_API_TOKEN",
+    "KV_URL",
+    "REDIS_URL",
+    "UPSTASH_REDIS_REST_URL",
+    "UPSTASH_REDIS_REST_TOKEN",
+  ];
+  const saved: Record<string, string | undefined> = {};
+  for (const k of REDIS_VARS) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  vi.resetModules();
+  const mod = await import("@/lib/ratelimit");
+  for (const [k, v] of Object.entries(saved)) {
+    if (v !== undefined) process.env[k] = v;
+  }
+  return mod;
+}
 
 // ─── In-memory fallback rate limiter ─────────────────────────
 
@@ -48,27 +75,58 @@ describe("checkMemoryLimit", () => {
     expect(checkMemoryLimit("window:1", 1, 1)).toBe(true);
   });
 
-  it("enforces auth limits (60 per 60s for hackathon shared WiFi)", () => {
-    const authLimit = 60;
-    for (let i = 0; i < authLimit; i++) {
-      expect(checkMemoryLimit("auth:ip1", authLimit, 60_000)).toBe(true);
+  it("respects an arbitrary caller-supplied limit", () => {
+    const limit = 60;
+    for (let i = 0; i < limit; i++) {
+      expect(checkMemoryLimit("custom:ip1", limit, 60_000)).toBe(true);
     }
-    expect(checkMemoryLimit("auth:ip1", authLimit, 60_000)).toBe(false);
+    expect(checkMemoryLimit("custom:ip1", limit, 60_000)).toBe(false);
+  });
+});
+
+// ─── checkRateLimit (real per-limiter fallback config) ──────
+// Redis is not configured in tests, so the limiters are null and checkRateLimit
+// uses the in-memory fallback with each limiter's REAL configured limit. These
+// tests assert the actual policy (auth/register = 500/min), not an arbitrary
+// literal — so a change to those limits is caught here.
+
+describe("checkRateLimit fallback policy (no Redis)", () => {
+  it("has null Redis limiters but keeps fallback config when Redis env is absent", async () => {
+    const mod = await loadRatelimitWithoutRedis();
+    expect(mod.authLimiter.limiter).toBeNull();
+    expect(mod.registerLimiter.limiter).toBeNull();
+    expect(mod.uploadLimiter.limiter).toBeNull();
+    // The fallback config survives even with no Redis (the bug this guards).
+    expect(mod.authLimiter.fallback).toEqual({ limit: 500, windowMs: 60_000 });
+    expect(mod.uploadLimiter.fallback).toEqual({ limit: 10, windowMs: 60_000 });
   });
 
-  it("enforces register limits (60 per 60s for hackathon shared WiFi)", () => {
-    const registerLimit = 60;
-    for (let i = 0; i < registerLimit; i++) {
-      expect(checkMemoryLimit("register:ip1", registerLimit, 60_000)).toBe(true);
+  it("allows 500 auth requests then blocks the 501st", async () => {
+    const mod = await loadRatelimitWithoutRedis();
+    mod._resetMemoryStore();
+    for (let i = 0; i < 500; i++) {
+      expect((await mod.checkRateLimit(mod.authLimiter, "auth-ip", "login")).limited).toBe(false);
     }
-    expect(checkMemoryLimit("register:ip1", registerLimit, 60_000)).toBe(false);
+    const blocked = await mod.checkRateLimit(mod.authLimiter, "auth-ip", "login");
+    expect(blocked.limited).toBe(true);
+    expect(blocked.error).toMatch(/too many/i);
   });
 
-  it("allows generous API limits (200 per 60s)", () => {
-    const apiLimit = 200;
-    for (let i = 0; i < apiLimit; i++) {
-      expect(checkMemoryLimit("api:ip1", apiLimit, 60_000)).toBe(true);
+  it("applies the same 500 fallback to registration", async () => {
+    const mod = await loadRatelimitWithoutRedis();
+    mod._resetMemoryStore();
+    for (let i = 0; i < 500; i++) {
+      expect((await mod.checkRateLimit(mod.registerLimiter, "reg-ip")).limited).toBe(false);
     }
-    expect(checkMemoryLimit("api:ip1", apiLimit, 60_000)).toBe(false);
+    expect((await mod.checkRateLimit(mod.registerLimiter, "reg-ip")).limited).toBe(true);
+  });
+
+  it("applies a tighter fallback to uploads (10/min)", async () => {
+    const mod = await loadRatelimitWithoutRedis();
+    mod._resetMemoryStore();
+    for (let i = 0; i < 10; i++) {
+      expect((await mod.checkRateLimit(mod.uploadLimiter, "up-ip")).limited).toBe(false);
+    }
+    expect((await mod.checkRateLimit(mod.uploadLimiter, "up-ip")).limited).toBe(true);
   });
 });

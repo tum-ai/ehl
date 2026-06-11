@@ -420,13 +420,30 @@ export default function AdminApplicationsPage({
     if (!confirm("Send acceptance emails to all accepted + rejection emails to all rejected who haven't been emailed yet?")) return;
     setActing(true);
     setMessage(null);
-    const result = await sendBulkEmails(chapterId);
-    setMessage({
-      type: "success",
-      text: `Sent ${result.acceptedSent} acceptance + ${result.rejectedSent} rejection email(s).`,
-    });
-    await loadData(chapterId);
-    setActing(false);
+    try {
+      const result = await sendBulkEmails(chapterId);
+      if (result.error) {
+        setMessage({ type: "error", text: result.error });
+      } else {
+        setMessage({
+          type: "success",
+          text:
+            `Sent ${result.acceptedSent ?? 0} acceptance + ${result.rejectedSent ?? 0} rejection email(s).` +
+            (result.remaining ? ` ${result.remaining} still pending — click again to continue.` : ""),
+        });
+      }
+      await loadData(chapterId);
+    } catch {
+      // A timeout or thrown error must not leave the button stuck. Progress is
+      // persisted per-applicant (sent_at), so re-clicking resumes safely.
+      setMessage({
+        type: "error",
+        text: "Sending did not finish (it may have timed out). Already-sent emails are recorded; click again to send the rest.",
+      });
+      await loadData(chapterId).catch(() => {});
+    } finally {
+      setActing(false);
+    }
   }
 
   async function handleSingleStatus(id: string, status: ApplicationStatus) {

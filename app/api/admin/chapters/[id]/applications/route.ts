@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ApplicationFormData, ApplicationTeamMember } from "@/lib/types";
 import { extractLinkedInUsername, extractGitHubUsername, normalizeName, findBestNameMatch } from "@/lib/flag-utils";
+import { QUERY_LIMITS } from "@/lib/config/limits";
 
 function toApplication(row: Record<string, unknown>) {
   return {
@@ -40,15 +41,13 @@ export async function GET(
   const { id } = await params;
   const adminClient = createAdminClient();
 
-  const LIMIT = 2000;
-
   // Fetch applications using admin client (bypasses RLS)
   const { data: appRows } = await adminClient
     .from("applications")
     .select("*")
     .eq("chapter_id", id)
     .order("created_at", { ascending: false })
-    .limit(LIMIT);
+    .limit(QUERY_LIMITS.applicationsPerChapter);
 
   const applications = (appRows ?? []).map(toApplication);
 
@@ -70,15 +69,21 @@ export async function GET(
     { data: tumaiMembers },
     { data: activeFlags },
   ] = await Promise.all([
-    adminClient.from("team_members").select("team_id, user_id, profiles(email, name)"),
-    adminClient.from("leaderboard").select("team_id, team_name, total_points"),
-    adminClient.from("screening_scores").select("application_id, screener_id, score, notes, created_at"),
-    adminClient.from("applications").select("id, email, chapter_id, status, chapters!inner(name)"),
-    adminClient.from("submissions").select("challenge_id, team_id"),
-    adminClient.from("challenge_registrations").select("chapter_id, team_id, challenge_id"),
-    adminClient.from("tumai_members").select("email, name"),
-    adminClient.from("participant_flags").select("id, email, name, linkedin_username, github_username, reason, screenshot_url, created_by, created_at").is("resolved_at", null),
+    adminClient.from("team_members").select("team_id, user_id, profiles(email, name)").limit(QUERY_LIMITS.allTeamMembers),
+    adminClient.from("leaderboard").select("team_id, team_name, total_points").limit(QUERY_LIMITS.leaderboard),
+    adminClient.from("screening_scores").select("application_id, screener_id, score, notes, created_at").limit(QUERY_LIMITS.screeningScores),
+    adminClient.from("applications").select("id, email, chapter_id, status, chapters!inner(name)").limit(QUERY_LIMITS.applicationStats),
+    adminClient.from("submissions").select("challenge_id, team_id").limit(QUERY_LIMITS.submissionsPerChallenge * 50),
+    adminClient.from("challenge_registrations").select("chapter_id, team_id, challenge_id").limit(QUERY_LIMITS.challengeRegistrations),
+    adminClient.from("tumai_members").select("email, name").limit(QUERY_LIMITS.profiles),
+    adminClient.from("participant_flags").select("id, email, name, linkedin_username, github_username, reason, screenshot_url, created_by, created_at").is("resolved_at", null).limit(QUERY_LIMITS.profiles),
   ]);
+
+  // Signal to the screening UI when any enrichment query likely hit its cap,
+  // so it can warn instead of silently computing averages from partial data.
+  const screeningTruncated =
+    (allScreeningScores?.length ?? 0) >= QUERY_LIMITS.screeningScores ||
+    (allApplications?.length ?? 0) >= QUERY_LIMITS.applicationStats;
 
   // TUM.ai verified emails set
   const tumaiEmails = new Set(
@@ -343,5 +348,16 @@ export async function GET(
     };
   });
 
-  return NextResponse.json(enriched);
+  if (screeningTruncated) {
+    console.warn(
+      `[screening] Enrichment queries hit their row cap for chapter ${id}; ` +
+        "screening averages may be computed from partial data. Raise LIMIT_SCREENING_SCORES / LIMIT_APPLICATION_STATS."
+    );
+  }
+
+  // Expose truncation via a header so the screening UI can warn without a
+  // body-shape change (the body stays a plain array for existing consumers).
+  return NextResponse.json(enriched, {
+    headers: { "X-Screening-Truncated": screeningTruncated ? "1" : "0" },
+  });
 }

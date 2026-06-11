@@ -118,7 +118,7 @@ INSERT INTO team_members (team_id, user_id, role) VALUES
 
 INSERT INTO chapters (id, name, slug, city, country, country_code, date, date_end, status, description, match_number, is_finale, challenge_registration_enabled) VALUES
   ('e0000000-0000-0000-0000-000000000001', 'Match 1', 'munich-1', 'Munich', 'Germany', 'DE', '2026-04-17', '2026-04-19', 'completed', 'The first EHL match, hosted in Munich.', 1, false, false),
-  ('e0000000-0000-0000-0000-000000000002', 'Match 2', 'zurich-2', 'Zurich', 'Switzerland', 'CH', '2026-06-14', '2026-06-15', 'registration_open', 'Second match of the season in Zurich.', 2, false, true),
+  ('e0000000-0000-0000-0000-000000000002', 'Match 2', 'zurich-2', 'Zurich', 'Switzerland', 'CH', '2026-06-14', '2026-06-15', 'challenge_selection', 'Second match of the season in Zurich.', 2, false, true),
   ('e0000000-0000-0000-0000-000000000003', 'Match 3', 'berlin-3', 'Berlin', 'Germany', 'DE', '2026-09-01', NULL, 'draft', 'Third match planned for Berlin.', 3, false, false);
 
 -- ═══════════════════════════════════════════════════════════════
@@ -213,11 +213,13 @@ INSERT INTO jury_rankings (id, challenge_id, entered_by, ranking, is_final) VALU
   ('30000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000002',
    '{"3":"d0000000-0000-0000-0000-000000000003","4":"d0000000-0000-0000-0000-000000000004"}', true);
 
-INSERT INTO jury_feedback (challenge_id, team_id, feedback_text) VALUES
-  ('f0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'Excellent AI implementation with clear social impact.'),
-  ('f0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002', 'Creative approach to climate awareness. Could improve UX.'),
-  ('f0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000003', 'Solid computer vision work. Practical and deployable.'),
-  ('f0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000004', 'Good concept but execution could be stronger.');
+-- entered_by is required and part of the PK since migration 00026 (per-juror
+-- feedback). Attribute each challenge's feedback to the juror who ranked it.
+INSERT INTO jury_feedback (challenge_id, team_id, entered_by, feedback_text) VALUES
+  ('f0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'Excellent AI implementation with clear social impact.'),
+  ('f0000000-0000-0000-0000-000000000001', 'd0000000-0000-0000-0000-000000000002', 'b0000000-0000-0000-0000-000000000001', 'Creative approach to climate awareness. Could improve UX.'),
+  ('f0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000003', 'b0000000-0000-0000-0000-000000000002', 'Solid computer vision work. Practical and deployable.'),
+  ('f0000000-0000-0000-0000-000000000002', 'd0000000-0000-0000-0000-000000000004', 'b0000000-0000-0000-0000-000000000002', 'Good concept but execution could be stronger.');
 
 -- ═══════════════════════════════════════════════════════════════
 -- PITCH ORDERS (Match 1)
@@ -284,11 +286,14 @@ INSERT INTO screening_scores (application_id, screener_id, score, notes) VALUES
 -- PARTNERS
 -- ═══════════════════════════════════════════════════════════════
 
+-- Logo URLs must use an `images.remotePatterns` host (next.config.ts derives
+-- it from NEXT_PUBLIC_SUPABASE_URL) or next/image throws and 500s the landing
+-- page. Use the Supabase Storage public path so it works in any environment.
 INSERT INTO partners (id, name, logo_url, url, tier, description, display_order, chapter_id) VALUES
-  ('50000000-0000-0000-0000-000000000001', 'TechCorp', 'https://example.com/techcorp.png', 'https://techcorp.example.com', 'title', 'Title sponsor for Match 1', 1, 'e0000000-0000-0000-0000-000000000001'),
-  ('50000000-0000-0000-0000-000000000002', 'EcoTech', 'https://example.com/ecotech.png', 'https://ecotech.example.com', 'challenge', 'Challenge sponsor', 2, 'e0000000-0000-0000-0000-000000000001'),
-  ('50000000-0000-0000-0000-000000000003', 'DevTools Inc', 'https://example.com/devtools.png', 'https://devtools.example.com', 'tech', 'Tech partner', 3, 'e0000000-0000-0000-0000-000000000001'),
-  ('50000000-0000-0000-0000-000000000004', 'UrbanAI', 'https://example.com/urbanai.png', 'https://urbanai.example.com', 'challenge', 'Challenge sponsor for Match 2', 1, 'e0000000-0000-0000-0000-000000000002');
+  ('50000000-0000-0000-0000-000000000001', 'TechCorp', '/images/ehl-logo.png', 'https://techcorp.example.com', 'title', 'Title sponsor for Match 1', 1, 'e0000000-0000-0000-0000-000000000001'),
+  ('50000000-0000-0000-0000-000000000002', 'EcoTech', '/images/ehl-logo.png', 'https://ecotech.example.com', 'challenge', 'Challenge sponsor', 2, 'e0000000-0000-0000-0000-000000000001'),
+  ('50000000-0000-0000-0000-000000000003', 'DevTools Inc', '/images/ehl-logo.png', 'https://devtools.example.com', 'tech', 'Tech partner', 3, 'e0000000-0000-0000-0000-000000000001'),
+  ('50000000-0000-0000-0000-000000000004', 'UrbanAI', '/images/ehl-logo.png', 'https://urbanai.example.com', 'challenge', 'Challenge sponsor for Match 2', 1, 'e0000000-0000-0000-0000-000000000002');
 
 COMMIT;
 

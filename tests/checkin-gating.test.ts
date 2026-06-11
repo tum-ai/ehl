@@ -79,6 +79,16 @@ describe("getCheckinStatusForUsers", () => {
     expect(result.get("user-1")).toBe(true); // checked_in
     expect(result.get("user-2")).toBe(false); // accepted but not checked_in
     expect(result.get("user-3")).toBe(false); // no application
+
+    // The applications query MUST be scoped to the given chapter. Without this
+    // filter, a check-in from any other chapter would leak through and grant
+    // event access — the exact bug this gate must prevent.
+    expect(applicationsChain.eq).toHaveBeenCalledWith("chapter_id", "chapter-1");
+    // And it must scope to the looked-up emails, not all users.
+    expect(applicationsChain.in).toHaveBeenCalledWith(
+      "email",
+      expect.arrayContaining(["alice@example.com", "bob@example.com"])
+    );
   });
 
   it("marks all users as false when no profiles found", async () => {
