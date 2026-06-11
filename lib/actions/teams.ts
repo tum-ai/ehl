@@ -75,6 +75,15 @@ export async function acceptTeamInvite(token: string) {
     return { error: "Invalid or expired invite." };
   }
 
+  // The invite is bound to a specific email. Don't let a logged-in user with
+  // a different account consume an invite addressed to someone else.
+  const userEmail = (user.email ?? "").toLowerCase();
+  if ((invite.email as string).toLowerCase() !== userEmail) {
+    return {
+      error: "This invite was sent to a different email address. Sign in with that address to accept it.",
+    };
+  }
+
   if (new Date(invite.expires_at as string) < new Date()) {
     await adminClient
       .from("team_invites")
