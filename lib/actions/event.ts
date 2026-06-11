@@ -327,22 +327,44 @@ export async function resolveJoinRequest(
   }
 
   if (approved) {
-    // Check team size before approving
-    const { count } = await adminClient
+    // Re-check at approval time: the requester may have joined another team
+    // (e.g. via an invite) since requesting. A second membership would break
+    // getTeamForUser's .single() and flip their dashboard to the teamless view.
+    const { data: existingMembership } = await adminClient
       .from("team_members")
-      .select("*", { count: "exact", head: true })
-      .eq("team_id", request.team_id as string);
+      .select("team_id")
+      .eq("user_id", request.user_id as string)
+      .maybeSingle();
 
-    if ((count ?? 0) >= 5) {
-      return { error: "Team already has 5 members (maximum)." };
+    if (existingMembership) {
+      if (existingMembership.team_id === request.team_id) {
+        // Already on this team: just resolve the request as approved below.
+      } else {
+        return {
+          error: "This user has already joined another team. They must leave it first.",
+        };
+      }
+    } else {
+      // Check team size before approving
+      const { count } = await adminClient
+        .from("team_members")
+        .select("*", { count: "exact", head: true })
+        .eq("team_id", request.team_id as string);
+
+      if ((count ?? 0) >= 5) {
+        return { error: "Team already has 5 members (maximum)." };
+      }
+
+      // Add user to team
+      const { error: insertError } = await adminClient.from("team_members").insert({
+        team_id: request.team_id,
+        user_id: request.user_id,
+        role: "member",
+      });
+      if (insertError) {
+        return { error: "Could not add the user to the team. Please try again." };
+      }
     }
-
-    // Add user to team
-    await adminClient.from("team_members").insert({
-      team_id: request.team_id,
-      user_id: request.user_id,
-      role: "member",
-    });
   }
 
   // Update request status

@@ -142,11 +142,19 @@ export async function verifyAndRegisterSolo(
     return { error: `Incorrect code. ${remaining > 0 ? `${remaining} attempt${remaining === 1 ? "" : "s"} remaining.` : "Please register again."}` };
   }
 
-  // Mark as verified
-  await adminClient
+  // Atomically claim the verification (see verifyAndRegister): only the first
+  // concurrent verify proceeds; a double-submit claims no row the second time.
+  const { data: claimed } = await adminClient
     .from("verification_codes")
     .update({ verified_at: new Date().toISOString() })
-    .eq("id", verificationId);
+    .eq("id", verificationId)
+    .is("verified_at", null)
+    .select("id")
+    .single();
+
+  if (!claimed) {
+    return { error: "This verification was already used. Please sign in." };
+  }
 
   const rawMeta = record.metadata as {
     name: string;
@@ -224,6 +232,10 @@ export async function verifyAndRegisterSolo(
     }
   }
 
+  // Delete the consumed verification record so the encrypted password is not
+  // retained indefinitely (the account now exists; the record is no longer needed).
+  await adminClient.from("verification_codes").delete().eq("id", verificationId);
+
   // Sign in
   await supabase.auth.signInWithPassword({
     email: rawMeta.email,
@@ -286,6 +298,13 @@ export async function startRegistration(formData: FormData) {
 
   // Check team name uniqueness
   const slug = slugify(teamName);
+  if (!slug) {
+    // Names with no latin alphanumerics (e.g. only emoji or non-latin script)
+    // slugify to "", which would create a team with an unreachable /team/ URL.
+    return {
+      error: "Team name must contain letters or numbers.",
+    };
+  }
   const { data: existingTeam } = await adminClient
     .from("teams")
     .select("id")
@@ -392,11 +411,21 @@ export async function verifyAndRegister(verificationId: string, code: string, re
     return { error: `Incorrect code. ${remaining > 0 ? `${remaining} attempt${remaining === 1 ? "" : "s"} remaining.` : "Please register again."}` };
   }
 
-  // Mark as verified
-  await adminClient
+  // Atomically claim the verification: only the first concurrent verify wins.
+  // .is("verified_at", null) makes a double-submit (two tabs / retried POST)
+  // claim no row on the second attempt instead of both proceeding to
+  // createUser and the loser getting a raw "already registered" error.
+  const { data: claimed } = await adminClient
     .from("verification_codes")
     .update({ verified_at: new Date().toISOString() })
-    .eq("id", verificationId);
+    .eq("id", verificationId)
+    .is("verified_at", null)
+    .select("id")
+    .single();
+
+  if (!claimed) {
+    return { error: "This verification was already used. Please sign in." };
+  }
 
   const rawMeta = record.metadata as {
     teamName: string;
@@ -412,6 +441,20 @@ export async function verifyAndRegister(verificationId: string, code: string, re
   const plaintextPassword = decryptPassword(rawMeta.password);
   const { teamName, presidentName, presidentEmail, university, city, members } = rawMeta;
   const slug = slugify(teamName);
+
+  // Re-check slug uniqueness at verify time: two teams could have passed the
+  // start-time check 15+ minutes ago with the same name.
+  if (!slug) {
+    return { error: "Team name must contain letters or numbers. Please register again." };
+  }
+  const { data: slugTaken } = await adminClient
+    .from("teams")
+    .select("id")
+    .eq("slug", slug)
+    .maybeSingle();
+  if (slugTaken) {
+    return { error: "A team with this name already exists. Please register again with a different name." };
+  }
 
   // Create president account
   const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
@@ -506,6 +549,9 @@ export async function verifyAndRegister(verificationId: string, code: string, re
   sendWelcomeEmails({ teamName, presidentName, presidentEmail, members }).catch(
     (err) => console.error("Failed to send welcome emails:", err)
   );
+
+  // Delete the consumed verification record (encrypted password no longer needed).
+  await adminClient.from("verification_codes").delete().eq("id", verificationId);
 
   // Sign in the president
   await supabase.auth.signInWithPassword({
