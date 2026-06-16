@@ -140,6 +140,9 @@ async function main() {
           review_content: result.reviewContent,
           repo_metadata: result.repoMetadata,
           pipeline_log: result.pipelineLog,
+          // Also persist the advisory session-history analysis to its own column
+          // for easy querying. It is additionally embedded in review_content.
+          session_history: result.reviewContent.session_history ?? null,
           model_used: "multi-agent-v2",
           cost_usd: result.costUsd,
           status: "completed",

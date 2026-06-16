@@ -404,6 +404,7 @@ export async function createChallenge(opts: {
   description?: string;
   sponsorName?: string;
   isScored?: boolean;
+  entireRequired?: boolean;
   submissionFields?: Array<{
     key: string;
     label: string;
@@ -422,6 +423,7 @@ export async function createChallenge(opts: {
       description: opts.description ?? "E2E test challenge",
       sponsor_name: opts.sponsorName ?? null,
       is_scored: opts.isScored ?? true,
+      entire_required: opts.entireRequired ?? false,
       submission_fields: opts.submissionFields ?? [
         {
           key: "repo",

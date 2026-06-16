@@ -226,6 +226,18 @@ In the main repo under **Settings > Secrets and variables > Actions**, add:
 | `OPENROUTER_API_KEY` | Same as Vercel |
 | `GH_PAT` | Same PAT (GitHub forbids `GITHUB_`-prefixed secret names) |
 
+### 6.5 Entire Session History (optional, per challenge)
+
+For challenges that require AI session history, participants install [Entire](https://entire.io) and capture their coding session:
+
+1. Install the Entire CLI (see [github.com/entireio/cli](https://github.com/entireio/cli)).
+2. In their project repo, run `entire enable --agent <tool>` (supported: `claude-code`, `codex`, `gemini`, `opencode`, `cursor`, `factoryai-droid`, `copilot-cli`). **Antigravity is not supported by Entire.**
+3. Code as normal and commit while the AI session is active. Entire writes checkpoints to the `entire/checkpoints/v1` branch.
+4. **Push the checkpoint branch** along with their code (`git push` pushes it by default; ensure it is not skipped).
+5. For private repos, invite the bot account (`ehl-gg`) as a collaborator so EHL can read the branch.
+
+No EHL-side credentials or service setup are required for Entire: it is client-side and stores data in the participant's own git repo. EHL only reads the branch (via the existing `GH_PAT`) and copies it into the private fork. Enable the requirement per challenge in the admin challenge editor ("Require Entire Session History").
+
 ---
 
 ## 7. Upstash Redis (Rate Limiting)

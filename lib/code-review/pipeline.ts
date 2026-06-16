@@ -10,11 +10,15 @@ import type {
 } from "@/lib/types";
 import { chatCompletion } from "./openrouter";
 import { ingestRepo } from "./ingest";
+import { ingestSessionHistory } from "@/lib/entire";
+import { parseGitHubRepo } from "@/lib/github";
+import type { SessionHistoryAnalysis } from "@/lib/types";
 import {
   buildTechDescriptionPrompt,
   buildCodeQualityPrompt,
   buildHighlightsPrompt,
   buildOriginalityPrompt,
+  buildSessionHistoryPrompt,
   buildCoordinatorPrompt,
 } from "./prompts";
 
@@ -183,6 +187,77 @@ export async function runCodeReviewPipeline(params: {
   const highlightsContent = logStage("highlights_issues", config.models.highlights_issues, highlightsResult);
   const originalityContent = logStage("originality", config.models.originality, originalityResult);
 
+  // Stage 2b: Entire session-history reviewer (advisory bonus). Only when the
+  // challenge requires Entire. Reads the checkpoint branch from the repo we
+  // ingested (the private fork when available, where we copied the branch).
+  // Failures here are non-fatal: the rest of the review proceeds without it.
+  let sessionHistory: SessionHistoryAnalysis | null = null;
+  if (params.challenge.entireRequired) {
+    try {
+      const parsedRepo = parseGitHubRepo(params.repoUrl);
+      const session = parsedRepo
+        ? await ingestSessionHistory(parsedRepo.owner, parsedRepo.repo)
+        : null;
+      if (!session || (session.promptSamples.length === 0 && session.checkpointCount === 0)) {
+        sessionHistory = {
+          analyzed: false,
+          reason: "No usable Entire session history was found in the captured repository.",
+          completeness: { score: 0, signed: false, aligns_with_diff: false, assessment: "" },
+          process_quality: {
+            ownership_language: { score: 0, rationale: "" },
+            technical_specificity: { score: 0, rationale: "" },
+            iteration_verification: { score: 0, rationale: "" },
+            edge_case_awareness: { score: 0, rationale: "" },
+          },
+          bonus_score: 0,
+          agents_detected: session?.agentsDetected ?? [],
+          highlights: [],
+          summary: "No session history available for analysis.",
+        };
+      } else {
+        await progress("Analyzing Entire session history...");
+        const shStart = Date.now();
+        const shResult = await chatCompletion({
+          model: config.models.coordinator,
+          messages: (() => {
+            const p = buildSessionHistoryPrompt({
+              challenge: params.challenge,
+              briefText: params.briefText,
+              metadata,
+              session,
+              language: config.language,
+            });
+            return [
+              { role: "system", content: p.system },
+              { role: "user", content: p.user },
+            ];
+          })(),
+          temperature: 0,
+          max_tokens: 2000,
+        });
+        stages.session_history = {
+          status: "completed",
+          duration_ms: Date.now() - shStart,
+          model: config.models.coordinator,
+          tokens_in: shResult.usage.prompt_tokens,
+          tokens_out: shResult.usage.completion_tokens,
+        };
+        totalCost += shResult.usage.total_cost;
+        try {
+          sessionHistory = parseJson(shResult.content) as SessionHistoryAnalysis;
+        } catch {
+          stages.session_history = { ...stages.session_history, status: "failed", error: "Unparseable output" };
+        }
+      }
+    } catch (e) {
+      stages.session_history = {
+        status: "failed",
+        duration_ms: 0,
+        error: e instanceof Error ? e.message : "Session history analysis failed",
+      };
+    }
+  }
+
   // Stage 3: Coordinator
   const subDone = [techContent, qualityContent, highlightsContent, originalityContent].filter(Boolean).length;
   await progress(`Sub-reviews done (${subDone}/4). Running coordinator...`);
@@ -269,6 +344,7 @@ export async function runCodeReviewPipeline(params: {
     strengths: coordParsed.strengths ?? [],
     weaknesses: coordParsed.weaknesses ?? [],
     notable_patterns: coordParsed.notable_patterns ?? "",
+    ...(sessionHistory ? { session_history: sessionHistory } : {}),
   };
 
   const pipelineLog: PipelineLog = {

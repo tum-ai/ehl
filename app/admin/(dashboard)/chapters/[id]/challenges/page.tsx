@@ -23,6 +23,7 @@ interface Challenge {
   codeReviewInstructions: string | null;
   isScored: boolean;
   inviteJuryToForks: boolean;
+  entireRequired: boolean;
   displayOrder: number;
   briefFileId: string | null;
   codeReviewConfig: CodeReviewConfig | null;
@@ -155,6 +156,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
   const [codeReviewEnabled, setCodeReviewEnabled] = useState(true);
   const [isScored, setIsScored] = useState(true);
   const [inviteJuryToForks, setInviteJuryToForks] = useState(false);
+  const [entireRequired, setEntireRequired] = useState(false);
   const [submissionFields, setSubmissionFields] = useState<SubmissionFieldConfig[]>(DEFAULT_FIELDS);
   const [codeReviewInstructions, setCodeReviewInstructions] = useState("");
   const [briefFileId, setBriefFileId] = useState<string | null>(null);
@@ -184,6 +186,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     setCodeReviewInstructions("");
     setIsScored(true);
     setInviteJuryToForks(false);
+    setEntireRequired(false);
     setSubmissionFields(DEFAULT_FIELDS);
     setBriefFileId(null);
     setLogoPreview(null);
@@ -203,6 +206,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     setCodeReviewInstructions(challenge.codeReviewInstructions || "");
     setIsScored(challenge.isScored);
     setInviteJuryToForks(challenge.inviteJuryToForks);
+    setEntireRequired(challenge.entireRequired);
     setSubmissionFields(challenge.submissionFields);
     setBriefFileId(challenge.briefFileId);
     setEditingId(challenge.id);
@@ -226,6 +230,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     if (codeReviewInstructions.trim()) formData.set("codeReviewInstructions", codeReviewInstructions.trim());
     if (isScored) formData.set("isScored", "on");
     if (inviteJuryToForks) formData.set("inviteJuryToForks", "on");
+    if (entireRequired) formData.set("entireRequired", "on");
     formData.set("submissionFields", JSON.stringify(submissionFields));
     if (briefFileId) formData.set("briefFileId", briefFileId);
 
@@ -532,6 +537,16 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
                   );
                 })()}
               </div>
+            )}
+
+            {/* Entire Session History Toggle */}
+            {submissionFields.some((f) => f.type === "repo") && (
+              <Toggle
+                checked={entireRequired}
+                onChange={setEntireRequired}
+                label="Require Entire Session History"
+                description="Teams must include an Entire session record (the entire/checkpoints/v1 branch with at least one prompt) to submit. The history is captured into the private fork and scored as an advisory process-quality bonus in the code review (never counts toward placement)."
+              />
             )}
 
             {/* Jury Fork Access Toggle */}

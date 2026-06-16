@@ -323,6 +323,55 @@ function V2ReportCard({
           </p>
         </div>
       )}
+
+      {content.session_history && (
+        <div className={`border-t ${border} pt-3`}>
+          <p className={`text-xs font-bold uppercase tracking-wider ${muted}`}>
+            Session History (advisory bonus, not part of the score)
+          </p>
+          {content.session_history.analyzed ? (
+            <div className="mt-1 space-y-2">
+              <div className="flex items-center gap-3">
+                <span className={`font-mono text-sm ${gold}`}>
+                  {content.session_history.bonus_score.toFixed(1)}/10
+                </span>
+                {content.session_history.completeness.signed && (
+                  <span className={`text-xs ${secondary}`}>signed checkpoints</span>
+                )}
+                {content.session_history.agents_detected.length > 0 && (
+                  <span className={`text-xs ${muted}`}>
+                    {content.session_history.agents_detected.join(", ")}
+                  </span>
+                )}
+              </div>
+              <p className={`text-xs ${secondary}`}>{content.session_history.summary}</p>
+              <div className={`rounded-lg ${bgDeep} p-2 text-xs ${secondary} space-y-0.5`}>
+                <p>
+                  Ownership: {content.session_history.process_quality.ownership_language.score}/10 &middot;{" "}
+                  Specificity: {content.session_history.process_quality.technical_specificity.score}/10 &middot;{" "}
+                  Iteration: {content.session_history.process_quality.iteration_verification.score}/10 &middot;{" "}
+                  Edge cases: {content.session_history.process_quality.edge_case_awareness.score}/10
+                </p>
+                <p className={muted}>
+                  Completeness: {content.session_history.completeness.score}/10.{" "}
+                  {content.session_history.completeness.assessment}
+                </p>
+              </div>
+              {content.session_history.highlights.length > 0 && (
+                <ul className={`list-disc pl-4 text-xs ${secondary}`}>
+                  {content.session_history.highlights.map((h, i) => (
+                    <li key={i}>{h}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ) : (
+            <p className={`mt-1 text-xs ${muted}`}>
+              {content.session_history.reason ?? "No session history available."}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   );
 }

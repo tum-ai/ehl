@@ -345,6 +345,7 @@ export async function createChallenge(formData: FormData) {
   const codeReviewEnabled = formData.get("codeReviewEnabled") === "on";
   const isScored = formData.get("isScored") === "on";
   const inviteJuryToForks = formData.get("inviteJuryToForks") === "on";
+  const entireRequired = formData.get("entireRequired") === "on";
   const submissionFieldsJson = formData.get("submissionFields") as string;
   const briefFileId = (formData.get("briefFileId") as string) || null;
   const codeReviewInstructions = (formData.get("codeReviewInstructions") as string) || null;
@@ -380,6 +381,7 @@ export async function createChallenge(formData: FormData) {
     code_review_enabled: codeReviewEnabled,
     is_scored: isScored,
     invite_jury_to_forks: inviteJuryToForks,
+    entire_required: entireRequired,
     submission_fields: submissionFields,
     brief_file_id: briefFileId,
     code_review_instructions: codeReviewInstructions,
@@ -416,6 +418,7 @@ export async function updateChallenge(formData: FormData) {
   const codeReviewEnabled = formData.get("codeReviewEnabled") === "on";
   const isScored = formData.get("isScored") === "on";
   const inviteJuryToForks = formData.get("inviteJuryToForks") === "on";
+  const entireRequired = formData.get("entireRequired") === "on";
   const submissionFieldsJson = formData.get("submissionFields") as string;
   const briefFileId = (formData.get("briefFileId") as string) || null;
   const codeReviewInstructions = (formData.get("codeReviewInstructions") as string) || null;
@@ -452,6 +455,7 @@ export async function updateChallenge(formData: FormData) {
       code_review_enabled: codeReviewEnabled,
       is_scored: isScored,
       invite_jury_to_forks: inviteJuryToForks,
+      entire_required: entireRequired,
       submission_fields: submissionFields,
       brief_file_id: briefFileId,
       code_review_instructions: codeReviewInstructions,

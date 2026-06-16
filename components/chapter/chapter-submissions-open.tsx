@@ -89,6 +89,7 @@ export function ChapterSubmissionsOpen({
             existing={submission}
             isLocked={isLocked}
             deadline={chapter.submissionDeadline}
+            entireRequired={registeredChallenge.entireRequired}
           />
         </div>
       )}

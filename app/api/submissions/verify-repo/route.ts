@@ -3,8 +3,32 @@ import { getSession } from "@/lib/actions/auth";
 import { parseGitHubRepo, getEhlUsername, acceptPendingInvite } from "@/lib/github";
 import { getSettingValue, SETTING_KEYS } from "@/lib/settings";
 import { checkRateLimit, apiLimiter } from "@/lib/ratelimit";
+import { checkCheckpointBranch, entireGateErrorMessage } from "@/lib/entire";
 
 const EHL_GITHUB_USERNAME = getEhlUsername();
+
+/**
+ * Live, non-blocking Entire session-history feedback for a verified repo. The
+ * authoritative hard gate runs server-side in submitProject; this just lets the
+ * team see, before submitting, whether their checkpoint branch is present.
+ * Returns {} when entireRequired is off so existing behavior is unchanged.
+ */
+async function entireFeedback(
+  owner: string,
+  repo: string,
+  entireRequired: boolean
+): Promise<{ entireOk?: boolean; entireWarning?: string }> {
+  if (!entireRequired) return {};
+  try {
+    const check = await checkCheckpointBranch(owner, repo);
+    return check.satisfiesGate
+      ? { entireOk: true }
+      : { entireOk: false, entireWarning: entireGateErrorMessage(check) };
+  } catch {
+    // Never let the live check break verification: stay silent on transient errors.
+    return {};
+  }
+}
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -19,9 +43,10 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { repoUrl, accessMode } = body as {
+  const { repoUrl, accessMode, entireRequired } = body as {
     repoUrl: string;
     accessMode: "public" | "invite_required" | "any";
+    entireRequired?: boolean;
   };
 
   if (!repoUrl) {
@@ -96,6 +121,7 @@ export async function POST(request: Request) {
         valid: true,
         repoName: `${owner}/${repo}`,
         isPrivate: false,
+        ...(await entireFeedback(owner, repo, !!entireRequired)),
       });
     }
 
@@ -114,6 +140,7 @@ export async function POST(request: Request) {
         valid: true,
         repoName: `${owner}/${repo}`,
         isPrivate: false,
+        ...(await entireFeedback(owner, repo, !!entireRequired)),
       });
     }
 
@@ -149,6 +176,7 @@ export async function POST(request: Request) {
         repoName: `${owner}/${repo}`,
         isPrivate: true,
         hasAccess: true,
+        ...(await entireFeedback(owner, repo, !!entireRequired)),
       });
     }
 

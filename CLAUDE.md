@@ -81,7 +81,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-35 sequential migrations in `supabase/migrations/`. Key tables:
+42 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users), `teams`, `team_members`, `team_invites`, `team_join_requests`
 - `chapters` (matches), `challenges`, `chapter_unlocks`, `challenge_registrations`
 - `submissions`, `code_reviews`
