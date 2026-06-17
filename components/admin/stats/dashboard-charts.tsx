@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Card } from "@/components/ui/card";
+import { ChartBoundary } from "./chart-boundary";
 import type { ChapterStats } from "@/lib/queries/admin-stats";
 
 const ApplicationFunnel = dynamic(
@@ -44,10 +45,14 @@ export function DashboardCharts({ funnel, chapters }: DashboardChartsProps) {
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       <Card>
-        <ApplicationFunnel data={funnel} />
+        <ChartBoundary label="The application funnel chart">
+          <ApplicationFunnel data={funnel} />
+        </ChartBoundary>
       </Card>
       <Card>
-        <ChapterProgressChart chapters={chapters} />
+        <ChartBoundary label="The per-chapter chart">
+          <ChapterProgressChart chapters={chapters} />
+        </ChartBoundary>
       </Card>
     </div>
   );
