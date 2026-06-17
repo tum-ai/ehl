@@ -112,49 +112,83 @@ async function main() {
   }
 
   const forgotPasswordUrl = `${SITE_URL}/forgot-password`;
+
+  if (DRY_RUN) {
+    for (const user of users) {
+      const displayName = user.name?.trim() || "(no name)";
+      console.log(`Would send account-claim email to: ${displayName} <${user.email}>`);
+    }
+    console.log(`\n[send-recovery-emails] Summary: ${users.length} affected user(s) found.`);
+    console.log("[send-recovery-emails] DRY RUN complete — re-run with DRY_RUN = false to send.");
+    return;
+  }
+
+  // --- live send, batched with pauses to avoid SMTP throttling/spam flags ---
+  const BATCH_SIZE = Number(process.env.BATCH_SIZE ?? 50);
+  const PAUSE_MS = Number(process.env.PAUSE_SECONDS ?? 60) * 1000;
+
+  // Resume support: a sent-log lets a re-run skip addresses already emailed if
+  // the process is interrupted. One email per line.
+  const { sendEmail } = await import("../lib/email.js");
+  const { renderAccountClaimEmail } = await import("../lib/emails/render.js");
+  const { appendFileSync, readFileSync, existsSync } = await import("fs");
+  const SENT_LOG = "recovery-emails-sent.log";
+
+  const alreadySent = new Set<string>(
+    existsSync(SENT_LOG)
+      ? readFileSync(SENT_LOG, "utf-8").split("\n").map((l) => l.trim()).filter(Boolean)
+      : []
+  );
+  const pending = users.filter((u) => !alreadySent.has(u.email));
+  if (alreadySent.size > 0) {
+    console.log(`[send-recovery-emails] Resuming: ${alreadySent.size} already sent, ${pending.length} remaining.`);
+  }
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   let sent = 0;
   let failed = 0;
+  const failures: string[] = [];
+  const totalBatches = Math.ceil(pending.length / BATCH_SIZE);
 
-  for (const user of users) {
-    const displayName = user.name?.trim() || "(no name)";
+  console.log(
+    `[send-recovery-emails] Sending ${pending.length} emails in ${totalBatches} batch(es) of ` +
+      `${BATCH_SIZE}, ${PAUSE_MS / 1000}s between batches.\n`
+  );
 
-    if (DRY_RUN) {
-      console.log(`Would send account-claim email to: ${displayName} <${user.email}>`);
-      continue;
+  for (let b = 0; b < totalBatches; b++) {
+    const batch = pending.slice(b * BATCH_SIZE, (b + 1) * BATCH_SIZE);
+    console.log(`--- Batch ${b + 1}/${totalBatches} (${batch.length} emails) ---`);
+
+    for (const user of batch) {
+      const name = user.name?.trim() || "there";
+      const html = await renderAccountClaimEmail({ name, email: user.email, forgotPasswordUrl });
+      try {
+        await sendEmail({ to: user.email, subject: "Set your EHL password", html, skipRateLimit: true });
+        sent++;
+        appendFileSync(SENT_LOG, user.email + "\n");
+      } catch (err) {
+        failed++;
+        failures.push(user.email);
+        console.error(`  [ERROR] ${user.email}: ${(err as Error).message}`);
+      }
     }
 
-    // --- live path (only reached when DRY_RUN = false) ---
-    const { sendEmail } = await import("../lib/email.js");
-    const { renderAccountClaimEmail } = await import("../lib/emails/render.js");
+    const done = sent + failed;
+    console.log(`  batch done. total sent=${sent}, failed=${failed}, progress ${done}/${pending.length}`);
 
-    const name = user.name?.trim() || "there";
-    const html = await renderAccountClaimEmail({
-      name,
-      email: user.email,
-      forgotPasswordUrl,
-    });
-
-    try {
-      await sendEmail({
-        to: user.email,
-        subject: "Set your EHL password",
-        html,
-        skipRateLimit: true,
-      });
-      sent++;
-      console.log(`  [OK] Sent to ${user.email}`);
-    } catch (err) {
-      failed++;
-      console.error(`  [ERROR] Email failed for ${user.email}:`, err);
+    // Pause between batches (not after the last one)
+    if (b < totalBatches - 1) {
+      console.log(`  pausing ${PAUSE_MS / 1000}s...\n`);
+      await sleep(PAUSE_MS);
     }
   }
 
-  console.log(`\n[send-recovery-emails] Summary: ${users.length} affected user(s) found.`);
-  if (DRY_RUN) {
-    console.log("[send-recovery-emails] DRY RUN complete — re-run with DRY_RUN = false to send.");
-  } else {
-    console.log(`[send-recovery-emails] Sent: ${sent}, failed: ${failed}.`);
+  console.log(`\n[send-recovery-emails] Done. Sent: ${sent}, failed: ${failed} (of ${pending.length} pending).`);
+  if (failures.length > 0) {
+    console.log(`[send-recovery-emails] Failed addresses (re-run to retry — sent ones are skipped):`);
+    failures.forEach((e) => console.log(`  ${e}`));
   }
+  console.log(`[send-recovery-emails] Sent-log: ${SENT_LOG} (delete it to allow a full re-send).`);
 }
 
 main().catch((err) => {

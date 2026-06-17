@@ -40,7 +40,12 @@ export function ApplicationFunnel({ data }: ApplicationFunnelProps) {
         Application Funnel
       </h3>
       <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%">
+        {/* Explicit pixel height (matches h-56 = 224px). With height="100%",
+            Recharts could measure a 0/-1-height parent during the ssr:false
+            dynamic mount on some browsers/timings and fail to render — observed
+            in the field as a client crash that blanked the whole admin content
+            area. A fixed height removes the zero-height measurement entirely. */}
+        <ResponsiveContainer width="100%" height={224}>
           <BarChart data={chartData} layout="vertical" margin={{ left: 10, right: 30 }}>
             <XAxis type="number" tick={{ fontSize: 12 }} />
             <YAxis

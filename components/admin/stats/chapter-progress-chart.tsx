@@ -44,7 +44,10 @@ export function ChapterProgressChart({ chapters }: ChapterProgressChartProps) {
         Per-Chapter Overview
       </h3>
       <div className="h-64">
-        <ResponsiveContainer width="100%" height="100%">
+        {/* Explicit pixel height (matches h-64 = 256px); see application-funnel:
+            height="100%" against an unresolved-height parent made Recharts throw
+            and blank the admin dashboard on some browsers. */}
+        <ResponsiveContainer width="100%" height={256}>
           <BarChart data={data} margin={{ left: 0, right: 10 }}>
             <XAxis
               dataKey="name"
