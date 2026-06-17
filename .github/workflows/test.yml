@@ -79,7 +79,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium firefox webkit --with-deps
+        run: pnpm exec playwright install chromium --with-deps
 
       - name: Start dev server
         run: pnpm dev --port 3001 &
@@ -91,17 +91,6 @@ jobs:
 
       - name: Run E2E lifecycle tests
         run: pnpm exec playwright test --project=lifecycle
-        env:
-          CI: true
-          BASE_URL: http://localhost:3001
-
-      # Cross-browser smoke (Firefox + WebKit/Safari). Non-blocking: surfaces
-      # FF/Safari rendering & routing regressions without gating merges (these
-      # engines are new to the suite; we don't want early flakiness to block the
-      # required pipeline). Promote to a required check once it proves stable.
-      - name: Run cross-browser smoke (Firefox + WebKit)
-        continue-on-error: true
-        run: pnpm exec playwright test --project=smoke-firefox --project=smoke-webkit
         env:
           CI: true
           BASE_URL: http://localhost:3001
@@ -120,4 +109,53 @@ jobs:
         with:
           name: test-screenshots
           path: test-results/
+          retention-days: 7
+
+  # ─── Cross-browser smoke (Firefox + WebKit/Safari) ────────
+  # Separate, NON-REQUIRED job so FF/Safari coverage never affects the required
+  # "E2E Lifecycle" check or its 10-min budget. Surfaces Firefox/Safari
+  # rendering & routing regressions; promote to a required check once stable.
+  cross-browser:
+    name: Cross-browser smoke (Firefox + WebKit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: checks
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers (Firefox + WebKit)
+        run: pnpm exec playwright install firefox webkit chromium --with-deps
+
+      - name: Start dev server
+        run: pnpm dev --port 3001 &
+        env:
+          NODE_ENV: development
+
+      - name: Wait for server
+        run: npx wait-on http://localhost:3001 --timeout 60000
+
+      - name: Run smoke tests on Firefox + WebKit
+        run: pnpm exec playwright test --project=smoke-firefox --project=smoke-webkit
+        env:
+          CI: true
+          BASE_URL: http://localhost:3001
+
+      - name: Upload cross-browser report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-cross-browser
+          path: playwright-report/
           retention-days: 7
