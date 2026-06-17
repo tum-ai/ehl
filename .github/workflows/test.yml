@@ -121,6 +121,10 @@ jobs:
     timeout-minutes: 20
     needs: checks
     continue-on-error: true
+    # Runs only on pushes to main (post-merge), NOT on PRs — keeps PR CI fast
+    # (lint + lifecycle only) and avoids this long job entangling the required
+    # checks. FF/Safari regressions are surfaced on every main update.
+    if: github.event_name == 'push'
     steps:
       - uses: actions/checkout@v4
 
