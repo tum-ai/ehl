@@ -234,11 +234,25 @@ export async function createNewChapter(): Promise<{ error?: string; id?: string 
   const adminClient = createAdminClient();
 
   const slug = `new-chapter-${Date.now()}`;
+
+  // chapters.match_number is NOT NULL with no default, so the insert must supply
+  // a value. recalculateMatchNumbers() reassigns the correct ordering right
+  // after, so any unused number works here; use max+1 to avoid colliding with an
+  // existing row's number before the recalc runs.
+  const { data: maxRow } = await adminClient
+    .from("chapters")
+    .select("match_number")
+    .order("match_number", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const nextMatchNumber = ((maxRow?.match_number as number | null) ?? 0) + 1;
+
   const { data, error } = await adminClient
     .from("chapters")
     .insert({
       name: "New Chapter",
       slug,
+      match_number: nextMatchNumber,
       city: "",
       country: "",
       country_code: "",

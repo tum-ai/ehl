@@ -13,6 +13,7 @@
     "test:e2e:lifecycle": "playwright test --project=lifecycle",
     "test:integration": "dotenv -e .env.test -- vitest run tests/integration/",
     "test:all": "vitest run && playwright test",
+    "test:sim": "bash scripts/sim-run.sh",
     "test:setup-db": "tsx scripts/setup-test-db.ts",
     "test:setup-supabase": "tsx scripts/setup-test-supabase.ts",
     "typecheck": "tsc --noEmit",

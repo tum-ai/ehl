@@ -1,0 +1,31 @@
+import { defineConfig, devices } from "@playwright/test";
+import { config } from "dotenv";
+import { resolve } from "path";
+
+// Live-UI simulation runs against an ALREADY-RUNNING production build (port 3001)
+// backed by the test Supabase, with SMTP -> Mailpit. We load .env.e2e-live so the
+// admin client (for assertions) and Mailpit URL are configured. No webServer here:
+// the prod server is started by scripts/sim-run.sh before this config runs.
+config({ path: resolve(__dirname, ".env.e2e-live") });
+
+export default defineConfig({
+  testDir: "./e2e/simulation",
+  testMatch: /.*\.sim\.ts/,
+  fullyParallel: false,
+  workers: 1,
+  // One retry: this drives a real live server, so an occasional transient (a slow
+  // server-action response under load surfacing as a browser alert + nav timeout)
+  // should not fail the run. A test that needs >1 attempt is still reported as
+  // "flaky" so we keep visibility. Logic failures fail on both attempts.
+  retries: 1,
+  timeout: 90_000,
+  expect: { timeout: 15_000 },
+  reporter: [["list"], ["html", { outputFolder: "playwright-report-sim", open: "never" }]],
+  use: {
+    baseURL: process.env.BASE_URL || "http://localhost:3001",
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+    video: "retain-on-failure",
+    ...devices["Desktop Chrome"],
+  },
+});
