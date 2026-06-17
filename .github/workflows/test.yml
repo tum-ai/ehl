@@ -110,3 +110,56 @@ jobs:
           name: test-screenshots
           path: test-results/
           retention-days: 7
+
+  # ─── Cross-browser smoke (Firefox + WebKit/Safari) ────────
+  # Separate, NON-REQUIRED job so FF/Safari coverage never affects the required
+  # "E2E Lifecycle" check or its 10-min budget. Surfaces Firefox/Safari
+  # rendering & routing regressions; promote to a required check once stable.
+  cross-browser:
+    name: Cross-browser smoke (Firefox + WebKit)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: checks
+    continue-on-error: true
+    # Runs only on pushes to main (post-merge), NOT on PRs — keeps PR CI fast
+    # (lint + lifecycle only) and avoids this long job entangling the required
+    # checks. FF/Safari regressions are surfaced on every main update.
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers (Firefox + WebKit)
+        run: pnpm exec playwright install firefox webkit chromium --with-deps
+
+      - name: Start dev server
+        run: pnpm dev --port 3001 &
+        env:
+          NODE_ENV: development
+
+      - name: Wait for server
+        run: npx wait-on http://localhost:3001 --timeout 60000
+
+      - name: Run smoke tests on Firefox + WebKit
+        run: pnpm exec playwright test --project=smoke-firefox --project=smoke-webkit
+        env:
+          CI: true
+          BASE_URL: http://localhost:3001
+
+      - name: Upload cross-browser report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-cross-browser
+          path: playwright-report/
+          retention-days: 7
