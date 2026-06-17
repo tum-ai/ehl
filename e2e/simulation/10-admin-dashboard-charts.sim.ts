@@ -1,21 +1,29 @@
 /**
  * Regression for the admin dashboard blanking bug.
  *
- * The dashboard charts (Recharts ResponsiveContainer) threw on a 0/-1-sized
- * container during the ssr:false mount on some browsers, blanking the whole
- * admin content area. This asserts the dashboard renders its content AND charts
- * with no Recharts zero-size error — run on all three engines (the bug was
- * browser/timing dependent and surfaced on WebKit/Firefox in the field).
+ * The dashboard charts (Recharts ResponsiveContainer) failed on a 0/-1-sized
+ * container during the ssr:false mount on some browsers/timings — observed in
+ * the field as a full client-render crash that blanked the whole admin content
+ * area (and, via the shared React root + <Link> soft nav, every tab clicked
+ * afterward). This asserts the dashboard renders its content AND charts with no
+ * Recharts zero-size message.
+ *
+ * NOTE: this slice runs on whatever engines the sim config defines. The
+ * cross-browser matrix (chromium + firefox + webkit) lands with the FF/WebKit
+ * config change; until then this runs Chromium-only.
  */
 import { test, expect } from "@playwright/test";
 import { adminLoginViaSession } from "./sim-helpers";
 
 test.describe("Simulation: admin dashboard charts (real UI, regression)", () => {
   test("dashboard renders content and charts without blanking", async ({ page }) => {
+    // Recharts emits the zero-size message via console.warn (Playwright type
+    // "warning"), not console.error — match BOTH so the assertion can actually
+    // catch the regression.
     const rechartsZeroErrors: string[] = [];
     page.on("console", (m) => {
       if (
-        m.type() === "error" &&
+        (m.type() === "warning" || m.type() === "error") &&
         /width\(-?\d+\) and height\(-?\d+\) of chart should be greater than 0/.test(m.text())
       ) {
         rechartsZeroErrors.push(m.text());
