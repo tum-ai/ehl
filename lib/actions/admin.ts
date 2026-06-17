@@ -8,6 +8,7 @@ import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
 import { logEvent, logEventStrict } from "@/lib/event-log";
+import { MAX_TEAM_SIZE } from "@/lib/config/limits";
 import type { ChapterStatus } from "@/lib/types";
 import {
   isBackwardTransition,

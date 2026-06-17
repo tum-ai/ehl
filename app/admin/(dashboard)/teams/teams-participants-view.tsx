@@ -8,6 +8,8 @@ import { LimitBanner } from "@/components/admin/limit-banner";
 import { DeleteTeamButton } from "./delete-team-button";
 import { DeleteParticipantButton } from "./delete-participant-button";
 import { RemoveMemberButton } from "./remove-member-button";
+import { TeamAdminControls } from "./team-admin-controls";
+import { ChangeEmailButton } from "./change-email-button";
 import type { Team, TeamMember, Profile, Chapter } from "@/lib/types";
 import type { ParticipantWithTeam } from "@/lib/queries/teams";
 
@@ -202,7 +204,7 @@ function TeamsTable({
                 <td className="px-6 py-4 text-center">
                   <Badge variant="completed" light>Active</Badge>
                 </td>
-                <td className="px-6 py-4 text-right">
+                <td className="px-6 py-4 text-right align-top">
                   <div className="flex items-center justify-end gap-3">
                     <Link
                       href={`/team/${team.slug}`}
@@ -210,6 +212,15 @@ function TeamsTable({
                     >
                       View
                     </Link>
+                    <TeamAdminControls
+                      teamId={team.id}
+                      members={members.map((m) => ({
+                        userId: m.userId,
+                        role: m.role,
+                        name: m.profile?.name || m.profile?.email || m.userId.slice(0, 8),
+                      }))}
+                      allTeams={teams.map((t) => ({ id: t.id, name: t.name }))}
+                    />
                     <DeleteTeamButton teamId={team.id} teamName={team.name} />
                   </div>
                 </td>
@@ -274,7 +285,10 @@ function ParticipantsTable({
                   {p.name || "-"}
                 </td>
                 <td className="px-6 py-4 text-sm ad-text-secondary">
-                  {p.email}
+                  <span className="inline-flex items-center gap-2">
+                    {p.email}
+                    <ChangeEmailButton userId={p.id} currentEmail={p.email} />
+                  </span>
                 </td>
                 <td className="px-6 py-4 text-sm">
                   {p.teamSlug ? (
