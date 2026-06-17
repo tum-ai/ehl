@@ -155,13 +155,27 @@ export const SIM_ADMIN_EMAIL =
   process.env.SIM_ADMIN_EMAIL || "e2e-admin@test-ehl.com";
 
 export async function adminLoginViaSession(page: Page): Promise<void> {
-  const magicLinkUrl = await generateMagicLink(SIM_ADMIN_EMAIL, "/dashboard");
-  await page.goto(magicLinkUrl);
-  await page.waitForURL(/\/(admin|dashboard)/, { timeout: 20000 });
-  if (!page.url().includes("/admin")) {
-    await page.goto("/admin");
-    await page.waitForURL(/\/admin/, { timeout: 15000 });
+  // Magic-link tokens are single-use and short-lived; a stale/raced token lands
+  // on /login?error=auth_failed. Generate a FRESH link per attempt and retry a
+  // couple of times so a transient OTP failure doesn't fail the run.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const magicLinkUrl = await generateMagicLink(SIM_ADMIN_EMAIL, "/dashboard");
+    await page.goto(magicLinkUrl);
+    try {
+      await page.waitForURL(/\/(admin|dashboard)/, { timeout: 20000 });
+      if (!page.url().includes("/admin")) {
+        await page.goto("/admin");
+        await page.waitForURL(/\/admin/, { timeout: 15000 });
+      }
+      return;
+    } catch (e) {
+      lastErr = e;
+      // If we got bounced to an auth error, loop with a brand-new token.
+      if (!/error=auth_failed|\/login/.test(page.url())) throw e;
+    }
   }
+  throw new Error(`adminLoginViaSession failed after retries: ${String(lastErr)}`);
 }
 
 /**
