@@ -79,7 +79,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Install Playwright browsers
-        run: pnpm exec playwright install chromium --with-deps
+        run: pnpm exec playwright install chromium firefox webkit --with-deps
 
       - name: Start dev server
         run: pnpm dev --port 3001 &
@@ -91,6 +91,17 @@ jobs:
 
       - name: Run E2E lifecycle tests
         run: pnpm exec playwright test --project=lifecycle
+        env:
+          CI: true
+          BASE_URL: http://localhost:3001
+
+      # Cross-browser smoke (Firefox + WebKit/Safari). Non-blocking: surfaces
+      # FF/Safari rendering & routing regressions without gating merges (these
+      # engines are new to the suite; we don't want early flakiness to block the
+      # required pipeline). Promote to a required check once it proves stable.
+      - name: Run cross-browser smoke (Firefox + WebKit)
+        continue-on-error: true
+        run: pnpm exec playwright test --project=smoke-firefox --project=smoke-webkit
         env:
           CI: true
           BASE_URL: http://localhost:3001

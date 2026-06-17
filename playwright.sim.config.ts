@@ -37,6 +37,12 @@ export default defineConfig({
       { name: "webkit", use: { ...devices["Desktop Safari"] } },
     ];
     const only = process.env.SIM_BROWSER;
+    if (only && !all.some((p) => p.name === only)) {
+      // Fail loudly instead of silently running zero tests (a green no-op run).
+      throw new Error(
+        `SIM_BROWSER="${only}" is not one of: ${all.map((p) => p.name).join(", ")}`
+      );
+    }
     return only ? all.filter((p) => p.name === only) : all;
   })(),
 });
