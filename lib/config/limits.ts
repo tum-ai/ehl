@@ -38,3 +38,9 @@ export const QUERY_LIMITS = {
 };
 
 export type QueryLimitKey = keyof typeof QUERY_LIMITS;
+
+// Maximum members allowed on a team. A domain invariant (not a query cap):
+// enforced on registration, invites, joins, and admin overrides. Historically
+// hardcoded as `5` in lib/actions/teams.ts; centralized here so admin overrides
+// and team flows share one source of truth.
+export const MAX_TEAM_SIZE = envInt("MAX_TEAM_SIZE", 5);

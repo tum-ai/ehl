@@ -183,13 +183,18 @@ This is an **open-source public repository**. Every commit, branch name, PR titl
 
 ### Test Discipline (NON-NEGOTIABLE)
 
+**Tests are part of every change (NON-NEGOTIABLE):** any code change MUST update every
+existing test it affects, AND add new tests covering any new feature/behavior. A change
+that touches behavior without touching tests is incomplete. No exceptions.
+
 **Workflow for every code change** (feature, bugfix, refactor):
 1. Identify the behavior guarantee to test. If unclear, ask.
 2. For bugfixes: write a test that reproduces the bug FIRST (must fail before the fix).
 3. Implement/change the code.
-4. Run ALL checks: `pnpm typecheck && pnpm test && pnpm build`
-5. Run E2E: `pnpm test:e2e:lifecycle` (pre-commit hook runs unit tests automatically)
-6. Report: which tests added, which pass, which edge cases covered/not covered.
+4. Update any tests the change affects; add tests for any new behavior.
+5. Run ALL checks: `pnpm typecheck && pnpm test && pnpm build`
+6. Run E2E: `pnpm test:e2e:lifecycle` (pre-commit hook runs unit tests automatically)
+7. Report: which tests added/updated, which pass, which edge cases covered/not covered.
 
 **Absolute prohibitions** (STOP and ask the user if you would violate these):
 1. **Never change a failing test to make it pass.** Default: the code is wrong, not the test. If the test is genuinely wrong, STOP and ask: "Test X seems wrong because [reason]. May I change it?"
