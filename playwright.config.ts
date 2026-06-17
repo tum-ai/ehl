@@ -25,7 +25,11 @@ export default defineConfig({
       testMatch: /global-setup\.ts/,
     },
 
-    // 2. Lifecycle test: full hackathon flow (depends on setup)
+    // 2. Lifecycle test: full hackathon flow (depends on setup).
+    // Stays on Chromium: it shares serial DB state (workers:1), so it can't run
+    // concurrently across engines. Cross-browser coverage of the full flow is
+    // provided by the live-UI simulation (playwright.sim.config.ts), which runs
+    // chromium + firefox + webkit.
     {
       name: "lifecycle",
       dependencies: ["setup"],
@@ -33,22 +37,28 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
 
-    // 3. Smoke tests: existing structural tests (depends on setup)
-    {
-      name: "smoke",
+    // 3. Smoke tests: stateless structural checks — run on ALL THREE engines so
+    // Firefox/Safari rendering and routing regressions are caught.
+    ...["chromium", "firefox", "webkit"].map((engine) => ({
+      name: `smoke-${engine}`,
       dependencies: ["setup"],
       testDir: "./e2e",
-      testIgnore: [
-        "**/setup/**",
-        "**/lifecycle/**",
-      ],
-      use: { ...devices["Desktop Chrome"] },
-    },
+      testIgnore: ["**/setup/**", "**/lifecycle/**", "**/simulation/**"],
+      use: {
+        ...devices[
+          engine === "chromium"
+            ? "Desktop Chrome"
+            : engine === "firefox"
+              ? "Desktop Firefox"
+              : "Desktop Safari"
+        ],
+      },
+    })),
 
     // 4. Cleanup: remove all E2E test data
     {
       name: "cleanup",
-      dependencies: ["lifecycle", "smoke"],
+      dependencies: ["lifecycle", "smoke-chromium", "smoke-firefox", "smoke-webkit"],
       testDir: "./e2e/setup",
       testMatch: /global-teardown\.ts/,
     },

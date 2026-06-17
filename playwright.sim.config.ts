@@ -26,6 +26,17 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
-    ...devices["Desktop Chrome"],
   },
+  // Cross-browser matrix. Real attendees use Firefox and Safari (especially the
+  // admin panel), so the simulation runs on all three. Set SIM_BROWSER to limit
+  // to one (e.g. SIM_BROWSER=webkit) while debugging a single engine.
+  projects: (() => {
+    const all = [
+      { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+      { name: "firefox", use: { ...devices["Desktop Firefox"] } },
+      { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    ];
+    const only = process.env.SIM_BROWSER;
+    return only ? all.filter((p) => p.name === only) : all;
+  })(),
 });
