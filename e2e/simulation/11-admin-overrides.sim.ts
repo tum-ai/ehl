@@ -96,4 +96,76 @@ test.describe("Simulation: admin team overrides (real UI)", () => {
       .eq("team_id", teamId);
     expect(count).toBe(MAX_TEAM_SIZE);
   });
+
+  test("add member by email adds an existing user (happy path)", async ({ page }) => {
+    const pres = await mkProfile(`ov-add-pres-${Date.now()}`);
+    const team = await mkTeam("add", pres.id);
+    const newcomer = await mkProfile(`ov-add-new-${Date.now()}`);
+
+    await adminLoginViaSession(page);
+    await page.goto("/admin/teams", { waitUntil: "networkidle" });
+    const row = page.locator("tr", { hasText: team.name });
+    await expect(row).toHaveCount(1);
+    await row.getByRole("button", { name: /^manage$/i }).click();
+    await row.locator('input[type="email"]').fill(newcomer.email);
+    await row.getByRole("button", { name: /^add$/i }).click();
+    await page.waitForTimeout(1500);
+
+    const { data: m } = await db
+      .from("team_members")
+      .select("user_id, role")
+      .eq("team_id", team.id)
+      .eq("user_id", newcomer.id)
+      .maybeSingle();
+    expect(m, "newcomer added to team").toBeTruthy();
+    expect(m!.role).toBe("member");
+  });
+
+  test("move member relocates them to another team (UI)", async ({ page }) => {
+    const presA = await mkProfile(`ov-mv-presA-${Date.now()}`);
+    const presB = await mkProfile(`ov-mv-presB-${Date.now()}`);
+    const teamA = await mkTeam("mvA", presA.id);
+    const teamB = await mkTeam("mvB", presB.id);
+    const mover = await mkProfile(`ov-mv-mover-${Date.now()}`);
+    await db.from("team_members").insert({ team_id: teamA.id, user_id: mover.id, role: "member" });
+
+    await adminLoginViaSession(page);
+    await page.goto("/admin/teams", { waitUntil: "networkidle" });
+    const rowA = page.locator("tr", { hasText: teamA.name });
+    await expect(rowA).toHaveCount(1);
+    await rowA.getByRole("button", { name: /^manage$/i }).click();
+    // The "move member to team" select for the non-captain mover -> teamB.
+    await rowA.getByText("Move member to team").waitFor();
+    await rowA.locator("select").last().selectOption(teamB.id);
+    await page.waitForTimeout(1500);
+
+    const { data: onA } = await db.from("team_members").select("user_id").eq("team_id", teamA.id).eq("user_id", mover.id).maybeSingle();
+    const { data: onB } = await db.from("team_members").select("user_id").eq("team_id", teamB.id).eq("user_id", mover.id).maybeSingle();
+    expect(onA, "mover removed from source team").toBeNull();
+    expect(onB, "mover added to destination team").toBeTruthy();
+  });
+
+  test("change email updates auth + profile (UI)", async ({ page }) => {
+    const user = await mkProfile(`ov-email-${Date.now()}`);
+    const newEmail = simEmail(`ov-email-new-${Date.now()}`);
+
+    await adminLoginViaSession(page);
+    await page.goto("/admin/teams", { waitUntil: "networkidle" });
+    // Switch to the Participants view and find this user's row.
+    await page.getByRole("button", { name: /^participants$/i }).click();
+    const row = page.locator("tr", { hasText: user.email });
+    await expect(row).toHaveCount(1);
+    row.getByRole("button", { name: /^edit$/i }).click();
+    page.once("dialog", (d) => d.accept()); // confirm() on email change
+    await row.locator('input[type="email"]').fill(newEmail);
+    await row.getByRole("button", { name: /^save$/i }).click();
+    await page.waitForTimeout(2000);
+
+    // DB: profile email updated.
+    const { data: prof } = await db.from("profiles").select("email").eq("id", user.id).single();
+    expect(prof!.email).toBe(newEmail);
+    // auth.users email updated too (login source of truth).
+    const { data: authUser } = await db.auth.admin.getUserById(user.id);
+    expect(authUser.user?.email).toBe(newEmail);
+  });
 });
