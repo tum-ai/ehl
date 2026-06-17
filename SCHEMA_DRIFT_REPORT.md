@@ -1,7 +1,24 @@
 # Schema Drift Report — Production vs Test vs Repo Migrations
 
-Generated during pre-Paris simulation setup. **Not committed** (working-tree only, for review).
-All prod reads were read-only via the Supabase management API. No writes to production.
+## STATUS: RECONCILED (2026-06-17)
+
+Prod and test schemas now match (255 columns each, zero diff; RLS policies aligned).
+Applied to production after the local simulation passed and with explicit approval:
+- **00025** (audit-log immutable) — applied to prod.
+- **00042** (entire_required, session_history) — applied to prod.
+- **00026 / 00031 / 00043** — were already present in prod (verified), skipped.
+- **00044** (submissions read = team-members) — NEW migration that makes the REPO
+  match prod's existing, intended behavior (any team member may read their team's
+  submission), instead of restricting to president-only. Applied to both.
+
+Verified post-migration: applications table intact (690 total, Paris 180), a new
+Paris application submitted end-to-end through the real UI against the prod DB and
+then cleaned up. See PROD_MIGRATION_PLAN.md.
+
+---
+
+Generated during pre-Paris simulation setup.
+All prod reads were read-only via the Supabase management API.
 
 ## Summary
 

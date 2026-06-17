@@ -82,3 +82,4 @@ supabase/.temp/
 recovery-emails-sent.log
 .env.e2e-live
 playwright-report-sim/
+.env.prod-verify
