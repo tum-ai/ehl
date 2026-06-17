@@ -8,6 +8,7 @@ import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
 import { logEvent, logEventStrict } from "@/lib/event-log";
+import { MAX_TEAM_SIZE } from "@/lib/config/limits";
 import type { ChapterStatus } from "@/lib/types";
 import {
   isBackwardTransition,
@@ -831,6 +832,332 @@ export async function adminRemoveMember(teamId: string, userId: string) {
     actorId,
     actorType: "admin",
     delta: { deleted: { user_id: userId } },
+  });
+
+  revalidatePath("/admin/teams");
+  return { success: true };
+}
+
+// ─── Admin team/member overrides (audit-logged) ──────────
+//
+// These let an admin resolve exception cases through the UI (e.g. a typo'd
+// account set as captain, a member on the wrong team). All require
+// requireAdminAction(), use the admin client, and write an audit log entry.
+// The only hard invariant enforced is team size (MAX_TEAM_SIZE) and "every team
+// keeps exactly one president".
+
+/**
+ * Promote a team member to president (captain), demoting the current president.
+ * Keeps teams.president_user_id and team_members.role in sync (both are sources
+ * of truth: RLS reads president_user_id, the UI reads role).
+ */
+export async function adminChangeCaptain(teamId: string, newCaptainUserId: string) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const adminClient = createAdminClient();
+
+  const { data: team } = await adminClient
+    .from("teams")
+    .select("president_user_id")
+    .eq("id", teamId)
+    .single();
+  if (!team) return { error: "Team not found." };
+
+  // The new captain must already be a member of this team.
+  const { data: membership } = await adminClient
+    .from("team_members")
+    .select("user_id, role")
+    .eq("team_id", teamId)
+    .eq("user_id", newCaptainUserId)
+    .maybeSingle();
+  if (!membership) return { error: "That user is not a member of this team." };
+
+  const oldCaptainId = team.president_user_id as string | null;
+  if (oldCaptainId === newCaptainUserId) {
+    return { error: "That member is already the captain." };
+  }
+
+  // Demote the old president to member (if any).
+  const actorId = await getAdminUserId();
+
+  // On a partial failure, log the inconsistency so it can be reconciled.
+  const logDiverged = (step: string, msg: string) =>
+    logEvent({
+      action: "team.captain_change_diverged",
+      entityType: "team",
+      entityId: teamId,
+      actorId,
+      actorType: "admin",
+      delta: { failed_step: step, error: msg, from: oldCaptainId, to: newCaptainUserId },
+    });
+
+  // Update teams.president_user_id FIRST: it's the field RLS reads, so even if a
+  // later team_members sync fails, president powers already point at the new
+  // captain (no stale privilege on the old one).
+  const { error: teamErr } = await adminClient
+    .from("teams")
+    .update({ president_user_id: newCaptainUserId })
+    .eq("id", teamId);
+  if (teamErr) return { error: teamErr.message };
+
+  // Promote the new captain's role.
+  const { error: promoteErr } = await adminClient
+    .from("team_members")
+    .update({ role: "president" })
+    .eq("team_id", teamId)
+    .eq("user_id", newCaptainUserId);
+  if (promoteErr) {
+    logDiverged("promote", promoteErr.message);
+    return { error: `Captain set, but role update failed (logged): ${promoteErr.message}` };
+  }
+
+  // Demote the old captain's role.
+  if (oldCaptainId) {
+    const { error: demoteErr } = await adminClient
+      .from("team_members")
+      .update({ role: "member" })
+      .eq("team_id", teamId)
+      .eq("user_id", oldCaptainId);
+    if (demoteErr) {
+      logDiverged("demote", demoteErr.message);
+      return { error: `Captain set, but old captain's role update failed (logged): ${demoteErr.message}` };
+    }
+  }
+
+  logEvent({
+    action: "team.captain_changed",
+    entityType: "team",
+    entityId: teamId,
+    actorId,
+    actorType: "admin",
+    delta: { from: { president_user_id: oldCaptainId }, to: { president_user_id: newCaptainUserId } },
+  });
+
+  revalidatePath("/admin/teams");
+  return { success: true };
+}
+
+/**
+ * Add an existing user (by email) to a team as a member. Enforces the team-size
+ * invariant (MAX_TEAM_SIZE).
+ */
+export async function adminAddMemberByEmail(teamId: string, email: string) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const normalized = email.trim().toLowerCase();
+  if (!normalized) return { error: "Email is required." };
+  const adminClient = createAdminClient();
+
+  const { data: team } = await adminClient.from("teams").select("id").eq("id", teamId).single();
+  if (!team) return { error: "Team not found." };
+
+  const { data: profile } = await adminClient
+    .from("profiles")
+    .select("id, email")
+    .eq("email", normalized)
+    .maybeSingle();
+  if (!profile) return { error: `No user found with email ${normalized}.` };
+
+  // Already on this team?
+  const { data: existing } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", teamId)
+    .eq("user_id", profile.id)
+    .maybeSingle();
+  if (existing) return { error: "That user is already on this team." };
+
+  // Size guardrail.
+  const { data: members } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", teamId);
+  if ((members?.length ?? 0) >= MAX_TEAM_SIZE) {
+    return { error: `Team is full (${MAX_TEAM_SIZE} members max).` };
+  }
+
+  const { error: insertErr } = await adminClient
+    .from("team_members")
+    .insert({ team_id: teamId, user_id: profile.id, role: "member" });
+  if (insertErr) return { error: insertErr.message };
+
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "team.member_added",
+    entityType: "team",
+    entityId: teamId,
+    actorId,
+    actorType: "admin",
+    delta: { created: { user_id: profile.id, email: normalized } },
+  });
+
+  revalidatePath("/admin/teams");
+  return { success: true };
+}
+
+/**
+ * Move a member from one team to another. Enforces the destination team size and
+ * forbids moving a president (change the captain first, so no team is left
+ * without one).
+ */
+export async function adminMoveMember(userId: string, fromTeamId: string, toTeamId: string) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  if (fromTeamId === toTeamId) return { error: "Source and destination teams are the same." };
+  const adminClient = createAdminClient();
+
+  const { data: fromTeam } = await adminClient
+    .from("teams")
+    .select("president_user_id")
+    .eq("id", fromTeamId)
+    .single();
+  if (!fromTeam) return { error: "Source team not found." };
+
+  const { data: toTeam } = await adminClient.from("teams").select("id").eq("id", toTeamId).single();
+  if (!toTeam) return { error: "Destination team not found." };
+
+  const { data: membership } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", fromTeamId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (!membership) return { error: "That user is not on the source team." };
+
+  if (fromTeam.president_user_id === userId) {
+    return { error: "Cannot move the team captain. Assign a new captain first." };
+  }
+
+  // Already on destination?
+  const { data: dupe } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", toTeamId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (dupe) return { error: "That user is already on the destination team." };
+
+  // Destination size guardrail.
+  const { data: toMembers } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", toTeamId);
+  if ((toMembers?.length ?? 0) >= MAX_TEAM_SIZE) {
+    return { error: `Destination team is full (${MAX_TEAM_SIZE} members max).` };
+  }
+
+  // Move = insert into destination, delete from source.
+  const { error: insErr } = await adminClient
+    .from("team_members")
+    .insert({ team_id: toTeamId, user_id: userId, role: "member" });
+  if (insErr) return { error: insErr.message };
+  const { error: delErr } = await adminClient
+    .from("team_members")
+    .delete()
+    .eq("team_id", fromTeamId)
+    .eq("user_id", userId);
+  if (delErr) return { error: delErr.message };
+
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "team.member_moved",
+    entityType: "team",
+    entityId: toTeamId,
+    actorId,
+    actorType: "admin",
+    delta: { moved: { user_id: userId, from_team: fromTeamId, to_team: toTeamId } },
+  });
+
+  revalidatePath("/admin/teams");
+  return { success: true };
+}
+
+/**
+ * Change a participant's email. Updates BOTH the Supabase auth user (so login /
+ * password recovery keep working) and profiles.email, so the two never diverge.
+ * Refuses if the new email is already taken.
+ */
+export async function adminChangeUserEmail(userId: string, newEmail: string) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const normalized = newEmail.trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(normalized)) {
+    return { error: "Enter a valid email address." };
+  }
+  const adminClient = createAdminClient();
+
+  const { data: profile } = await adminClient
+    .from("profiles")
+    .select("id, email")
+    .eq("id", userId)
+    .maybeSingle();
+  if (!profile) return { error: "User not found." };
+  const oldEmail = profile.email as string;
+  if (oldEmail?.toLowerCase() === normalized) {
+    return { error: "That is already this user's email." };
+  }
+
+  // Conflict check: the new email must not belong to another profile.
+  const { data: taken } = await adminClient
+    .from("profiles")
+    .select("id")
+    .eq("email", normalized)
+    .neq("id", userId)
+    .maybeSingle();
+  if (taken) return { error: `${normalized} is already used by another account.` };
+
+  // Update the auth user first (source of truth for login). email_confirm keeps
+  // the new address usable immediately without a re-confirmation round-trip.
+  const { error: authErr } = await adminClient.auth.admin.updateUserById(userId, {
+    email: normalized,
+    email_confirm: true,
+  });
+  if (authErr) return { error: `Could not update login email: ${authErr.message}` };
+
+  // Then mirror into the profile row.
+  const { error: profErr } = await adminClient
+    .from("profiles")
+    .update({ email: normalized })
+    .eq("id", userId);
+  const actorId = await getAdminUserId();
+  if (profErr) {
+    // Roll the auth change back so login and profile don't diverge. GoTrue admin
+    // methods resolve with { error } (they don't throw), so capture it: if the
+    // rollback ALSO fails, the two stores are now inconsistent — record that
+    // loudly in the audit log so it can be reconciled, and tell the admin.
+    const { error: rollbackErr } = await adminClient.auth.admin.updateUserById(userId, {
+      email: oldEmail,
+    });
+    if (rollbackErr) {
+      logEvent({
+        action: "user.email_change_diverged",
+        entityType: "profile",
+        entityId: userId,
+        actorId,
+        actorType: "admin",
+        delta: {
+          auth_email: { is: normalized },
+          profile_email: { is: oldEmail },
+          profile_error: profErr.message,
+          rollback_error: rollbackErr.message,
+        },
+      });
+      return {
+        error:
+          `Email change failed AND rollback failed — login email is now "${normalized}" but the ` +
+          `profile is "${oldEmail}". This is logged; reconcile manually. (${profErr.message})`,
+      };
+    }
+    return { error: `Could not update profile email: ${profErr.message}` };
+  }
+
+  logEvent({
+    action: "user.email_changed",
+    entityType: "profile",
+    entityId: userId,
+    actorId,
+    actorType: "admin",
+    delta: { from: { email: oldEmail }, to: { email: normalized } },
   });
 
   revalidatePath("/admin/teams");

@@ -10,6 +10,7 @@ import {
 } from "@/lib/emails/render";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { logEvent } from "@/lib/event-log";
+import { MAX_TEAM_SIZE } from "@/lib/config/limits";
 import { slugify } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 import { randomUUID } from "crypto";
@@ -100,8 +101,8 @@ export async function acceptTeamInvite(token: string) {
     .select("user_id")
     .eq("team_id", invite.team_id as string);
 
-  if ((members?.length ?? 0) >= 5) {
-    return { error: "This team is already full (5 members max)." };
+  if ((members?.length ?? 0) >= MAX_TEAM_SIZE) {
+    return { error: `This team is already full (${MAX_TEAM_SIZE} members max).` };
   }
 
   // Check if user is locked to their current team via chapter registration
@@ -208,15 +209,15 @@ export async function inviteMember(teamId: string, email: string, name?: string)
     return { error: "Only the team president can invite members." };
   }
 
-  // Check capacity: current members + pending invites must be < 5
+  // Check capacity: current members + pending invites must be < MAX_TEAM_SIZE
   const [{ data: members }, { count: pendingInvites }] = await Promise.all([
     adminClient.from("team_members").select("user_id").eq("team_id", teamId),
     adminClient.from("team_invites").select("id", { count: "exact", head: true }).eq("team_id", teamId).eq("status", "pending"),
   ]);
 
   const totalCommitted = (members?.length ?? 0) + (pendingInvites ?? 0);
-  if (totalCommitted >= 5) {
-    return { error: `Team is full (${members?.length ?? 0} members + ${pendingInvites ?? 0} pending invites = 5 max).` };
+  if (totalCommitted >= MAX_TEAM_SIZE) {
+    return { error: `Team is full (${members?.length ?? 0} members + ${pendingInvites ?? 0} pending invites = ${MAX_TEAM_SIZE} max).` };
   }
 
   // Check for existing pending invite
@@ -419,7 +420,7 @@ export async function toggleLookingForMembers(teamId: string, value: boolean) {
       .select("user_id")
       .eq("team_id", teamId);
 
-    if ((members?.length ?? 0) >= 5) {
+    if ((members?.length ?? 0) >= MAX_TEAM_SIZE) {
       return { error: "Team is already full. Cannot look for more members." };
     }
   }
@@ -512,7 +513,7 @@ export async function requestToJoinTeam(teamId: string) {
     .select("user_id")
     .eq("team_id", teamId);
 
-  if ((members?.length ?? 0) >= 5) {
+  if ((members?.length ?? 0) >= MAX_TEAM_SIZE) {
     return { error: "This team is already full." };
   }
 
@@ -613,7 +614,7 @@ export async function resolveDashboardJoinRequest(
       .select("*", { count: "exact", head: true })
       .eq("team_id", request.team_id as string);
 
-    if ((count ?? 0) >= 5) {
+    if ((count ?? 0) >= MAX_TEAM_SIZE) {
       return { error: "Team already has 5 members (maximum)." };
     }
 
