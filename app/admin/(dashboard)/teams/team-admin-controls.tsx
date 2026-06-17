@@ -81,7 +81,14 @@ export function TeamAdminControls({
           defaultValue={captain?.userId ?? ""}
           onChange={(e) => {
             const uid = e.target.value;
-            if (uid && uid !== captain?.userId) run(() => adminChangeCaptain(teamId, uid));
+            if (!uid || uid === captain?.userId) return;
+            const name = members.find((m) => m.userId === uid)?.name ?? "this member";
+            if (!confirm(`Make ${name} the team captain? This transfers president powers.`)) {
+              // revert the visible selection
+              e.target.value = captain?.userId ?? "";
+              return;
+            }
+            run(() => adminChangeCaptain(teamId, uid));
           }}
           className="ad-border ad-bg-input ad-text mt-1 w-full rounded border px-2 py-1"
         >

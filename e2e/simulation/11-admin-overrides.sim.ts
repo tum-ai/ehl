@@ -55,6 +55,7 @@ test.describe("Simulation: admin team overrides (real UI)", () => {
     const row = page.locator("tr", { hasText: team.name });
     await expect(row).toHaveCount(1);
     await row.getByRole("button", { name: /^manage$/i }).click();
+    page.once("dialog", (d) => d.accept()); // confirm() on captain change
     await row.locator("select").first().selectOption(member.id);
     await page.waitForTimeout(1500);
 

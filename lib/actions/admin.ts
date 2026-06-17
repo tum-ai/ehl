@@ -878,31 +878,52 @@ export async function adminChangeCaptain(teamId: string, newCaptainUserId: strin
   }
 
   // Demote the old president to member (if any).
-  if (oldCaptainId) {
-    const { error: demoteErr } = await adminClient
-      .from("team_members")
-      .update({ role: "member" })
-      .eq("team_id", teamId)
-      .eq("user_id", oldCaptainId);
-    if (demoteErr) return { error: demoteErr.message };
-  }
+  const actorId = await getAdminUserId();
 
-  // Promote the new captain in team_members ...
-  const { error: promoteErr } = await adminClient
-    .from("team_members")
-    .update({ role: "president" })
-    .eq("team_id", teamId)
-    .eq("user_id", newCaptainUserId);
-  if (promoteErr) return { error: promoteErr.message };
+  // On a partial failure, log the inconsistency so it can be reconciled.
+  const logDiverged = (step: string, msg: string) =>
+    logEvent({
+      action: "team.captain_change_diverged",
+      entityType: "team",
+      entityId: teamId,
+      actorId,
+      actorType: "admin",
+      delta: { failed_step: step, error: msg, from: oldCaptainId, to: newCaptainUserId },
+    });
 
-  // ... and on the team row (the field RLS policies rely on).
+  // Update teams.president_user_id FIRST: it's the field RLS reads, so even if a
+  // later team_members sync fails, president powers already point at the new
+  // captain (no stale privilege on the old one).
   const { error: teamErr } = await adminClient
     .from("teams")
     .update({ president_user_id: newCaptainUserId })
     .eq("id", teamId);
   if (teamErr) return { error: teamErr.message };
 
-  const actorId = await getAdminUserId();
+  // Promote the new captain's role.
+  const { error: promoteErr } = await adminClient
+    .from("team_members")
+    .update({ role: "president" })
+    .eq("team_id", teamId)
+    .eq("user_id", newCaptainUserId);
+  if (promoteErr) {
+    logDiverged("promote", promoteErr.message);
+    return { error: `Captain set, but role update failed (logged): ${promoteErr.message}` };
+  }
+
+  // Demote the old captain's role.
+  if (oldCaptainId) {
+    const { error: demoteErr } = await adminClient
+      .from("team_members")
+      .update({ role: "member" })
+      .eq("team_id", teamId)
+      .eq("user_id", oldCaptainId);
+    if (demoteErr) {
+      logDiverged("demote", demoteErr.message);
+      return { error: `Captain set, but old captain's role update failed (logged): ${demoteErr.message}` };
+    }
+  }
+
   logEvent({
     action: "team.captain_changed",
     entityType: "team",
@@ -1098,13 +1119,38 @@ export async function adminChangeUserEmail(userId: string, newEmail: string) {
     .from("profiles")
     .update({ email: normalized })
     .eq("id", userId);
+  const actorId = await getAdminUserId();
   if (profErr) {
-    // Best-effort rollback of the auth change to avoid divergence.
-    await adminClient.auth.admin.updateUserById(userId, { email: oldEmail }).catch(() => {});
+    // Roll the auth change back so login and profile don't diverge. GoTrue admin
+    // methods resolve with { error } (they don't throw), so capture it: if the
+    // rollback ALSO fails, the two stores are now inconsistent — record that
+    // loudly in the audit log so it can be reconciled, and tell the admin.
+    const { error: rollbackErr } = await adminClient.auth.admin.updateUserById(userId, {
+      email: oldEmail,
+    });
+    if (rollbackErr) {
+      logEvent({
+        action: "user.email_change_diverged",
+        entityType: "profile",
+        entityId: userId,
+        actorId,
+        actorType: "admin",
+        delta: {
+          auth_email: { is: normalized },
+          profile_email: { is: oldEmail },
+          profile_error: profErr.message,
+          rollback_error: rollbackErr.message,
+        },
+      });
+      return {
+        error:
+          `Email change failed AND rollback failed — login email is now "${normalized}" but the ` +
+          `profile is "${oldEmail}". This is logged; reconcile manually. (${profErr.message})`,
+      };
+    }
     return { error: `Could not update profile email: ${profErr.message}` };
   }
 
-  const actorId = await getAdminUserId();
   logEvent({
     action: "user.email_changed",
     entityType: "profile",
