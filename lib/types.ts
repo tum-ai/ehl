@@ -95,6 +95,7 @@ export interface Challenge {
   codeReviewEnabled: boolean;
   isScored: boolean;
   inviteJuryToForks: boolean;
+  entireRequired: boolean;
   pitchDurationMinutes: number;
   displayOrder: number;
   briefFileId: string | null;
@@ -145,6 +146,7 @@ export interface CodeReview {
   reviewVersion: number;
   costUsd: number | null;
   progress: string | null;
+  sessionHistory: SessionHistoryAnalysis | null;
 }
 
 // V1 format (legacy, backward compatible)
@@ -177,9 +179,69 @@ export interface CodeReviewContentV2 {
   strengths: string[];
   weaknesses: string[];
   notable_patterns: string;
+  // Advisory Entire session-history analysis (process-quality bonus). Present
+  // only when the challenge had entire_required on and a checkpoint branch was
+  // captured. NEVER feeds placement/scoring; informational for the jury.
+  session_history?: SessionHistoryAnalysis;
 }
 
 export type CodeReviewContent = CodeReviewContentV1 | CodeReviewContentV2;
+
+// ─── Entire Session History ──────────────────────────────────
+
+// Result of the soft, agent-agnostic presence check on the
+// entire/checkpoints/v1 branch. Tolerant of imperfect checkpoints from
+// different agents (Codex, Cursor, Gemini, ...) and older/newer Entire
+// versions: any positive signal counts. See lib/entire.ts.
+export interface CheckpointBranchCheck {
+  // Whether an Entire checkpoint branch (or a known mirror/legacy ref) exists.
+  branchExists: boolean;
+  // Best-effort count of distinct user prompts discovered across all
+  // fallbacks. >= 1 satisfies the hard gate.
+  promptCount: number;
+  // Number of sharded checkpoint directories found on the branch.
+  checkpointCount: number;
+  // The ref that actually resolved (e.g. "entire/checkpoints/v1").
+  resolvedRef: string | null;
+  // True when the branch exists and has at least one prompt: passes the gate.
+  satisfiesGate: boolean;
+  // Non-fatal notes (e.g. "counted prompts via metadata fallback",
+  // "transcript present but unparseable"). Surfaced for diagnostics, never
+  // used to fail the gate.
+  notes: string[];
+}
+
+// Advisory process-quality analysis. Rubric mirrors the SOTA hackathon
+// approach (HackerRank Orchestrate): ownership language is the strongest
+// discriminator. All scores are 1-10. This is a BONUS signal only.
+export interface SessionHistoryAnalysis {
+  // True if a usable history was found and analyzed. When false, the rest is
+  // informational (e.g. reason explains why no bonus was awarded).
+  analyzed: boolean;
+  reason?: string;
+  // Plausibility that the history is complete and untampered (aligns with the
+  // diff, no suspicious gaps/back-dating, signing status). Higher = more
+  // trustworthy. This is itself a soft signal, never a hard verdict.
+  completeness: {
+    score: number; // 1-10
+    signed: boolean; // checkpoint commits cryptographically signed
+    aligns_with_diff: boolean; // history plausibly explains the submitted code
+    assessment: string;
+  };
+  // Process-quality rubric (advisory bonus).
+  process_quality: {
+    ownership_language: { score: number; rationale: string }; // weight 35
+    technical_specificity: { score: number; rationale: string }; // weight 25
+    iteration_verification: { score: number; rationale: string }; // weight 25
+    edge_case_awareness: { score: number; rationale: string }; // weight 15
+  };
+  // Weighted 1-10 bonus score. Advisory; jury decides how to weight it.
+  bonus_score: number;
+  // Tools detected from the captured sessions (Claude Code, Codex, ...).
+  agents_detected: string[];
+  highlights: string[];
+  summary: string;
+}
 
 // ─── Code Review Config & Metadata ───────────────────────────
 

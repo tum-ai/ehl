@@ -79,3 +79,7 @@ image-*.png
 .playwright-mcp/
 supabase/.temp/
 .env.supabase
+recovery-emails-sent.log
+.env.e2e-live
+playwright-report-sim/
+.env.prod-verify

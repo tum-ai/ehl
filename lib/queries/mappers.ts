@@ -112,6 +112,7 @@ export function toChallenge(row: Record<string, unknown>): Challenge {
     codeReviewEnabled: (row.code_review_enabled as boolean) ?? false,
     isScored: (row.is_scored as boolean) ?? true,
     inviteJuryToForks: (row.invite_jury_to_forks as boolean) ?? false,
+    entireRequired: (row.entire_required as boolean) ?? false,
     pitchDurationMinutes: (row.pitch_duration_minutes as number) ?? 3,
     displayOrder: (row.display_order as number) ?? 0,
     briefFileId: (row.brief_file_id as string) ?? null,
@@ -159,6 +160,7 @@ export function toCodeReview(row: Record<string, unknown>): CodeReview {
     reviewVersion: (row.review_version as number) ?? 1,
     costUsd: (row.cost_usd as number) ?? null,
     progress: (row.progress as string) ?? null,
+    sessionHistory: (row.session_history as CodeReview["sessionHistory"]) ?? null,
   };
 }
 

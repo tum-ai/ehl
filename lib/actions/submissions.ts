@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCheckinStatusForUsers } from "@/lib/queries/checkin";
-import { parseGitHubRepo, snapshotRepo } from "@/lib/github";
+import { parseGitHubRepo, snapshotRepo, fetchCheckpointBranchIntoFork } from "@/lib/github";
+import { checkCheckpointBranch, entireGateErrorMessage } from "@/lib/entire";
 import type { SubmissionFieldConfig } from "@/lib/types";
 import { logEvent } from "@/lib/event-log";
 import { lockSubmissionsCore, makeSnapshotName } from "@/lib/submissions-lock";
@@ -235,6 +236,37 @@ export async function submitProject(formData: FormData) {
     }
   }
 
+  // Entire session-history hard gate. When the challenge requires it, every repo
+  // field must carry an Entire session record (the entire/checkpoints/v1 branch
+  // with at least one captured prompt). The check is intentionally SOFT/tolerant
+  // of imperfect checkpoints across agents and Entire versions: see lib/entire.ts.
+  // Blocks the submission BEFORE persisting so a missing record never half-saves.
+  {
+    const { data: entireChallenge } = await adminClient
+      .from("challenges")
+      .select("entire_required, submission_fields")
+      .eq("id", challengeId)
+      .single();
+
+    if (entireChallenge?.entire_required) {
+      const repoFields = (
+        (entireChallenge.submission_fields as SubmissionFieldConfig[]) ?? []
+      ).filter((f) => f.type === "repo");
+
+      for (const rf of repoFields) {
+        const repoUrl = fields[rf.key];
+        if (!repoUrl) continue; // required-ness of the field itself is handled elsewhere
+        const parsed = parseGitHubRepo(repoUrl);
+        if (!parsed) continue; // malformed URL handled by repo verification
+
+        const check = await checkCheckpointBranch(parsed.owner, parsed.repo);
+        if (!check.satisfiesGate) {
+          return { error: entireGateErrorMessage(check) };
+        }
+      }
+    }
+  }
+
   const { error } = await adminClient.from("submissions").upsert(
     {
       challenge_id: challengeId,
@@ -304,6 +336,12 @@ export async function submitProject(formData: FormData) {
               .update({ fork_url: result.snapshotUrl })
               .eq("challenge_id", challengeId)
               .eq("team_id", teamId);
+
+            // Copy the Entire session-history branch into the private fork so the
+            // record is captured under EHL control (best-effort, never blocks).
+            await fetchCheckpointBranchIntoFork(parsed.owner, parsed.repo, snapshotName).catch(
+              (e) => console.error("Checkpoint branch capture failed:", e)
+            );
           } else {
             // Fork must always succeed: repos can change visibility at any time
             console.error("Snapshot error:", result.error);

@@ -908,6 +908,23 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await setChapterStatus(chapterId, "pitching");
   });
 
+  // 7.5 Entire session-history gate, real-infra precondition: the gate keys on
+  // the entire/checkpoints/v1 branch existing on the submitted repo. This asserts
+  // the live GitHub state the soft check depends on — the e2e test repo genuinely
+  // has no checkpoint branch — so the gate correctly blocks. The soft-check LOGIC
+  // (fallbacks, agent-imperfect checkpoints, prompt counting) is covered by the
+  // unit tests in tests/entire.test.ts; here we verify the external fact via the
+  // GitHub API directly (the E2E runtime can't import @/ app modules).
+  test("7.5 Entire gate: e2e repo has no checkpoint branch (gate would block)", async () => {
+    const res = await fetch(
+      "https://api.github.com/repos/european-hackathon-league/e2e-test-submission/git/trees/" +
+        encodeURIComponent("entire/checkpoints/v1") +
+        "?recursive=1"
+    );
+    // No checkpoint branch -> 404 -> checkCheckpointBranch returns satisfiesGate=false.
+    expect(res.status).toBe(404);
+  });
+
   // ── BLOCK 8: JURY VOTING ────────────────────────────────
 
   test("8.1 Assign jury to challenge", async () => {

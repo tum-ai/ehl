@@ -190,14 +190,24 @@ Automated code quality assessment using multiple LLM agents.
 2. **Code Quality Agent**: Evaluates code structure, readability, best practices
 3. **Highlights Agent**: Identifies impressive techniques and potential issues
 4. **Originality Agent**: Assesses creative approaches and novel solutions
-5. **Coordinator Agent**: Synthesizes all reports into a final score with weighted categories
+5. **Session History Agent** (when Entire is required): Scores development-process quality from the captured AI coding session (see Entire Session History below). Advisory bonus only.
+6. **Coordinator Agent**: Synthesizes all reports into a final score with weighted categories
 
 ### Configuration (per challenge)
 - Enable/disable code review
+- Require Entire session history (see below)
 - Choose LLM models (via OpenRouter)
 - Set scoring weights per category
 - Add custom review instructions
 - Set token budget
+
+### Entire Session History (per challenge, optional)
+[Entire](https://entire.io) is a client-side CLI that captures AI coding-agent sessions on an orphan git branch (`entire/checkpoints/v1`). When a challenge has "Require Entire Session History" enabled:
+
+- **Hard gate (at submission):** the repo must contain the `entire/checkpoints/v1` branch with at least one captured prompt. If missing, submission is blocked with a clear, actionable error. The presence check is intentionally soft: it tolerates imperfect checkpoints across different agents (Claude Code, Codex, Cursor, Gemini, ...) and Entire versions, accepting any positive signal (prompt file, session metadata, or transcript).
+- **Capture:** the checkpoint branch is copied into the private EHL fork (not the public path), so transcripts stay under EHL control.
+- **Advisory bonus:** a session-history agent scores process quality (ownership language, technical specificity, iteration/verification, edge-case awareness) plus completeness/tamper-plausibility (including whether checkpoint commits are signed). This is highlighted in the jury report. It is informational only and never feeds the placement/leaderboard score.
+- **Off switch:** the whole behavior is per-challenge, like code review. Roles affected: participants (must enable Entire to submit), jury (see the bonus), admins (toggle it).
 
 ### Execution
 - Triggered manually by admin or automatically after submission deadline

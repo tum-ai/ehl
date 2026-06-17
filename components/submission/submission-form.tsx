@@ -13,6 +13,9 @@ interface SubmissionFormProps {
   existing: Submission | null;
   isLocked: boolean;
   deadline?: string | null;
+  // When true, repo fields must carry an Entire session record to submit. We
+  // surface this as a live warning during verify; the hard gate is server-side.
+  entireRequired?: boolean;
 }
 
 export function SubmissionForm({
@@ -22,6 +25,7 @@ export function SubmissionForm({
   existing,
   isLocked: isLockedProp,
   deadline,
+  entireRequired = false,
 }: SubmissionFormProps) {
   // Also check deadline client-side (cron may not have set is_locked yet)
   const isLocked = isLockedProp || (deadline ? new Date(deadline) <= new Date() : false);
@@ -42,7 +46,20 @@ export function SubmissionForm({
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const [repoStatus, setRepoStatus] = useState<
-    Record<string, { checking: boolean; valid?: boolean; error?: string; warning?: string; repoName?: string }>
+    Record<
+      string,
+      {
+        checking: boolean;
+        valid?: boolean;
+        error?: string;
+        warning?: string;
+        repoName?: string;
+        // Live, non-blocking Entire session-history feedback (the hard gate runs
+        // server-side at submit). Present only when the challenge requires Entire.
+        entireWarning?: string;
+        entireOk?: boolean;
+      }
+    >
   >({});
 
   function updateField(key: string, value: string) {
@@ -92,7 +109,7 @@ export function SubmissionForm({
       const res = await fetch("/api/submissions/verify-repo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repoUrl, accessMode }),
+        body: JSON.stringify({ repoUrl, accessMode, entireRequired }),
       });
 
       const data = await res.json();
@@ -105,6 +122,8 @@ export function SubmissionForm({
           error: data.error,
           warning: data.warning,
           repoName: data.repoName,
+          entireWarning: data.entireWarning,
+          entireOk: data.entireOk,
         },
       }));
     } catch {
@@ -290,6 +309,16 @@ export function SubmissionForm({
                       {repoStatus[fieldConfig.key].warning && (
                         <p className="mt-1 text-xs text-amber-400">
                           {repoStatus[fieldConfig.key].warning}
+                        </p>
+                      )}
+                      {entireRequired && repoStatus[fieldConfig.key].entireOk && (
+                        <p className="mt-1 text-xs text-green-400">
+                          Entire session history detected.
+                        </p>
+                      )}
+                      {entireRequired && repoStatus[fieldConfig.key].entireWarning && (
+                        <p className="mt-1 text-xs text-amber-400">
+                          {repoStatus[fieldConfig.key].entireWarning}
                         </p>
                       )}
                     </div>

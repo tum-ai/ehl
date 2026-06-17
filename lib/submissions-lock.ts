@@ -5,7 +5,12 @@
 // trusted, server-to-server entry points.
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { parseGitHubRepo, snapshotRepo, addCollaborators } from "@/lib/github";
+import {
+  parseGitHubRepo,
+  snapshotRepo,
+  addCollaborators,
+  fetchCheckpointBranchIntoFork,
+} from "@/lib/github";
 import type { SubmissionFieldConfig } from "@/lib/types";
 
 export function makeSnapshotName(teamName: string, chapterSlug: string): string {
@@ -116,6 +121,12 @@ export async function lockSubmissionsCore(challengeId: string) {
             .from("submissions")
             .update({ fork_url: result.snapshotUrl })
             .eq("id", sub.id);
+
+          // Capture the Entire session-history branch into the private fork
+          // (best-effort; never blocks the deadline lock).
+          await fetchCheckpointBranchIntoFork(parsed.owner, parsed.repo, snapshotName).catch(
+            (e) => console.error("Checkpoint branch capture failed:", e)
+          );
 
           // Add jury members as collaborators to the snapshot
           if (shouldInviteJury && juryEmails.length > 0) {

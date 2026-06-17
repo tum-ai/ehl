@@ -1,0 +1,11 @@
+-- Reconcile schema drift: chapters.photo_album_url
+--
+-- This column exists in PRODUCTION but was applied out-of-band and is present in
+-- no prior migration. The app reads it (lib/queries/mappers.ts) and writes it
+-- (lib/actions/admin.ts), so a DB built purely from migrations was missing a
+-- column the code depends on. This migration captures it so the schema is fully
+-- reproducible from the repo. Matches the prod definition exactly (text, nullable).
+--
+-- Idempotent: safe to run on production (where the column already exists) and on
+-- any fresh/test DB (where it does not).
+ALTER TABLE chapters ADD COLUMN IF NOT EXISTS photo_album_url TEXT;

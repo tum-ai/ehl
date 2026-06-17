@@ -181,6 +181,100 @@ export async function snapshotRepo(
   }
 }
 
+// ─── Entire checkpoint branch capture ───────────────────────
+
+/**
+ * Copy the Entire session-history branch (entire/checkpoints/v1, or the v1.1
+ * mirror ref) from a source repo into its EHL fork.
+ *
+ * Why this is needed: snapshotRepo forks with default_branch_only, and forks do
+ * not auto-sync non-default branches. The session record therefore never reaches
+ * the fork unless we copy it explicitly. Because the fork lives in the same git
+ * object network as its parent, we can point a ref in the fork at the source's
+ * checkpoint commit without cloning any objects.
+ *
+ * Capturing into the (private) fork is deliberate: it keeps prompt transcripts —
+ * which Entire stores best-effort-redacted and which include UNREDACTED code-file
+ * snapshots — out of any public path and under EHL control for the jury pipeline.
+ *
+ * Best-effort: returns the ref copied, or null if the source has no checkpoint
+ * branch or the copy fails. NEVER throws into the snapshot flow.
+ */
+export async function fetchCheckpointBranchIntoFork(
+  owner: string,
+  repo: string,
+  snapshotName: string
+): Promise<{ ref: string } | null> {
+  const token = await getGitHubToken();
+  if (!token) return null;
+  const headers = await getHeaders();
+  const org = await getOrg();
+  const forkFullName = `${org}/${snapshotName}`;
+
+  // Candidate refs mirror lib/entire.ts (branch form here; the v1.1 custom ref
+  // lives under refs/ and is addressed without the heads/ prefix).
+  const candidates = [
+    { srcRef: "heads/entire/checkpoints/v1", dstRef: "refs/heads/entire/checkpoints/v1" },
+    { srcRef: "entire/checkpoints/v1.1", dstRef: "refs/entire/checkpoints/v1.1" },
+  ];
+
+  for (const { srcRef, dstRef } of candidates) {
+    try {
+      const srcRes = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/git/ref/${srcRef}`,
+        { headers }
+      );
+      if (!srcRes.ok) continue; // ref not on source: try next candidate
+      const srcData = (await srcRes.json()) as { object?: { sha?: string } };
+      const sha = srcData.object?.sha;
+      if (!sha) continue;
+
+      // Try to create the ref in the fork. If it already exists, update it.
+      const createRes = await fetch(
+        `https://api.github.com/repos/${forkFullName}/git/refs`,
+        {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ ref: dstRef, sha }),
+        }
+      );
+
+      if (createRes.ok) return { ref: dstRef };
+
+      if (createRes.status === 422) {
+        // Ref exists already: fast-forward (force) it to the source SHA.
+        const updateRes = await fetch(
+          `https://api.github.com/repos/${forkFullName}/git/${dstRef}`,
+          {
+            method: "PATCH",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ sha, force: true }),
+          }
+        );
+        if (updateRes.ok) return { ref: dstRef };
+      }
+
+      const errText = await createRes.text().catch(() => "");
+      console.error(
+        `Could not copy checkpoint ref ${srcRef} into ${forkFullName}:`,
+        createRes.status,
+        errText
+      );
+      // Don't try other candidates if the source had this ref but the copy
+      // failed for a non-existence reason; report absence to caller.
+      return null;
+    } catch (e) {
+      console.error(
+        `Checkpoint ref copy error for ${owner}/${repo} -> ${forkFullName}:`,
+        e instanceof Error ? e.message : String(e)
+      );
+      return null;
+    }
+  }
+
+  return null; // no checkpoint branch on the source
+}
+
 // ─── Collaborator management ────────────────────────────────
 
 /**

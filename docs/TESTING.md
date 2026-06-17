@@ -130,6 +130,44 @@ Your normal `pnpm dev` on port 3000 keeps running undisturbed.
 
 ---
 
+## 4a. Full-UI Live Simulation (`e2e/simulation/`)
+
+A separate, **fully-through-the-real-UI** simulation of a complete hackathon,
+built to rehearse a live event (e.g. Paris). Unlike the lifecycle test (which
+uses API/magic-link shortcuts for setup), every participant/jury/admin action
+here is driven through real forms and buttons, and **email is read from a real
+mail catcher (Mailpit)**, never from the DB.
+
+**How it differs / what it needs:**
+- Runs against a **production build** (`pnpm start`), not `pnpm dev`, so the real
+  Turnstile verification path runs (with Cloudflare test keys from `.env.test`).
+- SMTP is routed to **Mailpit** (`brew install mailpit`; SMTP :1025, HTTP API
+  :8025). `e2e/helpers/mailpit.ts` polls the API for verification codes, magic
+  links, invites, and confirmations.
+- Env is `.env.e2e-live` (gitignored): `.env.test` with SMTP overridden to
+  Mailpit plus the test admin in `ADMIN_FALLBACK_EMAILS`.
+- Admin login: Google OAuth is disabled on the test Supabase, so only the admin
+  login *handshake* is shortcut (magic-link callback); every admin **action** is
+  done through the real admin UI.
+
+**Run it (one command, sets up + tears down everything):**
+```
+pnpm test:sim            # migrate test DB, start Mailpit + prod server, run sim, teardown
+pnpm test:sim --no-build # reuse the existing .next build
+pnpm test:sim --keep-up  # leave server + Mailpit running after (for debugging)
+```
+Or, against an already-running stack:
+```
+node_modules/.bin/dotenv -e .env.e2e-live -- npx playwright test --config=playwright.sim.config.ts
+```
+
+Slices (`e2e/simulation/NN-*.sim.ts`) cover: registration, application + CV
+upload, screening, team formation + invites, challenge registration + submission,
+jury assignment + ranking, scoring + leaderboard, media upload, and a regression
+for the admin "New Chapter" button. See `e2e/simulation/README.md` for the full
+per-slice map and `e2e/simulation/FINDINGS.md` for app bugs found. The config
+uses `retries: 1` to absorb transient slowness from driving a real live server.
+
 ## 4. The Lifecycle Test
 
 The file `e2e/lifecycle/hackathon-lifecycle.spec.ts` contains **two** top-level blocks:

@@ -143,8 +143,16 @@ describe("toChallenge", () => {
     const challenge = toChallenge(row);
     expect(challenge.submissionFields).toEqual([]);
     expect(challenge.codeReviewEnabled).toBe(false);
+    expect(challenge.entireRequired).toBe(false);
     expect(challenge.pitchDurationMinutes).toBe(3);
     expect(challenge.displayOrder).toBe(0);
+  });
+
+  it("maps entire_required when set", () => {
+    const challenge = toChallenge({
+      id: "ch1", chapter_id: "c1", title: "T", entire_required: true,
+    });
+    expect(challenge.entireRequired).toBe(true);
   });
 
   it("preserves submissionFields when provided", () => {
