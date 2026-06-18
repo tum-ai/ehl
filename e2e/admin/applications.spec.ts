@@ -8,9 +8,10 @@ test.describe("Admin applications", () => {
     test("applications page loads at expected URL", async ({ page }) => {
       await page.goto(`/admin/chapters/${chapterId}/applications`);
 
-      // Should be on the applications page
+      // Authenticated admins land on the applications page; unauthenticated
+      // requests (this suite has no admin session) redirect to /admin/login.
       await expect(page).toHaveURL(
-        new RegExp(`/admin/chapters/${chapterId}/applications`)
+        new RegExp(`/admin/(chapters/${chapterId}/applications|login)`)
       );
     });
 

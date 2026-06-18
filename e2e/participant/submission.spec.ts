@@ -16,7 +16,9 @@ test.describe("Submission form component structure", () => {
   }) => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
-    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 10000 });
+    // Unauthenticated participants are redirected to /login (the participant
+    // login route) with a redirect-back param — /auth/login does not exist.
+    await expect(page).toHaveURL(/\/login(\?|$)/, { timeout: 10000 });
   });
 });
 
