@@ -16,7 +16,9 @@ test.describe("Submission form component structure", () => {
   }) => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
-    await expect(page).toHaveURL(/\/auth\/login/, { timeout: 10000 });
+    // Unauthenticated participants are redirected to /login (the participant
+    // login route) with a redirect-back param — /auth/login does not exist.
+    await expect(page).toHaveURL(/\/login(\?|$)/, { timeout: 10000 });
   });
 });
 
@@ -28,7 +30,7 @@ test.describe("Submission form fields (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session with challenge registration");
       return;
     }
@@ -59,7 +61,7 @@ test.describe("Submission form fields (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }
@@ -82,7 +84,7 @@ test.describe("Submission form fields (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }
@@ -110,7 +112,7 @@ test.describe("Submission form fields (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }
@@ -135,7 +137,7 @@ test.describe("Submission form fields (authenticated)", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }
@@ -164,7 +166,7 @@ test.describe("Submission form locked state", () => {
     await page.goto(`/event/${SEED.chapters.munich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }
@@ -192,7 +194,7 @@ test.describe("Submission form validation", () => {
     await page.goto(`/event/${SEED.chapters.zurich.slug}`);
 
     const url = page.url();
-    if (url.includes("/auth/login")) {
+    if (url.includes("/login")) {
       test.skip(true, "Skipped: requires authenticated session");
       return;
     }

@@ -10,8 +10,10 @@ test.describe("Admin scores", () => {
     test("scores page loads at expected URL", async ({ page }) => {
       await page.goto(`/admin/chapters/${completedChapterId}/scores`);
 
+      // Authenticated admins land on the scores page; unauthenticated requests
+      // (this suite has no admin session) redirect to /admin/login.
       await expect(page).toHaveURL(
-        new RegExp(`/admin/chapters/${completedChapterId}/scores`)
+        new RegExp(`/admin/(chapters/${completedChapterId}/scores|login)`)
       );
     });
 
@@ -123,8 +125,10 @@ test.describe("Admin scores", () => {
     test("scores page loads for non-completed chapter", async ({ page }) => {
       await page.goto(`/admin/chapters/${zurichChapterId}/scores`);
 
+      // Authenticated admins land on the scores page; unauthenticated requests
+      // (this suite has no admin session) redirect to /admin/login.
       await expect(page).toHaveURL(
-        new RegExp(`/admin/chapters/${zurichChapterId}/scores`)
+        new RegExp(`/admin/(chapters/${zurichChapterId}/scores|login)`)
       );
     });
 

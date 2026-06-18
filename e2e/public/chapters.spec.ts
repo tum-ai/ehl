@@ -39,11 +39,15 @@ test.describe("Chapter detail pages", () => {
   test("completed chapter detail page (Munich) loads with scores", async ({ page }) => {
     await page.goto(`/matches/${SEED.chapters.munich.slug}`);
 
-    // Should show the chapter name and Completed badge
+    // Should show the chapter name and Completed badge. The <h1> renders the
+    // chapter's `name` (seeded as "Match 1"), while the city ("Munich") shows in
+    // the location info below.
     await expect(page.getByText("Completed").first()).toBeVisible();
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Munich");
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Match");
 
-    // Should show location info
+    // Should show location info (city + country). "Munich" appears in both the
+    // location line and the description, so match the first.
+    await expect(page.getByText("Munich").first()).toBeVisible();
     await expect(page.getByText("Germany")).toBeVisible();
   });
 
@@ -59,10 +63,13 @@ test.describe("Chapter detail pages", () => {
     await expect(page.getByText(SEED.teams.alpha.name)).toBeVisible();
   });
 
-  test("registration_open chapter detail page (Zurich) loads correctly", async ({ page }) => {
+  test("challenge_selection chapter detail page (Zurich) loads correctly", async ({ page }) => {
     await page.goto(`/matches/${SEED.chapters.zurich.slug}`);
 
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("Zurich");
-    await expect(page.getByText("Registration Open")).toBeVisible();
+    // <h1> renders the chapter name (seeded "Match 2"); city "Zurich" shows in
+    // the location info; the seeded status (challenge_selection) drives the badge.
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("Match");
+    await expect(page.getByText("Zurich").first()).toBeVisible();
+    await expect(page.getByText("Challenge Selection").first()).toBeVisible();
   });
 });
