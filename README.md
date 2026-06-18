@@ -7,6 +7,7 @@ Season 1 platform for the European Hackathon League: public website, participant
 | Document | Audience | Description |
 |----------|----------|-------------|
 | **This README** | Developers | Setup, architecture, deployment |
+| [docs/LOCAL.md](docs/LOCAL.md) | Developers | Running locally: test DB, Turnstile bypass, admin OAuth |
 | [CLAUDE.md](CLAUDE.md) | AI assistants (Claude Code) | Conventions, critical rules, architecture |
 | [RULES.md](RULES.md) | Developers | Pre-commit checklist, security/correctness rules |
 | [docs/SETUP.md](docs/SETUP.md) | New deployers | From-scratch deployment with all services |
