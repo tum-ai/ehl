@@ -63,12 +63,13 @@ test.describe("Chapter detail pages", () => {
     await expect(page.getByText(SEED.teams.alpha.name)).toBeVisible();
   });
 
-  test("registration_open chapter detail page (Zurich) loads correctly", async ({ page }) => {
+  test("challenge_selection chapter detail page (Zurich) loads correctly", async ({ page }) => {
     await page.goto(`/matches/${SEED.chapters.zurich.slug}`);
 
     // <h1> renders the chapter name (seeded "Match 2"); city "Zurich" shows in
-    // the location info. Zurich's seeded status drives the status badge.
+    // the location info; the seeded status (challenge_selection) drives the badge.
     await expect(page.getByRole("heading", { level: 1 })).toContainText("Match");
     await expect(page.getByText("Zurich").first()).toBeVisible();
+    await expect(page.getByText("Challenge Selection").first()).toBeVisible();
   });
 });
