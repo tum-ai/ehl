@@ -238,6 +238,30 @@ INSERT INTO pitch_orders (challenge_id, order_list, generated_by) VALUES
 -- ═══════════════════════════════════════════════════════════════
 
 INSERT INTO applications (id, chapter_id, email, first_name, last_name, status, form_data, consent_attendance, consent_privacy, consent_newsletter) VALUES
+  -- Dev-login personas: checked in for Match 2 so they can submit
+  ('40000000-0000-0000-0000-000000000101', 'e0000000-0000-0000-0000-000000000002',
+   'alice@example.com', 'Alice', 'Mueller', 'checked_in',
+   '{"dateOfBirth":"2001-03-10","gender":"female","nationality":"German","city":"Munich","country":"Germany","currentlyStudying":true,"university":"TU Munich","degree":"MSc","fieldOfStudy":"Computer Science","hasProgrammingSkills":true,"isTumaiMember":true,"hackathonExperience":"3 hackathons","tshirtCut":"womens","tshirtSize":"S","dietaryRestrictions":"none","discoverySource":["tumai"]}',
+   true, true, true),
+  ('40000000-0000-0000-0000-000000000102', 'e0000000-0000-0000-0000-000000000002',
+   'bob@example.com', 'Bob', 'Schmidt', 'checked_in',
+   '{"dateOfBirth":"2000-07-22","gender":"male","nationality":"German","city":"Munich","country":"Germany","currentlyStudying":true,"university":"TU Munich","degree":"BSc","fieldOfStudy":"Informatics","hasProgrammingSkills":true,"isTumaiMember":true,"hackathonExperience":"2 hackathons","tshirtCut":"mens","tshirtSize":"M","dietaryRestrictions":"none","discoverySource":["tumai"]}',
+   true, true, false),
+  ('40000000-0000-0000-0000-000000000103', 'e0000000-0000-0000-0000-000000000002',
+   'david@example.com', 'David', 'Chen', 'checked_in',
+   '{"dateOfBirth":"2001-11-05","gender":"male","nationality":"Chinese","city":"Zurich","country":"Switzerland","currentlyStudying":true,"university":"ETH Zurich","degree":"MSc","fieldOfStudy":"Data Science","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"5+ hackathons","tshirtCut":"mens","tshirtSize":"L","dietaryRestrictions":"vegetarian","discoverySource":["friend"]}',
+   true, true, true),
+  -- Clara and Eva are not dev-login personas but are teammates of Alice/Bob and
+  -- David respectively; without their checked_in rows the team check-in card
+  -- shows N-1/N and warns that challenge registration is blocked.
+  ('40000000-0000-0000-0000-000000000104', 'e0000000-0000-0000-0000-000000000002',
+   'clara@example.com', 'Clara', 'Weber', 'checked_in',
+   '{"dateOfBirth":"2001-06-14","gender":"female","nationality":"German","city":"Munich","country":"Germany","currentlyStudying":true,"university":"TU Munich","degree":"BSc","fieldOfStudy":"Computer Science","hasProgrammingSkills":true,"isTumaiMember":true,"hackathonExperience":"2 hackathons","tshirtCut":"womens","tshirtSize":"M","dietaryRestrictions":"none","discoverySource":["tumai"]}',
+   true, true, false),
+  ('40000000-0000-0000-0000-000000000105', 'e0000000-0000-0000-0000-000000000002',
+   'eva@example.com', 'Eva', 'Rossi', 'checked_in',
+   '{"dateOfBirth":"2000-09-30","gender":"female","nationality":"Italian","city":"Zurich","country":"Switzerland","currentlyStudying":true,"university":"ETH Zurich","degree":"MSc","fieldOfStudy":"Biomedical Engineering","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"1 hackathon","tshirtCut":"womens","tshirtSize":"S","dietaryRestrictions":"none","discoverySource":["friend"]}',
+   true, true, false),
   ('40000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000002',
    'applicant1@example.com', 'Anna', 'Schneider', 'accepted',
    '{"dateOfBirth":"2000-05-15","gender":"female","nationality":"German","city":"Zurich","country":"Switzerland","currentlyStudying":true,"university":"ETH Zurich","degree":"MSc","fieldOfStudy":"Computer Science","hasProgrammingSkills":true,"isTumaiMember":false,"hackathonExperience":"3 hackathons","tshirtCut":"womens","tshirtSize":"M","dietaryRestrictions":"none","discoverySource":["instagram"]}',
