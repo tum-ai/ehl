@@ -1,6 +1,14 @@
 /**
  * Generates a magic link for local admin login without Google OAuth.
  * Usage: dotenv -e .env.test -- node scripts/dev-admin-login.js
+ *
+ * Kept alongside /dev-login on purpose: this is a standalone admin bootstrap that
+ * needs neither the app running, nor Docker, nor DEV_LOGIN_ENABLED. It creates the
+ * admin auth.user inline (createUser) and prints a magic URL you can open against any
+ * running instance. /dev-login is the in-app one-click flow for every role, but it
+ * requires the personas to already exist in auth.users. The canonical seed that
+ * creates auth.users for ALL personas is scripts/seed-test-via-api.ts; this script
+ * is the admin-only fallback, not that seed path.
  */
 const { createClient } = require('@supabase/supabase-js');
 

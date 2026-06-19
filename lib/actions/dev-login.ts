@@ -24,10 +24,13 @@ import { DEV_PERSONAS, isDevLoginEnabled } from "@/lib/dev-login";
  * enabled in production — it grants admin/jury/participant sessions with no
  * credentials. The page (app/dev-login/page.tsx) 404s under the same flag.
  *
- * Personas are limited to the fixed allowlist (DEV_PERSONAS, seeded by
- * scripts/seed-test-via-api.ts), so an arbitrary email can't be logged in even
- * if the flag is somehow on. Seed profiles already carry the right role, so the
- * redirect target (e.g. /admin) passes the middleware role check directly.
+ * Personas are limited to the fixed allowlist (DEV_PERSONAS), so an arbitrary
+ * email can't be logged in even if the flag is somehow on. generateLink requires
+ * each persona to exist in auth.users; the canonical path that creates those
+ * auth.users entries (and then runs supabase/seed.sql, which only populates
+ * profiles) is scripts/seed-test-via-api.ts. Seed profiles already carry the
+ * right role, so the redirect target (e.g. /admin) passes the middleware role
+ * check directly.
  */
 export async function devLoginAction(formData: FormData) {
   if (!isDevLoginEnabled()) {
@@ -50,7 +53,8 @@ export async function devLoginAction(formData: FormData) {
   if (error || !data.properties?.hashed_token) {
     throw new Error(
       `Failed to mint dev login token for ${persona.email}: ${error?.message ?? "no token"}. ` +
-        "Has the shared DB been seeded (scripts/seed-test-via-api.ts)?"
+        "Has the shared DB been seeded? scripts/seed-test-via-api.ts creates the " +
+        "auth.users entries generateLink needs."
     );
   }
 
