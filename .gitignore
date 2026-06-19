@@ -22,6 +22,8 @@ __pycache__
 .env.local
 .env.test
 .env*.local
+# Simulation runtime env (real test-DB keys). Template: .env.sim.example
+.env.sim
 
 # TypeScript
 *.tsbuildinfo

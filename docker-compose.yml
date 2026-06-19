@@ -1,0 +1,21 @@
+# Hackathon simulation. Everyone needs Docker only — no local Node/pnpm.
+#
+#   docker compose --env-file .env.sim up --build
+#
+# --env-file supplies ${VAR} substitution for build args (NEXT_PUBLIC_* get
+# baked into the browser bundle). env_file covers server-side runtime reads.
+# See docs/SIM.md.
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        NEXT_PUBLIC_TURNSTILE_SITE_KEY: ${NEXT_PUBLIC_TURNSTILE_SITE_KEY}
+    env_file:
+      - .env.sim
+    ports:
+      - "3001:3001"

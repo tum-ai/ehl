@@ -1,0 +1,32 @@
+node_modules
+.next
+.git
+.github
+.husky
+.claude
+
+# Env files — injected at build/run time, never baked into image
+.env
+.env.local
+.env.test
+.env.sim
+.env.e2e-live
+.env.supabase
+.env.prod-verify
+.env*.local
+
+# Tests / reports / local artifacts
+e2e
+tests
+test-results
+playwright-report
+playwright-report-sim
+coverage
+.auth
+.vercel
+
+# Misc
+*.log
+.DS_Store
+README.md
+RULES.md
