@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { requireAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction, requireChapterAdminAction } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { sendEmailAfterResponse } from "@/lib/email-deferred";
 import {
@@ -386,16 +386,17 @@ export async function updateApplicationStatus(
   applicationId: string,
   status: ApplicationStatus
 ) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
   // Check if status is locked (email already sent)
   const { data: app } = await adminClient
     .from("applications")
-    .select("acceptance_email_sent_at, rejection_email_sent_at, status")
+    .select("acceptance_email_sent_at, rejection_email_sent_at, status, chapter_id")
     .eq("id", applicationId)
     .single();
+
+  const authErr = await requireChapterAdminAction(app?.chapter_id as string);
+  if (authErr) return { error: authErr };
 
   if (app?.acceptance_email_sent_at || app?.rejection_email_sent_at) {
     return { error: "Cannot change status after email has been sent." };
@@ -427,15 +428,18 @@ export async function bulkUpdateApplicationStatus(
   applicationIds: string[],
   status: ApplicationStatus
 ) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
   // Filter out locked applications (email already sent)
   const { data: apps } = await adminClient
     .from("applications")
-    .select("id, acceptance_email_sent_at, rejection_email_sent_at")
+    .select("id, acceptance_email_sent_at, rejection_email_sent_at, chapter_id")
     .in("id", applicationIds);
+
+  // All bulk-updated applications must belong to the same chapter; guard on the first.
+  const chapterId = (apps ?? [])[0]?.chapter_id as string | undefined;
+  const authErr = await requireChapterAdminAction(chapterId ?? "");
+  if (authErr) return { error: authErr };
 
   const actionableIds = (apps ?? [])
     .filter((a) => !a.acceptance_email_sent_at && !a.rejection_email_sent_at)
@@ -468,8 +472,6 @@ export async function bulkUpdateApplicationStatus(
 // ─── Admin: Send acceptance emails with QR codes ─────────────
 
 export async function sendAcceptanceEmails(applicationIds: string[]) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
   const { data: applications } = await adminClient
@@ -477,6 +479,10 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
     .select("*, chapters!inner(name, city, country, date, date_end, slug)")
     .in("id", applicationIds)
     .eq("status", "accepted");
+
+  const chapterId = (applications ?? [])[0]?.chapter_id as string | undefined;
+  const authErr = await requireChapterAdminAction(chapterId ?? "");
+  if (authErr) return { error: authErr };
 
   if (!applications || applications.length === 0) {
     return { error: "No accepted applications found." };
@@ -546,8 +552,6 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
 // ─── Admin: Send rejection emails ──────────────────────────
 
 export async function sendRejectionEmails(applicationIds: string[]) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
   const { data: applications } = await adminClient
@@ -555,6 +559,10 @@ export async function sendRejectionEmails(applicationIds: string[]) {
     .select("*, chapters!inner(name, city, country, date, date_end)")
     .in("id", applicationIds)
     .eq("status", "rejected");
+
+  const chapterId = (applications ?? [])[0]?.chapter_id as string | undefined;
+  const authErr = await requireChapterAdminAction(chapterId ?? "");
+  if (authErr) return { error: authErr };
 
   if (!applications || applications.length === 0) {
     return { error: "No rejected applications found." };
@@ -600,8 +608,8 @@ export async function sendRejectionEmails(applicationIds: string[]) {
 // ─── Admin: Send all pending emails (acceptance + rejection) ─
 
 export async function sendBulkEmails(chapterId: string) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
+  const authErr = await requireChapterAdminAction(chapterId);
+  if (authErr) return { error: authErr };
   const adminClient = createAdminClient();
 
   // Get all accepted without acceptance email
@@ -658,19 +666,20 @@ export async function sendBulkEmails(chapterId: string) {
 // ─── Admin: QR Check-in ─────────────────────────────────────
 
 export async function checkInApplication(checkInToken: string, adminUserId: string) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
   const { data: application } = await adminClient
     .from("applications")
-    .select("id, status, first_name, last_name, email")
+    .select("id, status, first_name, last_name, email, chapter_id")
     .eq("check_in_token", checkInToken)
     .single();
 
   if (!application) {
     return { error: "Invalid QR code. No application found." };
   }
+
+  const authErr = await requireChapterAdminAction(application.chapter_id as string);
+  if (authErr) return { error: authErr };
 
   if (application.status === "checked_in") {
     return {
@@ -721,7 +730,7 @@ export async function searchApplicationsForCheckIn(
   chapterId: string,
   query: string
 ) {
-  const adminErr = await requireAdminAction();
+  const adminErr = await requireChapterAdminAction(chapterId);
   if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
@@ -754,19 +763,20 @@ export async function checkInApplicationById(
   applicationId: string,
   adminUserId: string
 ) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
   const { data: application } = await adminClient
     .from("applications")
-    .select("id, status, first_name, last_name, email")
+    .select("id, status, first_name, last_name, email, chapter_id")
     .eq("id", applicationId)
     .single();
 
   if (!application) {
     return { error: "Application not found." };
   }
+
+  const authErr = await requireChapterAdminAction(application.chapter_id as string);
+  if (authErr) return { error: authErr };
 
   if (application.status === "checked_in") {
     return {

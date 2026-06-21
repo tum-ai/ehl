@@ -1,10 +1,10 @@
 import { getTeams, getAllTeamMembers, getChaptersAdmin } from "@/lib/queries";
 import { getAllParticipantsWithTeams } from "@/lib/queries/teams";
 import { TeamsAndParticipantsView } from "./teams-participants-view";
-import { requireAdminPage } from "@/lib/admin-auth";
+import { requireGlobalAdminPage } from "@/lib/admin-auth";
 
 export default async function AdminTeamsPage() {
-  await requireAdminPage();
+  await requireGlobalAdminPage();
   const chapters = await getChaptersAdmin();
 
   // Find the active event chapter (hacking/submissions_open/pitching/preparation/challenge_selection)

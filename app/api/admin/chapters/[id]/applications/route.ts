@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireChapterAdminApi } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ApplicationFormData, ApplicationTeamMember } from "@/lib/types";
 import { extractLinkedInUsername, extractGitHubUsername, normalizeName, findBestNameMatch } from "@/lib/flag-utils";
@@ -35,10 +35,10 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const denied = await requireAdmin();
+  const { id } = await params;
+  const denied = await requireChapterAdminApi(id);
   if (denied) return denied;
 
-  const { id } = await params;
   const adminClient = createAdminClient();
 
   // Fetch applications using admin client (bypasses RLS)

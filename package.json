@@ -16,6 +16,8 @@
     "test:sim": "bash scripts/sim-run.sh",
     "test:setup-db": "tsx scripts/setup-test-db.ts",
     "test:setup-supabase": "tsx scripts/setup-test-supabase.ts",
+    "test:migrate-api": "dotenv -e .env.test -- tsx scripts/apply-migrations-via-api.ts",
+    "test:seed-api": "dotenv -e .env.test -- tsx scripts/seed-test-via-api.ts",
     "typecheck": "tsc --noEmit",
     "prepare": "husky"
   },

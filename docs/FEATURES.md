@@ -226,6 +226,27 @@ Automated code quality assessment using multiple LLM agents.
 
 Accessible at `/admin`. Light theme. Requires Google OAuth with email on allowlist.
 
+There are two kinds of admin:
+- **Global admins** — email on the `admin_emails` allowlist. Full access to every
+  chapter and all global tooling.
+- **Local (chapter) admins** — invited per-chapter by a global admin. Scoped to a
+  single chapter; see the section below.
+
+### Local Admins (`/admin/chapters/<id>/admins`)
+- A global admin invites a person by name + email on a chapter's "Local Admins" page.
+  Any email domain works, including external partners (e.g. `@iterate.com`) — no
+  change to `ADMIN_EMAIL_DOMAIN` is needed.
+- The invitee logs in at `/admin/login` with Google OAuth (the account is
+  pre-provisioned at invite time so the first login works) and lands directly on
+  their chapter.
+- A local admin sees a reduced sidebar (Chapter, Screening, Teams, Check-in) and is
+  confined to that one chapter: application screening, the chapter's teams &
+  participants, submissions, and check-in.
+- They **can**: score applications (screening) and check participants in.
+- They **cannot**: see other chapters or any global admin view, edit chapter
+  settings, change status, manage challenges/jury/partners, publish scores, or delete
+  anything. Inviting/removing local admins is a global-admin action.
+
 ### Chapter Management (`/admin/chapters`)
 - Create new chapters (matches)
 - Edit name, city, country, description, dates, deadlines

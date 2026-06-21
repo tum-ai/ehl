@@ -28,6 +28,7 @@ DELETE FROM challenges;
 DELETE FROM scores;
 DELETE FROM media;
 DELETE FROM partners;
+DELETE FROM chapter_admins;
 DELETE FROM team_members;
 DELETE FROM teams;
 DELETE FROM chapters;
@@ -41,6 +42,11 @@ DELETE FROM profiles;
 -- Admin
 INSERT INTO profiles (id, name, email, role) VALUES
   ('a0000000-0000-0000-0000-000000000001', 'Admin User', 'admin@example.com', 'admin');
+
+-- Local (chapter) admin — external partner on @partner.com, NOT an admin-domain
+-- email. Scoped to Chapter 2 (Zurich) only via the chapter_admins row below.
+INSERT INTO profiles (id, name, email, role) VALUES
+  ('a0000000-0000-0000-0000-000000000002', 'Partner Local Admin', 'test@partner.com', 'chapter_admin');
 
 -- Jury
 INSERT INTO profiles (id, name, email, role) VALUES
@@ -202,6 +208,14 @@ INSERT INTO jury_assignments (user_id, challenge_id, chapter_id) VALUES
   ('b0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001'),
   ('b0000000-0000-0000-0000-000000000002', 'f0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001'),
   ('b0000000-0000-0000-0000-000000000001', 'f0000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000002');
+
+-- ═══════════════════════════════════════════════════════════════
+-- CHAPTER ADMINS (local admins, scoped to a single chapter)
+-- ═══════════════════════════════════════════════════════════════
+
+-- Partner Local Admin administers Chapter 2 (Zurich) only. Invited by Admin User.
+INSERT INTO chapter_admins (user_id, chapter_id, invited_by) VALUES
+  ('a0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000002', 'a0000000-0000-0000-0000-000000000001');
 
 -- ═══════════════════════════════════════════════════════════════
 -- JURY RANKINGS + FEEDBACK (Match 1)
