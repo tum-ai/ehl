@@ -294,6 +294,14 @@ export async function createTeam(opts: {
   const admin = getAdminClient();
   const slug = opts.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
 
+  // Defensively delete any leftover team with the same slug (from a failed previous run).
+  const { data: existing } = await admin.from("teams").select("id").eq("slug", slug);
+  if (existing && existing.length > 0) {
+    const ids = existing.map((t) => t.id as string);
+    await admin.from("team_members").delete().in("team_id", ids);
+    await admin.from("teams").delete().in("id", ids);
+  }
+
   const { data: team, error } = await admin
     .from("teams")
     .insert({
