@@ -388,6 +388,14 @@ export async function updateApplicationStatus(
   applicationId: string,
   status: ApplicationStatus
 ) {
+  // Cancellation must go through cancelApplication(), which records the reason,
+  // a note, and the cancel metadata. The generic action only writes status, so
+  // it must never produce a "cancelled" row (that would be a terminal state with
+  // no cancelled_at / cancel_reason / note / audit).
+  if (status === "cancelled") {
+    return { error: "Use the cancel action to cancel an applicant." };
+  }
+
   const adminClient = createAdminClient();
 
   // Check if status is locked (email already sent)
@@ -439,6 +447,12 @@ export async function bulkUpdateApplicationStatus(
   applicationIds: string[],
   status: ApplicationStatus
 ) {
+  // Cancellation must go through cancelApplication() (per-applicant reason +
+  // note + audit), never the bulk status action.
+  if (status === "cancelled") {
+    return { error: "Use the cancel action to cancel an applicant." };
+  }
+
   const adminClient = createAdminClient();
 
   // Filter out locked applications (email already sent) and cancelled ones
@@ -662,8 +676,15 @@ export async function cancelApplication(
   const authErr = await requireChapterAdminAction(app.chapter_id as string);
   if (authErr) return { error: authErr };
 
-  if (app.status === "cancelled") {
-    return { error: "This applicant is already cancelled." };
+  // Cancelling only makes sense for someone who was going to attend: an accepted
+  // or checked-in applicant who can no longer come. Pending/rejected/waitlisted
+  // applicants are handled by the normal review flow, not by this terminal path.
+  // This mirrors the button visibility in the admin UI.
+  if (app.status !== "accepted" && app.status !== "checked_in") {
+    if (app.status === "cancelled") {
+      return { error: "This applicant is already cancelled." };
+    }
+    return { error: "Only accepted or checked-in applicants can be cancelled." };
   }
 
   const session = await getSession();

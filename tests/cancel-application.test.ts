@@ -51,6 +51,7 @@ import {
   cancelApplication,
   addApplicationNote,
   updateApplicationStatus,
+  bulkUpdateApplicationStatus,
 } from "@/lib/actions/applications";
 
 const APP_ID = "app-1";
@@ -221,6 +222,40 @@ describe("cancelApplication", () => {
     );
     const result = await cancelApplication(APP_ID, "again");
     expect(result.error).toMatch(/already cancelled/i);
+  });
+
+  it("refuses to cancel a non-attending applicant (pending/rejected/waitlisted)", async () => {
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "applications" && op === "select")
+            return { data: { id: APP_ID, status: "pending", chapter_id: CHAPTER, chapters: {} } };
+          return { data: null, error: null };
+        },
+      })
+    );
+    const result = await cancelApplication(APP_ID, "should not work");
+    expect(result.error).toMatch(/only accepted or checked-in/i);
+    // Nothing written.
+    expect(calls.find((c) => c.table === "applications" && c.op === "update")).toBeUndefined();
+    expect(calls.find((c) => c.table === "application_notes")).toBeUndefined();
+  });
+});
+
+describe("generic status actions reject the cancelled value", () => {
+  it("updateApplicationStatus refuses status='cancelled' (must use cancel action)", async () => {
+    const result = await updateApplicationStatus(APP_ID, "cancelled");
+    expect(result.error).toMatch(/use the cancel action/i);
+    // Rejected before touching the DB at all.
+    expect(mocks.createAdminClient).not.toHaveBeenCalled();
+  });
+
+  it("bulkUpdateApplicationStatus refuses status='cancelled'", async () => {
+    const result = await bulkUpdateApplicationStatus([APP_ID], "cancelled");
+    expect(result.error).toMatch(/use the cancel action/i);
+    expect(mocks.createAdminClient).not.toHaveBeenCalled();
   });
 });
 
