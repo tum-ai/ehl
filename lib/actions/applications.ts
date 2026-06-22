@@ -10,7 +10,10 @@ import {
   renderApplicationReceivedEmail,
   renderApplicationAcceptedEmail,
   renderApplicationRejectedEmail,
+  renderApplicationCancelledEmail,
 } from "@/lib/emails/render";
+import { getSession } from "@/lib/actions/auth";
+import { toApplicationNote } from "@/lib/queries/mappers";
 import { formatDateRange } from "@/lib/utils";
 import type { ApplicationStatus, ApplicationTeamMember } from "@/lib/types";
 import { uploadFile } from "@/lib/gdrive";
@@ -612,6 +615,251 @@ export async function sendRejectionEmails(applicationIds: string[]) {
   }
 
   return { success: true, sent };
+}
+
+// ─── Admin: Cancel an accepted applicant ─────────────────────
+
+// Unlike updateApplicationStatus, cancelling is allowed AFTER the acceptance
+// email has been sent: the whole point is to handle an accepted (and emailed)
+// person who can no longer attend. The reason is stored on the application and
+// written as the first note, and the transition is recorded in the event_log.
+export async function cancelApplication(
+  applicationId: string,
+  reason: string,
+  sendEmailToApplicant = false
+) {
+  const trimmedReason = reason?.trim();
+  if (!trimmedReason) {
+    return { error: "A reason is required to cancel an applicant." };
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: app } = await adminClient
+    .from("applications")
+    .select("*, chapters!inner(name, city, country, date, date_end)")
+    .eq("id", applicationId)
+    .single();
+
+  if (!app) {
+    return { error: "Application not found." };
+  }
+
+  const authErr = await requireChapterAdminAction(app.chapter_id as string);
+  if (authErr) return { error: authErr };
+
+  if (app.status === "cancelled") {
+    return { error: "This applicant is already cancelled." };
+  }
+
+  const session = await getSession();
+  const actorId = session?.profile?.id ?? null;
+  const actorEmail = session?.profile?.email ?? null;
+  const previousStatus = app.status as string;
+  const now = new Date().toISOString();
+
+  const { error } = await adminClient
+    .from("applications")
+    .update({
+      status: "cancelled",
+      cancelled_at: now,
+      cancelled_by: actorId,
+      cancel_reason: trimmedReason,
+      updated_at: now,
+    })
+    .eq("id", applicationId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  // The cancel reason becomes the first entry in the notes history.
+  await adminClient.from("application_notes").insert({
+    application_id: applicationId,
+    author_id: actorId,
+    author_email: actorEmail,
+    body: `Cancelled (was ${previousStatus}): ${trimmedReason}`,
+  });
+
+  logEvent({
+    action: "application.cancelled",
+    entityType: "application",
+    entityId: applicationId,
+    actorId,
+    actorType: "admin",
+    delta: {
+      status: { from: previousStatus, to: "cancelled" },
+      reason: trimmedReason,
+      email_sent: sendEmailToApplicant,
+    },
+  });
+
+  if (sendEmailToApplicant) {
+    const chapter = app.chapters as Record<string, unknown>;
+    const dateStr = formatDateRange(
+      chapter.date as string,
+      chapter.date_end as string | null
+    );
+    sendEmailAfterResponse("application-cancelled", async () => {
+      const html = await renderApplicationCancelledEmail({
+        firstName: app.first_name as string,
+        chapterName: chapter.name as string,
+        chapterCity: `${chapter.city}, ${chapter.country}`,
+        chapterDate: dateStr,
+      });
+      await sendEmail({
+        to: app.email as string,
+        subject: `Your spot for ${chapter.name} has been cancelled`,
+        html,
+        skipRateLimit: true,
+      });
+    });
+  }
+
+  return { success: true };
+}
+
+// Reverse a cancellation (e.g. cancelled by mistake). Restores the applicant to
+// "accepted" and records the reversal in the notes history and event_log.
+export async function uncancelApplication(applicationId: string, reason?: string) {
+  const adminClient = createAdminClient();
+
+  const { data: app } = await adminClient
+    .from("applications")
+    .select("status, chapter_id")
+    .eq("id", applicationId)
+    .single();
+
+  if (!app) {
+    return { error: "Application not found." };
+  }
+
+  const authErr = await requireChapterAdminAction(app.chapter_id as string);
+  if (authErr) return { error: authErr };
+
+  if (app.status !== "cancelled") {
+    return { error: "This applicant is not cancelled." };
+  }
+
+  const session = await getSession();
+  const actorId = session?.profile?.id ?? null;
+  const actorEmail = session?.profile?.email ?? null;
+  const now = new Date().toISOString();
+
+  const { error } = await adminClient
+    .from("applications")
+    .update({
+      status: "accepted",
+      cancelled_at: null,
+      cancelled_by: null,
+      cancel_reason: null,
+      updated_at: now,
+    })
+    .eq("id", applicationId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  const trimmedReason = reason?.trim();
+  await adminClient.from("application_notes").insert({
+    application_id: applicationId,
+    author_id: actorId,
+    author_email: actorEmail,
+    body: trimmedReason
+      ? `Cancellation reversed (back to accepted): ${trimmedReason}`
+      : "Cancellation reversed (back to accepted).",
+  });
+
+  logEvent({
+    action: "application.uncancelled",
+    entityType: "application",
+    entityId: applicationId,
+    actorId,
+    actorType: "admin",
+    delta: { status: { from: "cancelled", to: "accepted" } },
+  });
+
+  return { success: true };
+}
+
+// ─── Admin: Application notes (append-only history) ──────────
+
+export async function addApplicationNote(applicationId: string, body: string) {
+  const trimmed = body?.trim();
+  if (!trimmed) {
+    return { error: "Note cannot be empty." };
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: app } = await adminClient
+    .from("applications")
+    .select("chapter_id")
+    .eq("id", applicationId)
+    .single();
+
+  if (!app) {
+    return { error: "Application not found." };
+  }
+
+  const authErr = await requireChapterAdminAction(app.chapter_id as string);
+  if (authErr) return { error: authErr };
+
+  const session = await getSession();
+  const actorId = session?.profile?.id ?? null;
+  const actorEmail = session?.profile?.email ?? null;
+
+  const { error } = await adminClient.from("application_notes").insert({
+    application_id: applicationId,
+    author_id: actorId,
+    author_email: actorEmail,
+    body: trimmed,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  logEvent({
+    action: "application.note_added",
+    entityType: "application",
+    entityId: applicationId,
+    actorId,
+    actorType: "admin",
+    delta: { note: { added: true } },
+  });
+
+  return { success: true };
+}
+
+export async function getApplicationNotes(applicationId: string) {
+  const adminClient = createAdminClient();
+
+  const { data: app } = await adminClient
+    .from("applications")
+    .select("chapter_id")
+    .eq("id", applicationId)
+    .single();
+
+  if (!app) {
+    return { error: "Application not found." };
+  }
+
+  const authErr = await requireChapterAdminAction(app.chapter_id as string);
+  if (authErr) return { error: authErr };
+
+  const { data, error } = await adminClient
+    .from("application_notes")
+    .select("*")
+    .eq("application_id", applicationId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { notes: (data ?? []).map(toApplicationNote) };
 }
 
 // ─── Admin: Send all pending emails (acceptance + rejection) ─
