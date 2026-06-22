@@ -17,6 +17,7 @@ export {
   toJuryFeedback,
   toProfile,
   toApplication,
+  toApplicationNote,
   toScreeningScore,
   toJoinRequest,
   toTeamInvite,
