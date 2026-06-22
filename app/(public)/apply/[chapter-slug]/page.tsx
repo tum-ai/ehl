@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { Section } from "@/components/ui/section";
 import { ApplicationForm } from "@/components/application/application-form";
-import { getChapterBySlug, getChapters, getTeamForUser } from "@/lib/queries";
+import { getChapterBySlug, getTeamForUser } from "@/lib/queries";
 import { getMyPreviousApplication } from "@/lib/actions/applications";
 import { getSession } from "@/lib/actions/auth";
 
@@ -10,10 +10,11 @@ interface PageProps {
   params: Promise<{ "chapter-slug": string }>;
 }
 
-export async function generateStaticParams() {
-  const chapters = await getChapters();
-  return chapters.map((c) => ({ "chapter-slug": c.slug }));
-}
+// No generateStaticParams: the apply page must reflect the chapter's current
+// status on every request. A prebuilt/cached entry could keep showing the form
+// for a minute or two after the deadline closes applications, which is exactly
+// the stale-form window we need to avoid. `dynamic = "force-dynamic"` below makes
+// every hit server-render fresh.
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { "chapter-slug": slug } = await params;

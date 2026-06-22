@@ -3,6 +3,22 @@ import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { lockSubmissionsCore } from "@/lib/submissions-lock";
 import { logEvent } from "@/lib/event-log";
+import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
+
+// The cron runs every minute (vercel.json), but the submissions->pitching branch
+// forks GitHub repos and can run long. Give the function room and serialize runs
+// with a lock so a slow run never overlaps the next minute's invocation.
+export const maxDuration = 300;
+
+const LOCK_KEY = "cron:deadline-check";
+// The lease MUST outlive the longest possible live run, otherwise it can expire
+// while the original invocation is still working (e.g. forking repos near the
+// maxDuration ceiling) and the next minute's run would reclaim it — defeating the
+// serialization. So keep TTL well above maxDuration (300s) plus headroom for
+// cold-start and scheduler jitter. A clean run releases immediately via the
+// finally block; this TTL only governs how long a *crashed* run stays locked
+// before self-healing.
+const LOCK_TTL_SECONDS = 600;
 
 // Called by Vercel cron or external scheduler to auto-close applications/challenge selection
 export async function GET(request: Request) {
@@ -20,6 +36,20 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Serialize runs: if a previous minute's run is still working, skip this one.
+  const gotLock = await tryAcquireCronLock(LOCK_KEY, LOCK_TTL_SECONDS);
+  if (!gotLock) {
+    return NextResponse.json({ ok: true, skipped: "locked" });
+  }
+
+  try {
+    return await runDeadlineCheck();
+  } finally {
+    await releaseCronLock(LOCK_KEY);
+  }
+}
+
+async function runDeadlineCheck(): Promise<NextResponse> {
   const adminClient = createAdminClient();
   const now = new Date().toISOString();
   const transitions: string[] = [];
