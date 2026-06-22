@@ -266,7 +266,9 @@ There are two kinds of admin:
   branded cancellation email. Allowed even after the acceptance email was sent.
   Cancellation is terminal: there is no reversal back to accepted (once the
   acceptance email is out, the person has already been told they are out). Global
-  and chapter admins.
+  and chapter admins. Cancelling also removes the person from any challenge
+  registration rosters in that chapter, so a cancelled attendee no longer counts
+  toward their team.
 - Admin notes history per application (append-only): the cancellation is recorded
   and admins can add free-text notes. Transitions are also written to the
   immutable `event_log`.

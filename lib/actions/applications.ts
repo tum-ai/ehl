@@ -708,6 +708,37 @@ export async function cancelApplication(
     return { error: error.message };
   }
 
+  // Keep event-participation state consistent: a cancelled attendee must not
+  // remain in any challenge_registrations.roster, where they would still count
+  // toward the team (submission gating only checks the submitter's own check-in,
+  // never re-validates the roster). Rosters store profiles.id, but applications
+  // are keyed by email, so resolve the profile first. Best-effort: a failure
+  // here does not fail the cancel, since the application is already cancelled.
+  const cancelledEmail = app.email as string;
+  let rostersUpdated = 0;
+  const { data: profileRow } = await adminClient
+    .from("profiles")
+    .select("id")
+    .eq("email", cancelledEmail)
+    .maybeSingle();
+  const cancelledUserId = (profileRow?.id as string) ?? null;
+  if (cancelledUserId) {
+    const { data: regs } = await adminClient
+      .from("challenge_registrations")
+      .select("id, roster")
+      .eq("chapter_id", app.chapter_id as string);
+    for (const reg of regs ?? []) {
+      const roster = (reg.roster as string[]) ?? [];
+      if (!roster.includes(cancelledUserId)) continue;
+      const nextRoster = roster.filter((uid) => uid !== cancelledUserId);
+      const { error: regErr } = await adminClient
+        .from("challenge_registrations")
+        .update({ roster: nextRoster })
+        .eq("id", reg.id as string);
+      if (!regErr) rostersUpdated++;
+    }
+  }
+
   // The cancel reason becomes the first entry in the notes history.
   await adminClient.from("application_notes").insert({
     application_id: applicationId,
@@ -726,6 +757,7 @@ export async function cancelApplication(
       status: { from: previousStatus, to: "cancelled" },
       reason: trimmedReason,
       email_sent: sendEmailToApplicant,
+      rosters_updated: rostersUpdated,
     },
   });
 

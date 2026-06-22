@@ -209,6 +209,83 @@ describe("cancelApplication", () => {
     expect(mocks.sendEmailAfterResponse).toHaveBeenCalledTimes(1);
   });
 
+  it("removes the cancelled person from challenge rosters in the chapter", async () => {
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "applications" && op === "select")
+            return {
+              data: {
+                id: APP_ID,
+                status: "checked_in",
+                chapter_id: CHAPTER,
+                first_name: "Abdallah",
+                email: "a@example.com",
+                chapters: {},
+              },
+            };
+          // email -> profiles.id resolution
+          if (table === "profiles" && op === "select")
+            return { data: { id: "user-abdallah" } };
+          // one registration whose roster includes the cancelled user
+          if (table === "challenge_registrations" && op === "select")
+            return {
+              data: [
+                { id: "reg-1", roster: ["user-abdallah", "user-keep"] },
+                { id: "reg-2", roster: ["user-other"] },
+              ],
+            };
+          return { data: null, error: null };
+        },
+      })
+    );
+
+    const result = await cancelApplication(APP_ID, "cannot attend Paris");
+    expect(result).toEqual({ success: true });
+
+    // Only the registration that contained the user is updated, with the user removed.
+    const regUpdates = calls.filter(
+      (c) => c.table === "challenge_registrations" && c.op === "update"
+    );
+    expect(regUpdates).toHaveLength(1);
+    expect((regUpdates[0].payload as { roster: string[] }).roster).toEqual(["user-keep"]);
+
+    // The audit delta records how many rosters were touched.
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "application.cancelled",
+        delta: expect.objectContaining({ rosters_updated: 1 }),
+      })
+    );
+  });
+
+  it("skips roster cleanup when the email has no matching profile", async () => {
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "applications" && op === "select")
+            return {
+              data: { id: APP_ID, status: "accepted", chapter_id: CHAPTER, email: "ghost@example.com", chapters: {} },
+            };
+          if (table === "profiles" && op === "select") return { data: null };
+          return { data: null, error: null };
+        },
+      })
+    );
+
+    const result = await cancelApplication(APP_ID, "cannot attend");
+    expect(result).toEqual({ success: true });
+    // No profile -> never even queries challenge_registrations.
+    expect(calls.some((c) => c.table === "challenge_registrations")).toBe(false);
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ delta: expect.objectContaining({ rosters_updated: 0 }) })
+    );
+  });
+
   it("refuses to cancel an already-cancelled applicant", async () => {
     mocks.createAdminClient.mockReturnValue(
       makeAdminClient({
