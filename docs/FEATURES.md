@@ -261,6 +261,13 @@ There are two kinds of admin:
 - Bulk accept/reject/waitlist
 - Send branded acceptance/rejection emails
 - View CVs (downloaded from Google Drive)
+- Cancel an accepted applicant (e.g. they can no longer attend): keeps the record
+  with a visible "cancelled" status, requires a reason, and can optionally send a
+  branded cancellation email. Allowed even after the acceptance email was sent.
+  Reversible (restores to accepted). Global and chapter admins.
+- Admin notes history per application (append-only): every cancellation and
+  reversal is recorded, and admins can add free-text notes. The transitions are
+  also written to the immutable `event_log`.
 
 ### Challenge Configuration (`/admin/chapters/<id>/challenges`)
 - Create challenges with: title, description, sponsor, prize, judging criteria
@@ -333,7 +340,7 @@ There are two kinds of admin:
 - Powered by Upstash Redis, in-memory fallback (30 req/min) when Redis unavailable
 
 ### Email System
-- 11 branded email templates (welcome, verification, acceptance, rejection, certificates, etc.)
+- 12 branded email templates (welcome, verification, acceptance, rejection, cancellation, certificates, etc.)
 - Inline EHL logo in every email
 - Rate limited per recipient
 - Verification code emails are blocking (user waits for delivery)
