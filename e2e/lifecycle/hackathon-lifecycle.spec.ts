@@ -749,58 +749,61 @@ test.describe.serial("Hackathon Lifecycle", () => {
     expect(insErr).toBeNull();
     const appId = created!.id as string;
 
-    await loginAsAdmin(page);
-    await page.goto(`/admin/chapters/${chapterId}/applications/${appId}`);
-    await page.waitForLoadState("networkidle");
+    try {
+      await loginAsAdmin(page);
+      await page.goto(`/admin/chapters/${chapterId}/applications/${appId}`);
+      await page.waitForLoadState("networkidle");
 
-    // Open the cancel modal, fill the required reason, opt out of email, confirm.
-    await page.getByRole("button", { name: "Cancel Applicant" }).click();
-    await page
-      .getByPlaceholder("Reason (e.g. emailed that they cannot attend)")
-      .fill("Emailed that they cannot attend Paris");
-    await page.getByRole("button", { name: "Confirm Cancel" }).click();
+      // Open the cancel modal, fill the required reason, opt out of email, confirm.
+      await page.getByRole("button", { name: "Cancel Applicant" }).click();
+      await page
+        .getByPlaceholder("Reason (e.g. emailed that they cannot attend)")
+        .fill("Emailed that they cannot attend Paris");
+      await page.getByRole("button", { name: "Confirm Cancel" }).click();
 
-    // The page reloads the application; the cancelled banner should appear.
-    await expect(page.getByText("This applicant has been cancelled.")).toBeVisible({
-      timeout: 10000,
-    });
+      // The page reloads the application; the cancelled banner should appear.
+      await expect(page.getByText("This applicant has been cancelled.")).toBeVisible({
+        timeout: 10000,
+      });
 
-    // DB state: status flipped, cancel columns set, reason stored.
-    const { data: row } = await admin
-      .from("applications")
-      .select("status, cancelled_at, cancel_reason")
-      .eq("id", appId)
-      .single();
-    expect(row?.status).toBe("cancelled");
-    expect(row?.cancelled_at).toBeTruthy();
-    expect(row?.cancel_reason).toContain("cannot attend Paris");
+      // DB state: status flipped, cancel columns set, reason stored.
+      const { data: row } = await admin
+        .from("applications")
+        .select("status, cancelled_at, cancel_reason")
+        .eq("id", appId)
+        .single();
+      expect(row?.status).toBe("cancelled");
+      expect(row?.cancelled_at).toBeTruthy();
+      expect(row?.cancel_reason).toContain("cannot attend Paris");
 
-    // A note recording the cancellation exists.
-    const { data: notes } = await admin
-      .from("application_notes")
-      .select("body")
-      .eq("application_id", appId);
-    expect(notes?.length).toBeGreaterThanOrEqual(1);
-    expect(notes?.some((n) => (n.body as string).includes("cannot attend Paris"))).toBe(true);
+      // A note recording the cancellation exists.
+      const { data: notes } = await admin
+        .from("application_notes")
+        .select("body")
+        .eq("application_id", appId);
+      expect(notes?.length).toBeGreaterThanOrEqual(1);
+      expect(notes?.some((n) => (n.body as string).includes("cannot attend Paris"))).toBe(true);
 
-    // The transition is recorded in the immutable event_log.
-    const { data: events } = await admin
-      .from("event_log")
-      .select("action")
-      .eq("entity_id", appId)
-      .eq("action", "application.cancelled");
-    expect(events?.length).toBeGreaterThanOrEqual(1);
+      // The transition is recorded in the immutable event_log.
+      const { data: events } = await admin
+        .from("event_log")
+        .select("action")
+        .eq("entity_id", appId)
+        .eq("action", "application.cancelled");
+      expect(events?.length).toBeGreaterThanOrEqual(1);
 
-    // Cancellation is terminal: there is no reverse-to-accepted action.
-    await expect(
-      page.getByRole("button", { name: "Reverse Cancellation" })
-    ).toHaveCount(0);
-    await expect(
-      page.getByText("This is final and cannot be undone.")
-    ).toBeVisible();
-
-    // Clean up the dedicated applicant so it does not affect later counts.
-    await admin.from("applications").delete().eq("id", appId);
+      // Cancellation is terminal: there is no reverse-to-accepted action.
+      await expect(
+        page.getByRole("button", { name: "Reverse Cancellation" })
+      ).toHaveCount(0);
+      await expect(
+        page.getByText("This is final and cannot be undone.")
+      ).toBeVisible();
+    } finally {
+      // Always clean up the dedicated applicant, even if an assertion above
+      // threw, so it does not affect later counts.
+      await admin.from("applications").delete().eq("id", appId);
+    }
   });
 
   // ── BLOCK 5: CHALLENGE SETUP ────────────────────────────

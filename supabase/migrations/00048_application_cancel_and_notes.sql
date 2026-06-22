@@ -5,9 +5,10 @@
 -- reason, so we add a soft "cancelled" status that keeps the row visible, plus an
 -- append-only notes table for the version history admins asked for.
 --
--- The existing immutable event_log (00036_event_log.sql) records the cancel/
--- uncancel transitions with a hash chain; application_notes holds the free-text
--- thread (the cancel reason is written as the first note).
+-- The existing immutable event_log (00036_event_log.sql) records the cancel
+-- transition with a hash chain; application_notes holds the free-text thread
+-- (the cancel reason is written as the first note). Cancellation is terminal:
+-- there is no uncancel/reversal path.
 
 -- 1. Allow the new "cancelled" status. Drop the old CHECK and recreate it with
 --    the extra value (Postgres has no ALTER ... ADD VALUE for CHECK constraints).
@@ -26,8 +27,8 @@ alter table applications
   add column if not exists cancel_reason text;
 
 -- 3. Append-only admin notes ("Versionierungshistorie" with free-text notes).
---    Notes are never edited or deleted in the UI; resolving a cancel writes a new
---    note rather than mutating an existing one.
+--    Notes are never edited or deleted in the UI; the cancel reason is recorded
+--    as the first note and admins can append further notes over time.
 create table if not exists application_notes (
   id             uuid primary key default uuid_generate_v4(),
   application_id uuid not null references applications(id) on delete cascade,
