@@ -35,6 +35,7 @@ export const QUERY_LIMITS = {
   usersLookingForTeam: envInt("LIMIT_USERS_LOOKING_FOR_TEAM", 500),
   codeReviewQueueDepth: envInt("LIMIT_CODE_REVIEW_QUEUE_DEPTH", 200),
   adminStatsApplications: envInt("LIMIT_ADMIN_STATS_APPLICATIONS", 10000),
+  applicationNotes: envInt("LIMIT_APPLICATION_NOTES", 500),
 };
 
 export type QueryLimitKey = keyof typeof QUERY_LIMITS;

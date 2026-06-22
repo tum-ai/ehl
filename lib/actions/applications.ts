@@ -13,7 +13,6 @@ import {
   renderApplicationCancelledEmail,
 } from "@/lib/emails/render";
 import { getSession } from "@/lib/actions/auth";
-import { toApplicationNote } from "@/lib/queries/mappers";
 import { formatDateRange } from "@/lib/utils";
 import type { ApplicationStatus, ApplicationTeamMember } from "@/lib/types";
 import { uploadFile } from "@/lib/gdrive";
@@ -401,6 +400,15 @@ export async function updateApplicationStatus(
   const authErr = await requireChapterAdminAction(app?.chapter_id as string);
   if (authErr) return { error: authErr };
 
+  // Cancellation is terminal: a cancelled applicant can never be reactivated via
+  // the generic status action. The UI disables the buttons, but this server
+  // action is a public endpoint, so the invariant must be enforced here too.
+  // (An applicant cancelled while only "accepted"/"checked_in" has no email
+  // timestamp, so the email lock below would not catch it.)
+  if (app?.status === "cancelled") {
+    return { error: "Cancelled applications cannot be reactivated." };
+  }
+
   if (app?.acceptance_email_sent_at || app?.rejection_email_sent_at) {
     return { error: "Cannot change status after email has been sent." };
   }
@@ -433,10 +441,10 @@ export async function bulkUpdateApplicationStatus(
 ) {
   const adminClient = createAdminClient();
 
-  // Filter out locked applications (email already sent)
+  // Filter out locked applications (email already sent) and cancelled ones
   const { data: apps } = await adminClient
     .from("applications")
-    .select("id, acceptance_email_sent_at, rejection_email_sent_at, chapter_id")
+    .select("id, acceptance_email_sent_at, rejection_email_sent_at, status, chapter_id")
     .in("id", applicationIds);
 
   const chapterId = (apps ?? [])[0]?.chapter_id as string | undefined;
@@ -447,12 +455,18 @@ export async function bulkUpdateApplicationStatus(
   const crossChapter = (apps ?? []).some((a) => a.chapter_id !== chapterId);
   if (crossChapter) return { error: "All applications must belong to the same chapter." };
 
+  // Cancelled applications are terminal and excluded, just like email-locked ones.
   const actionableIds = (apps ?? [])
-    .filter((a) => !a.acceptance_email_sent_at && !a.rejection_email_sent_at)
+    .filter(
+      (a) =>
+        a.status !== "cancelled" &&
+        !a.acceptance_email_sent_at &&
+        !a.rejection_email_sent_at
+    )
     .map((a) => a.id as string);
 
   if (actionableIds.length === 0) {
-    return { error: "All selected applications are locked (email already sent)." };
+    return { error: "All selected applications are locked (email already sent) or cancelled." };
   }
 
   const { error } = await adminClient
@@ -774,34 +788,10 @@ export async function addApplicationNote(applicationId: string, body: string) {
   return { success: true };
 }
 
-export async function getApplicationNotes(applicationId: string) {
-  const adminClient = createAdminClient();
-
-  const { data: app } = await adminClient
-    .from("applications")
-    .select("chapter_id")
-    .eq("id", applicationId)
-    .single();
-
-  if (!app) {
-    return { error: "Application not found." };
-  }
-
-  const authErr = await requireChapterAdminAction(app.chapter_id as string);
-  if (authErr) return { error: authErr };
-
-  const { data, error } = await adminClient
-    .from("application_notes")
-    .select("*")
-    .eq("application_id", applicationId)
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  return { notes: (data ?? []).map(toApplicationNote) };
-}
+// Note: application notes are read by the admin detail API route
+// (app/api/admin/chapters/[id]/applications/[applicationId]/route.ts), which
+// queries application_notes directly alongside the application, so there is no
+// separate getApplicationNotes server action.
 
 // ─── Admin: Send all pending emails (acceptance + rejection) ─
 

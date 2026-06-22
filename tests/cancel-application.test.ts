@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// cancelApplication / uncancelApplication / addApplicationNote are the new
-// admin path for handling an accepted (and possibly already-emailed) person who
-// can no longer attend. We pin: the authorization gate, that a reason is
-// required, that cancelling works AFTER the acceptance email was sent (the whole
-// point), the exact DB writes (status + cancel columns + a notes row), and that
-// the transition is recorded in the event_log.
+// cancelApplication / addApplicationNote are the new admin path for handling an
+// accepted (and possibly already-emailed) person who can no longer attend. We
+// pin: the authorization gate, that a reason is required, that cancelling works
+// AFTER the acceptance email was sent (the whole point), the exact DB writes
+// (status + cancel columns + a notes row), that the transition is recorded in
+// the event_log, and that cancellation is terminal (updateApplicationStatus
+// cannot reactivate a cancelled applicant).
 const mocks = vi.hoisted(() => ({
   requireChapterAdminAction: vi.fn(),
   createAdminClient: vi.fn(),
@@ -49,6 +50,7 @@ vi.mock("@/lib/ratelimit", () => ({
 import {
   cancelApplication,
   addApplicationNote,
+  updateApplicationStatus,
 } from "@/lib/actions/applications";
 
 const APP_ID = "app-1";
@@ -219,6 +221,40 @@ describe("cancelApplication", () => {
     );
     const result = await cancelApplication(APP_ID, "again");
     expect(result.error).toMatch(/already cancelled/i);
+  });
+});
+
+describe("updateApplicationStatus terminal-cancel guard", () => {
+  it("refuses to reactivate a cancelled applicant (no email timestamps set)", async () => {
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "applications" && op === "select")
+            // Cancelled from "accepted" before any email went out: neither
+            // acceptance_email_sent_at nor rejection_email_sent_at is set, so the
+            // email lock alone would not catch this.
+            return {
+              data: {
+                status: "cancelled",
+                chapter_id: CHAPTER,
+                acceptance_email_sent_at: null,
+                rejection_email_sent_at: null,
+              },
+            };
+          return { data: null, error: null };
+        },
+      })
+    );
+
+    const result = await updateApplicationStatus(APP_ID, "accepted");
+    expect(result.error).toMatch(/cancelled applications cannot be reactivated/i);
+
+    // The status must NOT have been written.
+    const update = calls.find((c) => c.table === "applications" && c.op === "update");
+    expect(update).toBeUndefined();
+    expect(mocks.logEvent).not.toHaveBeenCalled();
   });
 });
 

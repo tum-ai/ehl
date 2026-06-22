@@ -44,7 +44,10 @@ alter table application_notes enable row level security;
 
 -- Same RLS shape as chapter_admins (00046): a chapter admin can read notes for
 -- applications in their chapter, global admins have full access. All writes go
--- through createAdminClient() (service_role), which bypasses RLS.
+-- through createAdminClient() (service_role), which bypasses RLS entirely, so
+-- this "for all" policy intentionally has no WITH CHECK clause: inserts/updates
+-- never travel through a normal authenticated client. (If that ever changes, add
+-- a matching WITH CHECK so writes are not silently rejected.)
 create policy "Admin full access application_notes" on application_notes
   for all using (
     exists (select 1 from profiles where id = auth.uid() and role = 'admin')

@@ -50,6 +50,7 @@ function makeDb(rows: Record<string, unknown>) {
         },
         in: (_k: string, _v: unknown) => builder,
         order: () => builder,
+        limit: () => builder,
         then: (onF: (v: unknown) => unknown) =>
           Promise.resolve({ data: [] }).then(onF),
       };
