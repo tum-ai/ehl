@@ -719,69 +719,10 @@ export async function cancelApplication(
   return { success: true };
 }
 
-// Reverse a cancellation (e.g. cancelled by mistake). Restores the applicant to
-// "accepted" and records the reversal in the notes history and event_log.
-export async function uncancelApplication(applicationId: string, reason?: string) {
-  const adminClient = createAdminClient();
-
-  const { data: app } = await adminClient
-    .from("applications")
-    .select("status, chapter_id")
-    .eq("id", applicationId)
-    .single();
-
-  if (!app) {
-    return { error: "Application not found." };
-  }
-
-  const authErr = await requireChapterAdminAction(app.chapter_id as string);
-  if (authErr) return { error: authErr };
-
-  if (app.status !== "cancelled") {
-    return { error: "This applicant is not cancelled." };
-  }
-
-  const session = await getSession();
-  const actorId = session?.profile?.id ?? null;
-  const actorEmail = session?.profile?.email ?? null;
-  const now = new Date().toISOString();
-
-  const { error } = await adminClient
-    .from("applications")
-    .update({
-      status: "accepted",
-      cancelled_at: null,
-      cancelled_by: null,
-      cancel_reason: null,
-      updated_at: now,
-    })
-    .eq("id", applicationId);
-
-  if (error) {
-    return { error: error.message };
-  }
-
-  const trimmedReason = reason?.trim();
-  await adminClient.from("application_notes").insert({
-    application_id: applicationId,
-    author_id: actorId,
-    author_email: actorEmail,
-    body: trimmedReason
-      ? `Cancellation reversed (back to accepted): ${trimmedReason}`
-      : "Cancellation reversed (back to accepted).",
-  });
-
-  logEvent({
-    action: "application.uncancelled",
-    entityType: "application",
-    entityId: applicationId,
-    actorId,
-    actorType: "admin",
-    delta: { status: { from: "cancelled", to: "accepted" } },
-  });
-
-  return { success: true };
-}
+// Note: cancellation is terminal. Once an applicant is cancelled there is no
+// reversal back to "accepted" (especially after the acceptance email was sent,
+// the person has already been told they are out). The only remaining transition
+// is to "rejected" via the normal reject flow.
 
 // ─── Admin: Application notes (append-only history) ──────────
 

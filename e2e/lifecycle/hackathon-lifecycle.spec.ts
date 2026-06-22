@@ -791,18 +791,13 @@ test.describe.serial("Hackathon Lifecycle", () => {
       .eq("action", "application.cancelled");
     expect(events?.length).toBeGreaterThanOrEqual(1);
 
-    // Reverse it and confirm restoration to accepted. The confirm() dialog fires
-    // on click, so register the handler before clicking.
-    page.once("dialog", (d) => d.accept());
-    await page.getByRole("button", { name: "Reverse Cancellation" }).click();
-    await expect(page.getByText("Cancellation reversed.")).toBeVisible({ timeout: 10000 });
-    const { data: after } = await admin
-      .from("applications")
-      .select("status, cancelled_at")
-      .eq("id", appId)
-      .single();
-    expect(after?.status).toBe("accepted");
-    expect(after?.cancelled_at).toBeNull();
+    // Cancellation is terminal: there is no reverse-to-accepted action.
+    await expect(
+      page.getByRole("button", { name: "Reverse Cancellation" })
+    ).toHaveCount(0);
+    await expect(
+      page.getByText("This is final and cannot be undone.")
+    ).toBeVisible();
 
     // Clean up the dedicated applicant so it does not affect later counts.
     await admin.from("applications").delete().eq("id", appId);

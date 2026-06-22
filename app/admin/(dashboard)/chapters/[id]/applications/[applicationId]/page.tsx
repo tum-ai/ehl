@@ -9,7 +9,6 @@ import {
   updateApplicationStatus,
   sendAcceptanceEmails,
   cancelApplication,
-  uncancelApplication,
   addApplicationNote,
 } from "@/lib/actions/applications";
 import type {
@@ -107,22 +106,6 @@ export default function AdminApplicationDetailPage({
           ? "Applicant cancelled. Confirmation email queued."
           : "Applicant cancelled.",
       });
-    }
-    setActing(false);
-  }
-
-  async function handleUncancel() {
-    if (!app) return;
-    if (!confirm("Reverse this cancellation and restore the applicant to accepted?"))
-      return;
-    setActing(true);
-    setMessage(null);
-    const result = await uncancelApplication(app.id);
-    if (result.error) {
-      setMessage({ type: "error", text: result.error });
-    } else {
-      await reload(chapterId, app.id);
-      setMessage({ type: "success", text: "Cancellation reversed." });
     }
     setActing(false);
   }
@@ -232,16 +215,13 @@ export default function AdminApplicationDetailPage({
               Cancel Applicant
             </Button>
           )}
-          {isCancelled && (
-            <Button size="sm" onClick={handleUncancel} disabled={acting}>
-              Reverse Cancellation
-            </Button>
-          )}
         </div>
 
         {isCancelled && (
           <div className="mt-4 rounded-lg ad-bg-error ad-text-error px-4 py-3 text-sm">
-            <p className="font-medium">This applicant has been cancelled.</p>
+            <p className="font-medium">
+              This applicant has been cancelled. This is final and cannot be undone.
+            </p>
             {app.cancelReason && (
               <p className="mt-1">Reason: {app.cancelReason}</p>
             )}

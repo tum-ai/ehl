@@ -48,7 +48,6 @@ vi.mock("@/lib/ratelimit", () => ({
 
 import {
   cancelApplication,
-  uncancelApplication,
   addApplicationNote,
 } from "@/lib/actions/applications";
 
@@ -220,50 +219,6 @@ describe("cancelApplication", () => {
     );
     const result = await cancelApplication(APP_ID, "again");
     expect(result.error).toMatch(/already cancelled/i);
-  });
-});
-
-describe("uncancelApplication", () => {
-  it("restores a cancelled applicant to accepted and clears cancel columns", async () => {
-    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
-    mocks.createAdminClient.mockReturnValue(
-      makeAdminClient({
-        calls,
-        responder: ({ table, op }) => {
-          if (table === "applications" && op === "select")
-            return { data: { status: "cancelled", chapter_id: CHAPTER } };
-          return { data: null, error: null };
-        },
-      })
-    );
-    const result = await uncancelApplication(APP_ID);
-    expect(result).toEqual({ success: true });
-
-    const update = calls.find((c) => c.table === "applications" && c.op === "update");
-    expect(update?.payload).toMatchObject({
-      status: "accepted",
-      cancelled_at: null,
-      cancelled_by: null,
-      cancel_reason: null,
-    });
-    expect(mocks.logEvent).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "application.uncancelled" })
-    );
-  });
-
-  it("refuses to uncancel an applicant that is not cancelled", async () => {
-    mocks.createAdminClient.mockReturnValue(
-      makeAdminClient({
-        calls: [],
-        responder: ({ table, op }) => {
-          if (table === "applications" && op === "select")
-            return { data: { status: "accepted", chapter_id: CHAPTER } };
-          return { data: null, error: null };
-        },
-      })
-    );
-    const result = await uncancelApplication(APP_ID);
-    expect(result.error).toMatch(/not cancelled/i);
   });
 });
 

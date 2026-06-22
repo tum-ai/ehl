@@ -264,10 +264,12 @@ There are two kinds of admin:
 - Cancel an accepted applicant (e.g. they can no longer attend): keeps the record
   with a visible "cancelled" status, requires a reason, and can optionally send a
   branded cancellation email. Allowed even after the acceptance email was sent.
-  Reversible (restores to accepted). Global and chapter admins.
-- Admin notes history per application (append-only): every cancellation and
-  reversal is recorded, and admins can add free-text notes. The transitions are
-  also written to the immutable `event_log`.
+  Cancellation is terminal: there is no reversal back to accepted (once the
+  acceptance email is out, the person has already been told they are out). Global
+  and chapter admins.
+- Admin notes history per application (append-only): the cancellation is recorded
+  and admins can add free-text notes. Transitions are also written to the
+  immutable `event_log`.
 
 ### Challenge Configuration (`/admin/chapters/<id>/challenges`)
 - Create challenges with: title, description, sponsor, prize, judging criteria
