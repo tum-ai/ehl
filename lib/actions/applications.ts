@@ -436,10 +436,13 @@ export async function bulkUpdateApplicationStatus(
     .select("id, acceptance_email_sent_at, rejection_email_sent_at, chapter_id")
     .in("id", applicationIds);
 
-  // All bulk-updated applications must belong to the same chapter; guard on the first.
   const chapterId = (apps ?? [])[0]?.chapter_id as string | undefined;
   const authErr = await requireChapterAdminAction(chapterId ?? "");
   if (authErr) return { error: authErr };
+
+  // Reject if any application belongs to a different chapter.
+  const crossChapter = (apps ?? []).some((a) => a.chapter_id !== chapterId);
+  if (crossChapter) return { error: "All applications must belong to the same chapter." };
 
   const actionableIds = (apps ?? [])
     .filter((a) => !a.acceptance_email_sent_at && !a.rejection_email_sent_at)
@@ -487,6 +490,9 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
   if (!applications || applications.length === 0) {
     return { error: "No accepted applications found." };
   }
+
+  const crossChapter = applications.some((a) => a.chapter_id !== chapterId);
+  if (crossChapter) return { error: "All applications must belong to the same chapter." };
 
   let sent = 0;
   const failed: string[] = [];
@@ -567,6 +573,9 @@ export async function sendRejectionEmails(applicationIds: string[]) {
   if (!applications || applications.length === 0) {
     return { error: "No rejected applications found." };
   }
+
+  const crossChapter = applications.some((a) => a.chapter_id !== chapterId);
+  if (crossChapter) return { error: "All applications must belong to the same chapter." };
 
   let sent = 0;
   for (const app of applications) {

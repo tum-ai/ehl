@@ -16,6 +16,7 @@ export async function GET(
     .from("applications")
     .select("*")
     .eq("id", applicationId)
+    .eq("chapter_id", id)
     .single();
 
   if (!data) {

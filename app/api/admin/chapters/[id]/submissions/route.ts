@@ -17,6 +17,15 @@ export async function GET(
   let query = adminClient.from("submissions").select("*");
 
   if (challengeId) {
+    // Verify the challenge belongs to this chapter before querying submissions.
+    const { data: challenge } = await adminClient
+      .from("challenges")
+      .select("id")
+      .eq("id", challengeId)
+      .eq("chapter_id", chapterId)
+      .single();
+    if (!challenge) return NextResponse.json([], { status: 200 });
+
     query = query.eq("challenge_id", challengeId);
   } else {
     // Get all submissions for challenges in this chapter

@@ -143,15 +143,17 @@ export async function inviteChapterAdmin(
     });
   }
 
-  // Already a local admin of this chapter?
-  const { data: existing } = await adminClient
+  // Chapter admins are single-chapter. Reject if this person already admins any chapter.
+  const { data: existingAny } = await adminClient
     .from("chapter_admins")
-    .select("user_id")
+    .select("chapter_id")
     .eq("user_id", userId)
-    .eq("chapter_id", chapterId)
     .maybeSingle();
-  if (existing) {
-    return { error: "This person is already a local admin for this chapter." };
+  if (existingAny) {
+    if (existingAny.chapter_id === chapterId) {
+      return { error: "This person is already a local admin for this chapter." };
+    }
+    return { error: "This person is already a local admin for another chapter. Remove them from that chapter first." };
   }
 
   const { error: insertErr } = await adminClient
