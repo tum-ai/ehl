@@ -755,9 +755,9 @@ export async function cancelApplication(
 }
 
 // Note: cancellation is terminal. Once an applicant is cancelled there is no
-// reversal back to "accepted" (especially after the acceptance email was sent,
-// the person has already been told they are out). The only remaining transition
-// is to "rejected" via the normal reject flow.
+// further status transition at all: updateApplicationStatus refuses to act on a
+// cancelled row (no reversal to accepted, and no move to rejected either). This
+// is enforced server-side, not just in the UI.
 
 // ─── Admin: Application notes (append-only history) ──────────
 
