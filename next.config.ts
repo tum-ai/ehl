@@ -48,8 +48,11 @@ const nextConfig: NextConfig = {
             value: "max-age=63072000; includeSubDomains; preload",
           },
           {
+            // camera omitted: browser default allows it with explicit user grant,
+            // which is the correct behaviour for the QR scanner on /admin/check-in.
+            // camera=() would block it even after the user accepts the prompt.
             key: "Permissions-Policy",
-            value: "camera=(), microphone=(), geolocation=()",
+            value: "microphone=(), geolocation=()",
           },
           {
             key: "Content-Security-Policy",

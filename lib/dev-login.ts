@@ -8,7 +8,7 @@
 export interface DevPersona {
   email: string;
   label: string;
-  role: "admin" | "jury" | "participant";
+  role: "admin" | "jury" | "participant" | "chapter_admin";
   next: string;
 }
 
@@ -18,6 +18,10 @@ export interface DevPersona {
 // match the profile rows that script seeds.
 export const DEV_PERSONAS: DevPersona[] = [
   { email: "admin@example.com", label: "Admin", role: "admin", next: "/admin" },
+  // External partner, local admin of Chapter 2 (Zurich) only. next "/admin"
+  // intentionally hits the global home so middleware confinement bounces them
+  // to their own chapter — exercising the scoping live.
+  { email: "test@partner.com", label: "Partner — Local Admin (Zurich)", role: "chapter_admin", next: "/admin" },
   { email: "jury1@example.com", label: "Jury 1", role: "jury", next: "/jury" },
   { email: "jury2@example.com", label: "Jury 2", role: "jury", next: "/jury" },
   { email: "alice@example.com", label: "Alice — Alpha Innovators", role: "participant", next: "/dashboard" },

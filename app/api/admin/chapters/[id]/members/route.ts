@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireChapterAdminApi } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const denied = await requireAdmin();
+  const { id: chapterId } = await params;
+  const denied = await requireChapterAdminApi(chapterId);
   if (denied) return denied;
 
-  const { id: chapterId } = await params;
   const adminClient = createAdminClient();
 
   // Get teams registered for this chapter

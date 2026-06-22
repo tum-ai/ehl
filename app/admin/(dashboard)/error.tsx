@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { describeError, isLikelyStaleBundleError } from "@/lib/error-report";
 
 /**
  * Admin-scoped error boundary — DIAGNOSTIC, not friendly.
@@ -32,6 +33,12 @@ export default function AdminError({
     when: "",
   });
 
+  // Normalise the thrown value: React error boundaries can receive a non-Error
+  // (e.g. a chunk-load / DOM-conflict throw) that has no name/message/stack,
+  // which used to render as the unhelpful "undefined / undefined / no stack".
+  const info = describeError(error);
+  const maybeStaleBundle = !error?.digest && isLikelyStaleBundleError(error);
+
   useEffect(() => {
     const url = typeof window !== "undefined" ? window.location.href : "";
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
@@ -44,26 +51,27 @@ export default function AdminError({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: error.message,
-        stack: error.stack,
-        digest: error.digest,
+        message: info.message,
+        stack: info.stack,
+        digest: error?.digest,
         url,
         userAgent: ua,
       }),
     }).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [error]);
 
   const report = [
     `Admin error report`,
     `When:    ${meta.when}`,
     `URL:     ${meta.url}`,
-    `Name:    ${error.name}`,
-    `Message: ${error.message}`,
-    error.digest ? `Digest:  ${error.digest}` : null,
+    `Name:    ${info.name}`,
+    `Message: ${info.message}`,
+    error?.digest ? `Digest:  ${error.digest}` : null,
     `Browser: ${meta.ua}`,
     ``,
     `Stack:`,
-    error.stack ?? "(no stack available)",
+    info.stack ?? "(no stack available)",
   ]
     .filter((l) => l !== null)
     .join("\n");
@@ -81,6 +89,13 @@ export default function AdminError({
             <p className="ad-text-secondary mt-1 text-sm">
               The page failed to render. Full details below (visible because you are an admin).
             </p>
+            {maybeStaleBundle && (
+              <p className="ad-text-secondary mt-2 text-sm">
+                This looks like a stale-bundle or chunk-load failure (often after the
+                app updated, or a dynamic import like the camera scanner failed to
+                load). A full reload usually fixes it.
+              </p>
+            )}
           </div>
           <div className="flex shrink-0 gap-2">
             <button
@@ -110,12 +125,12 @@ export default function AdminError({
       {/* Full diagnostic dump */}
       <dl className="ad-border ad-bg-card mt-4 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 rounded-xl border p-5 text-sm">
         <dt className="ad-text-muted font-medium">Name</dt>
-        <dd className="ad-text font-mono break-all">{error.name}</dd>
+        <dd className="ad-text font-mono break-all">{info.name}</dd>
 
         <dt className="ad-text-muted font-medium">Message</dt>
-        <dd className="ad-text font-mono break-all">{error.message || "(empty)"}</dd>
+        <dd className="ad-text font-mono break-all">{info.message || "(empty)"}</dd>
 
-        {error.digest && (
+        {error?.digest && (
           <>
             <dt className="ad-text-muted font-medium">Digest</dt>
             <dd className="ad-text font-mono break-all">
@@ -138,7 +153,7 @@ export default function AdminError({
       <div className="ad-border ad-bg-card mt-4 rounded-xl border p-5">
         <p className="ad-text-muted mb-2 text-xs font-bold uppercase tracking-wider">Stack trace</p>
         <pre className="ad-text max-h-[50vh] overflow-auto whitespace-pre-wrap break-all font-mono text-xs leading-relaxed">
-          {error.stack ?? "(no stack available — in production, server-component errors expose only the digest above)"}
+          {info.stack ?? "(no stack available — in production, server-component errors expose only the digest above)"}
         </pre>
       </div>
     </div>

@@ -49,10 +49,21 @@ app/
 | Role | Auth Method | Login Page | Guard |
 |------|-------------|------------|-------|
 | Admin | Google OAuth only | `/admin/login` | `requireAdmin()` checks email allowlist |
+| Local (chapter) admin | Google OAuth only | `/admin/login` | `chapter_admins` table check (scoped to one chapter) |
 | Jury | Email magic link only | `/jury/login` | `jury_assignments` table check |
 | Participant | Email + password | `/login`, `/register` | Supabase session + RLS |
 
 Admin access: `admin_emails` DB table + `ADMIN_FALLBACK_EMAILS` env var.
+
+Local (chapter) admins: invited per-chapter by a global admin (`inviteChapterAdmin`,
+profile role `chapter_admin` + a `chapter_admins` row). They log in via Google OAuth
+like global admins (the `/auth/callback` `/admin` branch recognizes them by their
+`chapter_admins` row, so no `ADMIN_EMAIL_DOMAIN` change is needed for external
+partners). They are confined — by middleware plus page/action/API guards
+(`requireChapterAdminPage/Action/Api`, `requireGlobalAdminPage`) — to a single
+chapter: screening, that chapter's teams/submissions, and check-in. They can score
+applications and check people in, but cannot see other chapters or any global admin
+view, nor edit chapter settings, publish scores, or delete.
 
 ### Data Flow
 - **Read queries**: `lib/queries/` (split by domain: chapters, teams, challenges, submissions, jury, profiles)
@@ -81,14 +92,14 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-44 sequential migrations in `supabase/migrations/`. Key tables:
+46 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users), `teams`, `team_members`, `team_invites`, `team_join_requests`
 - `chapters` (matches), `challenges`, `chapter_unlocks`, `challenge_registrations`
 - `submissions`, `code_reviews`
 - `jury_assignments`, `jury_rankings`, `jury_feedback`
 - `applications`, `screening_scores`, `verification_codes`, `participant_flags`
 - `scores`, `partners`, `media`
-- `admin_emails`, `app_settings`, `admin_audit_log`
+- `admin_emails`, `chapter_admins` (local/chapter admins), `app_settings`, `admin_audit_log`
 - `leaderboard` (Postgres VIEW, not a table)
 
 RLS is enabled on all tables. Admin operations use `createAdminClient()` which bypasses RLS.

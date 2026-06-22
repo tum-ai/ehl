@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { adminRemoveMember } from "@/lib/actions/admin";
 import { useRouter } from "next/navigation";
@@ -15,8 +15,13 @@ interface MemberInfo {
   checkedIn: boolean;
 }
 
-export default function AdminChapterMembersPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: chapterId } = use(params);
+export function AdminChapterMembersClient({
+  chapterId,
+  isGlobalAdmin,
+}: {
+  chapterId: string;
+  isGlobalAdmin: boolean;
+}) {
   const [members, setMembers] = useState<MemberInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -114,7 +119,7 @@ export default function AdminChapterMembersPage({ params }: { params: Promise<{ 
                         <span className="text-[10px] font-bold uppercase ad-text-gold">Capt</span>
                       )}
                     </div>
-                    {m.role !== "president" && (
+                    {isGlobalAdmin && m.role !== "president" && (
                       <button
                         onClick={() => handleRemove(m.teamId, m.userId, m.name || m.email)}
                         disabled={removing === m.userId}
@@ -136,4 +141,20 @@ export default function AdminChapterMembersPage({ params }: { params: Promise<{ 
       </div>
     </div>
   );
+}
+
+// Server wrapper — resolves role so the client component can gate the Remove button.
+import { getSession } from "@/lib/actions/auth";
+import { requireChapterAdminPage } from "@/lib/admin-auth";
+
+export default async function AdminChapterMembersPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+  await requireChapterAdminPage(id);
+  const session = await getSession();
+  const isGlobalAdmin = session?.profile?.role === "admin";
+  return <AdminChapterMembersClient chapterId={id} isGlobalAdmin={isGlobalAdmin} />;
 }

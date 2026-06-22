@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Admin",
+  chapter_admin: "Local Admin",
   jury: "Jury",
   participant: "Participant",
 };

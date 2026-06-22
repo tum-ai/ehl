@@ -39,8 +39,13 @@ export function ChapterStatsPanel({ chapterId }: ChapterStatsPanelProps) {
 
   useEffect(() => {
     fetch(`/api/admin/chapters/${chapterId}/stats`)
-      .then((r) => r.json())
-      .then(setStats)
+      // A non-OK response (e.g. 403) returns an error-shaped body, not stats.
+      // Only accept a well-formed payload so the panel never renders against an
+      // error object (which previously crashed on `apps.total`).
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) =>
+        setStats(data && typeof data === "object" && "applications" in data ? data : null)
+      )
       .catch(() => null)
       .finally(() => setLoading(false));
   }, [chapterId]);

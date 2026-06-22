@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminEmail } from "@/lib/admin-allowlist";
+import { getAdminChapterId } from "@/lib/chapter-admin";
 import { getSafeRedirect } from "@/lib/utils";
 
 export async function GET(request: NextRequest) {
@@ -77,21 +78,39 @@ export async function GET(request: NextRequest) {
   const email = user.email ?? "";
   const adminClient = createAdminClient();
 
-  // If coming from admin login, verify email is on the allowlist
+  // If coming from admin login, allow either a global admin (email on the
+  // allowlist) or a local (chapter) admin who was invited via the
+  // chapter_admins table. Local admins are scoped to a single chapter and are
+  // sent straight there.
   if (next === "/admin") {
-    if (!(await isAdminEmail(email))) {
-      await supabase.auth.signOut();
-      return redirectWithCookies(`${origin}/admin/login?error=not_authorized`);
+    if (await isAdminEmail(email)) {
+      await adminClient.from("profiles").upsert({
+        id: user.id,
+        email,
+        name:
+          user.user_metadata?.full_name || user.user_metadata?.name || email,
+        role: "admin",
+      });
+
+      return redirectWithCookies(`${origin}/admin`);
     }
 
-    await adminClient.from("profiles").upsert({
-      id: user.id,
-      email,
-      name: user.user_metadata?.full_name || user.user_metadata?.name || email,
-      role: "admin",
-    });
+    const chapterId = await getAdminChapterId(user.id);
+    if (chapterId) {
+      // Profile role is set to chapter_admin at invite time; keep it in sync.
+      await adminClient.from("profiles").upsert({
+        id: user.id,
+        email,
+        name:
+          user.user_metadata?.full_name || user.user_metadata?.name || email,
+        role: "chapter_admin",
+      });
 
-    return redirectWithCookies(`${origin}/admin`);
+      return redirectWithCookies(`${origin}/admin/chapters/${chapterId}`);
+    }
+
+    await supabase.auth.signOut();
+    return redirectWithCookies(`${origin}/admin/login?error=not_authorized`);
   }
 
   // Check existing profile or create one

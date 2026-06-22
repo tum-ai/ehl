@@ -32,7 +32,9 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname;
 
-  // Admin routes: require admin role
+  // Admin routes: require admin or chapter_admin role. This is a coarse auth
+  // gate; page-level guards (requireChapterAdminPage / requireGlobalAdminPage)
+  // confine local admins to their single chapter.
   if (pathname.startsWith("/admin") && !pathname.startsWith("/admin/login")) {
     if (!user) {
       const url = request.nextUrl.clone();
@@ -47,10 +49,39 @@ export async function updateSession(request: NextRequest) {
       .eq("id", user.id)
       .single();
 
-    if (!profile || profile.role !== "admin") {
+    if (!profile || (profile.role !== "admin" && profile.role !== "chapter_admin")) {
       const url = request.nextUrl.clone();
       url.pathname = "/admin/login";
       return NextResponse.redirect(url);
+    }
+
+    // Confine local (chapter) admins to their single chapter + check-in. This is
+    // the hard boundary; page guards are defense-in-depth. Global admins are
+    // unaffected.
+    if (profile.role === "chapter_admin") {
+      const { data: assignment } = await supabase
+        .from("chapter_admins")
+        .select("chapter_id")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+
+      const chapterId = assignment?.chapter_id as string | undefined;
+      const chapterBase = chapterId ? `/admin/chapters/${chapterId}` : null;
+
+      const allowed =
+        !!chapterBase &&
+        (pathname === chapterBase ||
+          pathname.startsWith(`${chapterBase}/`) ||
+          pathname === "/admin/check-in" ||
+          pathname.startsWith("/admin/check-in/"));
+
+      if (!allowed) {
+        const url = request.nextUrl.clone();
+        url.pathname = chapterBase ?? "/admin/login";
+        return NextResponse.redirect(url);
+      }
     }
   }
 
