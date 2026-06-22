@@ -97,10 +97,11 @@ export default async function ParticipantDashboard() {
     .select("chapter_id, status")
     .eq("email", session.profile?.email ?? "");
 
-  // Only show matches where user has applied and wasn't rejected
+  // Only show matches where the user has an active application. Rejected and
+  // cancelled are terminal, non-participating states, so they are excluded.
   const appliedChapterIds = new Set(
     (userApps ?? [])
-      .filter((a) => a.status !== "rejected")
+      .filter((a) => a.status !== "rejected" && a.status !== "cancelled")
       .map((a) => a.chapter_id as string)
   );
 
