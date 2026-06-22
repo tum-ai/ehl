@@ -133,6 +133,34 @@ describe("cancelApplication", () => {
     expect(result).toEqual({ error: "Admin access required." });
   });
 
+  it("does not leak application existence: unauthorized caller gets the same auth error whether the row exists or not", async () => {
+    // Guard rejects (unauthorized). Whether the application row exists or not,
+    // the caller must get the generic auth error, never "Application not found",
+    // so the action is not an existence oracle.
+    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
+
+    // Existing row.
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls: [],
+        responder: ({ table, op }) =>
+          table === "applications" && op === "select"
+            ? { data: { id: APP_ID, status: "accepted", chapter_id: CHAPTER, chapters: {} } }
+            : { data: null, error: null },
+      })
+    );
+    const existing = await cancelApplication(APP_ID, "x");
+
+    // Missing row.
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls: [], responder: () => ({ data: null }) })
+    );
+    const missing = await cancelApplication("does-not-exist", "x");
+
+    expect(existing).toEqual({ error: "Admin access required." });
+    expect(missing).toEqual({ error: "Admin access required." });
+  });
+
   it("cancels an accepted+emailed applicant, writing cancel columns and a note", async () => {
     const calls: Array<{ table: string; op: string; payload: unknown }> = [];
     mocks.createAdminClient.mockReturnValue(
@@ -209,7 +237,7 @@ describe("cancelApplication", () => {
     expect(mocks.sendEmailAfterResponse).toHaveBeenCalledTimes(1);
   });
 
-  it("removes the cancelled person from challenge rosters in the chapter", async () => {
+  it("removes the cancelled person from a roster that stays at/above the minimum", async () => {
     const calls: Array<{ table: string; op: string; payload: unknown }> = [];
     mocks.createAdminClient.mockReturnValue(
       makeAdminClient({
@@ -226,15 +254,15 @@ describe("cancelApplication", () => {
                 chapters: {},
               },
             };
-          // email -> profiles.id resolution
           if (table === "profiles" && op === "select")
             return { data: { id: "user-abdallah" } };
-          // one registration whose roster includes the cancelled user
+          // reg-1 has 3 members -> removing one leaves 2 (>= min), so it is updated.
+          // reg-2 does not contain the user, so it is untouched.
           if (table === "challenge_registrations" && op === "select")
             return {
               data: [
-                { id: "reg-1", roster: ["user-abdallah", "user-keep"] },
-                { id: "reg-2", roster: ["user-other"] },
+                { id: "reg-1", roster: ["user-abdallah", "user-keep", "user-keep2"] },
+                { id: "reg-2", roster: ["user-other", "user-other2"] },
               ],
             };
           return { data: null, error: null };
@@ -245,18 +273,68 @@ describe("cancelApplication", () => {
     const result = await cancelApplication(APP_ID, "cannot attend Paris");
     expect(result).toEqual({ success: true });
 
-    // Only the registration that contained the user is updated, with the user removed.
     const regUpdates = calls.filter(
       (c) => c.table === "challenge_registrations" && c.op === "update"
     );
     expect(regUpdates).toHaveLength(1);
-    expect((regUpdates[0].payload as { roster: string[] }).roster).toEqual(["user-keep"]);
+    expect((regUpdates[0].payload as { roster: string[] }).roster).toEqual([
+      "user-keep",
+      "user-keep2",
+    ]);
+    // No deletion, since the roster stayed at the minimum.
+    expect(
+      calls.filter((c) => c.table === "challenge_registrations" && c.op === "delete")
+    ).toHaveLength(0);
 
-    // The audit delta records how many rosters were touched.
     expect(mocks.logEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "application.cancelled",
-        delta: expect.objectContaining({ rosters_updated: 1 }),
+        delta: expect.objectContaining({ rosters_updated: 1, registrations_removed: 0 }),
+      })
+    );
+  });
+
+  it("deletes a registration that would fall below the roster minimum", async () => {
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "applications" && op === "select")
+            return {
+              data: {
+                id: APP_ID,
+                status: "checked_in",
+                chapter_id: CHAPTER,
+                email: "a@example.com",
+                chapters: {},
+              },
+            };
+          if (table === "profiles" && op === "select")
+            return { data: { id: "user-abdallah" } };
+          // A two-person roster: removing the cancelled member leaves 1 (< min),
+          // so the whole registration must be deleted, not shrunk.
+          if (table === "challenge_registrations" && op === "select")
+            return { data: [{ id: "reg-1", roster: ["user-abdallah", "user-solo"] }] };
+          return { data: null, error: null };
+        },
+      })
+    );
+
+    const result = await cancelApplication(APP_ID, "cannot attend");
+    expect(result).toEqual({ success: true });
+
+    // Deleted, not updated.
+    expect(
+      calls.filter((c) => c.table === "challenge_registrations" && c.op === "delete")
+    ).toHaveLength(1);
+    expect(
+      calls.filter((c) => c.table === "challenge_registrations" && c.op === "update")
+    ).toHaveLength(0);
+
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delta: expect.objectContaining({ rosters_updated: 0, registrations_removed: 1 }),
       })
     );
   });

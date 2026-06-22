@@ -45,3 +45,8 @@ export type QueryLimitKey = keyof typeof QUERY_LIMITS;
 // hardcoded as `5` in lib/actions/teams.ts; centralized here so admin overrides
 // and team flows share one source of truth.
 export const MAX_TEAM_SIZE = envInt("MAX_TEAM_SIZE", 5);
+
+// Minimum members required on a challenge registration roster. A domain
+// invariant enforced at registration time (lib/actions/event.ts); also used when
+// cancelling an attendee, to drop a registration that would fall below it.
+export const MIN_CHALLENGE_ROSTER = envInt("MIN_CHALLENGE_ROSTER", 2);

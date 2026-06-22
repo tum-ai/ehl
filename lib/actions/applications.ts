@@ -13,6 +13,7 @@ import {
   renderApplicationCancelledEmail,
 } from "@/lib/emails/render";
 import { getSession } from "@/lib/actions/auth";
+import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
 import { formatDateRange } from "@/lib/utils";
 import type { ApplicationStatus, ApplicationTeamMember } from "@/lib/types";
 import { uploadFile } from "@/lib/gdrive";
@@ -669,12 +670,19 @@ export async function cancelApplication(
     .eq("id", applicationId)
     .single();
 
+  // Authorize before distinguishing not-found from unauthorized, so an
+  // unauthorized caller cannot use the error to probe which application IDs
+  // exist. When the row is missing we have no chapter_id, so run the guard with
+  // an empty chapter: only a global admin passes (and may see "not found");
+  // everyone else gets the generic auth error regardless of existence.
+  const authErr = await requireChapterAdminAction(
+    (app?.chapter_id as string) ?? ""
+  );
+  if (authErr) return { error: authErr };
+
   if (!app) {
     return { error: "Application not found." };
   }
-
-  const authErr = await requireChapterAdminAction(app.chapter_id as string);
-  if (authErr) return { error: authErr };
 
   // Cancelling only makes sense for someone who was going to attend: an accepted
   // or checked-in applicant who can no longer come. Pending/rejected/waitlisted
@@ -716,6 +724,7 @@ export async function cancelApplication(
   // here does not fail the cancel, since the application is already cancelled.
   const cancelledEmail = app.email as string;
   let rostersUpdated = 0;
+  let registrationsRemoved = 0;
   const { data: profileRow } = await adminClient
     .from("profiles")
     .select("id")
@@ -731,11 +740,24 @@ export async function cancelApplication(
       const roster = (reg.roster as string[]) ?? [];
       if (!roster.includes(cancelledUserId)) continue;
       const nextRoster = roster.filter((uid) => uid !== cancelledUserId);
-      const { error: regErr } = await adminClient
-        .from("challenge_registrations")
-        .update({ roster: nextRoster })
-        .eq("id", reg.id as string);
-      if (!regErr) rostersUpdated++;
+      // Removing the member can drop the roster below the registration minimum.
+      // Such a registration is invalid (submission gating only checks that a
+      // registration row exists, not its size), so delete it rather than persist
+      // an under-strength roster the team could still submit with. The team must
+      // re-register with a valid roster.
+      if (nextRoster.length < MIN_CHALLENGE_ROSTER) {
+        const { error: delErr } = await adminClient
+          .from("challenge_registrations")
+          .delete()
+          .eq("id", reg.id as string);
+        if (!delErr) registrationsRemoved++;
+      } else {
+        const { error: regErr } = await adminClient
+          .from("challenge_registrations")
+          .update({ roster: nextRoster })
+          .eq("id", reg.id as string);
+        if (!regErr) rostersUpdated++;
+      }
     }
   }
 
@@ -758,6 +780,7 @@ export async function cancelApplication(
       reason: trimmedReason,
       email_sent: sendEmailToApplicant,
       rosters_updated: rostersUpdated,
+      registrations_removed: registrationsRemoved,
     },
   });
 
@@ -807,12 +830,16 @@ export async function addApplicationNote(applicationId: string, body: string) {
     .eq("id", applicationId)
     .single();
 
+  // Authorize before distinguishing not-found from unauthorized (see
+  // cancelApplication): prevents probing application-ID existence.
+  const authErr = await requireChapterAdminAction(
+    (app?.chapter_id as string) ?? ""
+  );
+  if (authErr) return { error: authErr };
+
   if (!app) {
     return { error: "Application not found." };
   }
-
-  const authErr = await requireChapterAdminAction(app.chapter_id as string);
-  if (authErr) return { error: authErr };
 
   const session = await getSession();
   const actorId = session?.profile?.id ?? null;
