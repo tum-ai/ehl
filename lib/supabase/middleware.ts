@@ -106,11 +106,37 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Dashboard routes: require authenticated user
+  // Dashboard routes: require authenticated user, but not admin/chapter_admin
   if (pathname.startsWith("/dashboard")) {
     if (!user) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
+      return NextResponse.redirect(url);
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    if (profile?.role === "chapter_admin") {
+      const { data: assignment } = await supabase
+        .from("chapter_admins")
+        .select("chapter_id")
+        .eq("user_id", user.id)
+        .limit(1)
+        .maybeSingle();
+      const url = request.nextUrl.clone();
+      url.pathname = assignment?.chapter_id
+        ? `/admin/chapters/${assignment.chapter_id}`
+        : "/admin/login";
+      return NextResponse.redirect(url);
+    }
+
+    if (profile?.role === "admin") {
+      const url = request.nextUrl.clone();
+      url.pathname = "/admin";
       return NextResponse.redirect(url);
     }
   }
