@@ -836,6 +836,32 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await expect(page.getByText("E2E Challenge")).toBeVisible({ timeout: 10000 });
   });
 
+  test("5.2 A challenge created without entire_required defaults to true (migration 00051)", async () => {
+    // Paris dry-run: Entire should be required by default. Insert a challenge
+    // OMITTING entire_required and confirm the DB default (migration 00051) makes
+    // it true. (The lifecycle's main challenge pins false via the factory, so it
+    // stays submittable — this is a separate throwaway challenge.)
+    const admin = getAdminClient();
+    const { data, error } = await admin
+      .from("challenges")
+      .insert({
+        chapter_id: chapterId,
+        title: "E2E Default Entire Challenge",
+        description: "Throwaway to verify the entire_required default.",
+        submission_fields: [{ key: "repo", label: "Repo", type: "url", required: true }],
+        display_order: 99,
+        // entire_required intentionally omitted -> DB default should apply.
+      })
+      .select("id, entire_required")
+      .single();
+
+    expect(error).toBeNull();
+    expect(data?.entire_required).toBe(true);
+
+    // Clean up the throwaway challenge.
+    await admin.from("challenges").delete().eq("id", data!.id as string);
+  });
+
   // ── BLOCK 6: CHALLENGE SELECTION ────────────────────────
 
   test("6.1 Register teams for challenge via API", async () => {

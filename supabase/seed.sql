@@ -131,17 +131,19 @@ INSERT INTO chapters (id, name, slug, city, country, country_code, date, date_en
 -- CHALLENGES
 -- ═══════════════════════════════════════════════════════════════
 
-INSERT INTO challenges (id, chapter_id, title, description, sponsor_name, submission_fields, display_order) VALUES
+-- entire_required is pinned false here: the column now DEFAULTs true (migration
+-- 00051), but seed challenges must stay submittable without a live Entire branch.
+INSERT INTO challenges (id, chapter_id, title, description, sponsor_name, submission_fields, display_order, entire_required) VALUES
   -- Match 1
   ('f0000000-0000-0000-0000-000000000001', 'e0000000-0000-0000-0000-000000000001', 'AI for Good', 'Build an AI solution for social impact.', 'TechCorp',
-   '[{"key":"repo","label":"GitHub Repository","type":"url","required":true},{"key":"deck","label":"Pitch Deck","type":"file","required":true,"accept":".pdf,.pptx"}]', 1),
+   '[{"key":"repo","label":"GitHub Repository","type":"url","required":true},{"key":"deck","label":"Pitch Deck","type":"file","required":true,"accept":".pdf,.pptx"}]', 1, false),
   ('f0000000-0000-0000-0000-000000000002', 'e0000000-0000-0000-0000-000000000001', 'Green Innovation', 'Create a sustainable technology solution.', 'EcoTech',
-   '[{"key":"repo","label":"GitHub Repository","type":"url","required":true},{"key":"demo","label":"Live Demo","type":"url","required":false}]', 2),
+   '[{"key":"repo","label":"GitHub Repository","type":"url","required":true},{"key":"demo","label":"Live Demo","type":"url","required":false}]', 2, false),
   -- Match 2
   ('f0000000-0000-0000-0000-000000000003', 'e0000000-0000-0000-0000-000000000002', 'Smart City', 'Design smart solutions for urban living.', 'UrbanAI',
-   '[{"key":"repo","label":"GitHub Repository","type":"url","required":true}]', 1),
+   '[{"key":"repo","label":"GitHub Repository","type":"url","required":true}]', 1, false),
   ('f0000000-0000-0000-0000-000000000004', 'e0000000-0000-0000-0000-000000000002', 'HealthTech', 'Innovate in healthcare technology.', 'MediCode',
-   '[{"key":"repo","label":"GitHub Repository","type":"url","required":true}]', 2);
+   '[{"key":"repo","label":"GitHub Repository","type":"url","required":true}]', 2, false);
 
 -- ═══════════════════════════════════════════════════════════════
 

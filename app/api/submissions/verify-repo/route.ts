@@ -4,6 +4,7 @@ import { parseGitHubRepo, getEhlUsername, acceptPendingInvite } from "@/lib/gith
 import { getSettingValue, SETTING_KEYS } from "@/lib/settings";
 import { checkRateLimit, apiLimiter } from "@/lib/ratelimit";
 import { checkCheckpointBranch, entireGateErrorMessage } from "@/lib/entire";
+import { withEntireGate } from "@/lib/entire-verify";
 
 const EHL_GITHUB_USERNAME = getEhlUsername();
 
@@ -117,12 +118,12 @@ export async function POST(request: Request) {
           error: "This repository is private. It must be public for this challenge.",
         });
       }
-      return NextResponse.json({
-        valid: true,
-        repoName: `${owner}/${repo}`,
-        isPrivate: false,
-        ...(await entireFeedback(owner, repo, !!entireRequired)),
-      });
+      return NextResponse.json(
+        withEntireGate(
+          { valid: true, repoName: `${owner}/${repo}`, isPrivate: false },
+          await entireFeedback(owner, repo, !!entireRequired)
+        )
+      );
     }
 
     // ── Mode: invite_required (must be private) ───────────
@@ -136,12 +137,12 @@ export async function POST(request: Request) {
     // ── Modes: invite_required + any ──────────────────────
     // Public repo in "any" mode: valid, no invite needed
     if (!isPrivate) {
-      return NextResponse.json({
-        valid: true,
-        repoName: `${owner}/${repo}`,
-        isPrivate: false,
-        ...(await entireFeedback(owner, repo, !!entireRequired)),
-      });
+      return NextResponse.json(
+        withEntireGate(
+          { valid: true, repoName: `${owner}/${repo}`, isPrivate: false },
+          await entireFeedback(owner, repo, !!entireRequired)
+        )
+      );
     }
 
     // Private repo: verify ehl-gg has collaborator access
@@ -171,13 +172,12 @@ export async function POST(request: Request) {
     }
 
     if (collabRes.status === 204) {
-      return NextResponse.json({
-        valid: true,
-        repoName: `${owner}/${repo}`,
-        isPrivate: true,
-        hasAccess: true,
-        ...(await entireFeedback(owner, repo, !!entireRequired)),
-      });
+      return NextResponse.json(
+        withEntireGate(
+          { valid: true, repoName: `${owner}/${repo}`, isPrivate: true, hasAccess: true },
+          await entireFeedback(owner, repo, !!entireRequired)
+        )
+      );
     }
 
     return NextResponse.json({

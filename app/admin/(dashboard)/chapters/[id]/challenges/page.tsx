@@ -156,7 +156,9 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
   const [codeReviewEnabled, setCodeReviewEnabled] = useState(true);
   const [isScored, setIsScored] = useState(true);
   const [inviteJuryToForks, setInviteJuryToForks] = useState(false);
-  const [entireRequired, setEntireRequired] = useState(false);
+  // Entire session history is required by default for new challenges (it can be
+  // turned off per challenge). See migration 00051.
+  const [entireRequired, setEntireRequired] = useState(true);
   const [submissionFields, setSubmissionFields] = useState<SubmissionFieldConfig[]>(DEFAULT_FIELDS);
   const [codeReviewInstructions, setCodeReviewInstructions] = useState("");
   const [briefFileId, setBriefFileId] = useState<string | null>(null);
@@ -186,7 +188,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     setCodeReviewInstructions("");
     setIsScored(true);
     setInviteJuryToForks(false);
-    setEntireRequired(false);
+    setEntireRequired(true);
     setSubmissionFields(DEFAULT_FIELDS);
     setBriefFileId(null);
     setLogoPreview(null);

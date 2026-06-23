@@ -240,6 +240,12 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
   { prefix: "00048", label: "cron_lock", sql: fn("try_acquire_cron_lock") },
   { prefix: "00049", label: "application_cancel_and_notes", sql: table("application_notes") },
   { prefix: "00050", label: "delete_chapter_cascade", sql: fn("delete_chapter_cascade") },
+  { prefix: "00051", label: "entire_required_default_true", sql: `select (
+     select column_default = 'true'
+     from information_schema.columns
+     where table_schema = 'public' and table_name = 'challenges'
+       and column_name = 'entire_required'
+   ) as present` },
 ];
 
 /**
