@@ -65,12 +65,14 @@ export {
   getChallengesForChapter,
   getChallengeById,
   getRegistrationForTeam,
+  getAllChallengeRegistrations,
   getPitchOrder,
 } from "./challenges";
 
 export {
   getSubmissionsForChallenge,
   getSubmissionsForChallengeAuthenticated,
+  getAllSubmissions,
   getSubmissionById,
   getSubmissionForTeam,
   getCodeReviewForSubmission,

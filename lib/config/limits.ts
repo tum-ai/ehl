@@ -29,6 +29,7 @@ export const QUERY_LIMITS = {
   leaderboard: envInt("LIMIT_LEADERBOARD", 500),
   media: envInt("LIMIT_MEDIA", 200),
   submissionsPerChallenge: envInt("LIMIT_SUBMISSIONS_PER_CHALLENGE", 200),
+  submissionsAll: envInt("LIMIT_SUBMISSIONS_ALL", 1000),
   codeReviewsPerChallenge: envInt("LIMIT_CODE_REVIEWS_PER_CHALLENGE", 200),
   chapterUnlocks: envInt("LIMIT_CHAPTER_UNLOCKS", 500),
   challengeRegistrations: envInt("LIMIT_CHALLENGE_REGISTRATIONS", 500),
