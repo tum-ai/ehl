@@ -10,8 +10,6 @@ import { requestPasswordReset } from "@/lib/actions/auth";
 
 export default function ForgotPasswordPage() {
   const [error, setError] = useState<string | null>(null);
-  const [noAccountAccepted, setNoAccountAccepted] = useState(false);
-  const [submittedEmail, setSubmittedEmail] = useState("");
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
   const turnstileRef = useRef<TurnstileRef>(null);
@@ -19,25 +17,18 @@ export default function ForgotPasswordPage() {
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
-    setNoAccountAccepted(false);
     setLoading(true);
 
     const turnstileToken = turnstileRef.current?.getToken() ?? "";
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
-    const email = formData.get("email") as string;
     const result = await requestPasswordReset(formData);
 
     setLoading(false);
     if (result?.error) {
       turnstileRef.current?.reset();
-      if (result.error === "no_account_accepted") {
-        setNoAccountAccepted(true);
-        setSubmittedEmail(email);
-      } else {
-        setError(result.error);
-      }
+      setError(result.error);
     } else {
       setSuccess(true);
     }
@@ -100,21 +91,6 @@ export default function ForgotPasswordPage() {
             {error && (
               <div className="rounded-lg border border-error/20 bg-error/5 p-3">
                 <p className="text-sm text-error">{error}</p>
-              </div>
-            )}
-
-            {noAccountAccepted && (
-              <div className="rounded-lg border border-gold/30 bg-gold/5 p-4">
-                <p className="text-sm font-medium text-gold">Application accepted!</p>
-                <p className="mt-1 text-sm text-text-secondary">
-                  Your application has been accepted, but you don&apos;t have an account yet. Register with the same email to get started.
-                </p>
-                <Link
-                  href={`/register?email=${encodeURIComponent(submittedEmail)}`}
-                  className="mt-3 inline-block rounded-lg bg-gold px-4 py-2 text-sm font-bold text-surface-deep transition-colors hover:bg-gold/90"
-                >
-                  Create Account
-                </Link>
               </div>
             )}
 

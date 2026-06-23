@@ -6,7 +6,13 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isAdminEmail } from "@/lib/admin-allowlist";
 import { sendEmail } from "@/lib/email";
-import { renderJuryInviteEmail, renderJuryMagicLinkEmail, renderPasswordResetEmail } from "@/lib/emails/render";
+import { sendEmailAfterResponse } from "@/lib/email-deferred";
+import {
+  renderJuryInviteEmail,
+  renderJuryMagicLinkEmail,
+  renderPasswordResetEmail,
+  renderCreateAccountInviteEmail,
+} from "@/lib/emails/render";
 import { getSafeRedirect, getSiteUrl } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, authLimiter, resetLimiter, resetEmailLimiter } from "@/lib/ratelimit";
@@ -51,38 +57,11 @@ export async function signIn(formData: FormData, redirectTo?: string) {
   });
 
   if (error) {
-    // Check if this email has an accepted application but no account
-    const { data: application } = await adminClient
-      .from("applications")
-      .select("id, status")
-      .eq("email", email.trim().toLowerCase())
-      .in("status", ["accepted", "checked_in"])
-      .limit(1)
-      .single();
-
-    if (application) {
-      // Check if auth user exists by looking up profile
-      const { data: profileCheck } = await adminClient
-        .from("profiles")
-        .select("id")
-        .eq("email", email.trim().toLowerCase())
-        .single();
-
-      // Verify the auth user actually exists
-      let hasAccount = false;
-      if (profileCheck) {
-        const { data: authCheck } = await adminClient.auth.admin.getUserById(profileCheck.id as string);
-        hasAccount = !!authCheck?.user;
-      }
-
-      if (!hasAccount) {
-        return {
-          error: "no_account_accepted",
-          message: "Your application has been accepted, but you need to create an account first. Register with the same email to get started.",
-        };
-      }
-    }
-
+    // Always return the same generic error: distinguishing "accepted application
+    // but no account yet" from "wrong credentials" would be an account-enumeration
+    // oracle (and we must not email on a failed password attempt). The login page
+    // already offers "Forgot password?" and "Register" for accepted-but-
+    // unregistered users; the reset flow emails them a claim link.
     return { error: "Invalid email or password." };
   }
 
@@ -278,7 +257,7 @@ export async function requestPasswordReset(formData: FormData) {
   // Check if this email has an accepted application but no auth account
   const { data: application } = await adminClient
     .from("applications")
-    .select("id, status")
+    .select("id, status, first_name")
     .eq("email", email.trim().toLowerCase())
     .in("status", ["accepted", "checked_in"])
     .limit(1)
@@ -299,10 +278,29 @@ export async function requestPasswordReset(formData: FormData) {
     }
 
     if (!hasAccount) {
-      return {
-        error: "no_account_accepted",
-        message: "Your application has been accepted, but you need to create an account first. Register with the same email to get started.",
-      };
+      // Accepted application but no account yet: there's nothing to reset. Rather
+      // than return a DISTINCT response (which would be an enumeration oracle) or
+      // a silent dead-end, email a "create your account" link and return the SAME
+      // generic success as every other path. Deferred so an SMTP failure is logged,
+      // not reflected in the response.
+      const firstName = (application.first_name as string) || "there";
+      const registerUrl = `${siteUrl}/register?email=${encodeURIComponent(normalizedEmail)}`;
+      sendEmailAfterResponse("create-account invite", async () => {
+        const html = await renderCreateAccountInviteEmail({
+          name: firstName,
+          email: normalizedEmail,
+          registerUrl,
+        });
+        await sendEmail({
+          to: normalizedEmail,
+          subject: "Create your EHL account",
+          html,
+          // The per-recipient resetEmailLimiter (run before this lookup) already
+          // capped this address, so skip the general per-address throttle.
+          skipRateLimit: true,
+        });
+      });
+      return { success: true };
     }
   }
 

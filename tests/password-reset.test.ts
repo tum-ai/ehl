@@ -10,15 +10,18 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   sendEmail: vi.fn(),
+  sendEmailAfterResponse: vi.fn((_label: string, task: () => Promise<unknown>) => task()),
   verifyTurnstileToken: vi.fn(),
   checkRateLimit: vi.fn(),
   renderPasswordResetEmail: vi.fn(),
+  renderCreateAccountInviteEmail: vi.fn(async () => "<html>create account</html>"),
   getSiteUrl: vi.fn(() => "https://example.test"),
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/email", () => ({ sendEmail: mocks.sendEmail }));
+vi.mock("@/lib/email-deferred", () => ({ sendEmailAfterResponse: mocks.sendEmailAfterResponse }));
 vi.mock("@/lib/turnstile", () => ({ verifyTurnstileToken: mocks.verifyTurnstileToken }));
 vi.mock("@/lib/ratelimit", () => ({
   checkRateLimit: mocks.checkRateLimit,
@@ -28,6 +31,7 @@ vi.mock("@/lib/ratelimit", () => ({
 }));
 vi.mock("@/lib/emails/render", () => ({
   renderPasswordResetEmail: mocks.renderPasswordResetEmail,
+  renderCreateAccountInviteEmail: mocks.renderCreateAccountInviteEmail,
   renderJuryInviteEmail: vi.fn(),
   renderJuryMagicLinkEmail: vi.fn(),
 }));
@@ -48,8 +52,10 @@ import { requestPasswordReset } from "@/lib/actions/auth";
  */
 function makeAdminClient(opts: {
   profile: { role?: string; name?: string } | null;
-  application?: { id: string; status: string } | null;
+  application?: { id: string; status: string; first_name?: string } | null;
   linkResult: { data: { properties?: { hashed_token?: string } | null }; error: unknown };
+  // When false, getUserById returns no user (accepted application but no account).
+  authUserExists?: boolean;
 }) {
   const single = vi.fn(async () => ({ data: opts.profile, error: null }));
   // applications query also ends in .single(); return application or null.
@@ -71,7 +77,9 @@ function makeAdminClient(opts: {
     auth: {
       admin: {
         generateLink: vi.fn(async () => opts.linkResult),
-        getUserById: vi.fn(async () => ({ data: { user: { id: "u1" } } })),
+        getUserById: vi.fn(async () => ({
+          data: { user: opts.authUserExists === false ? null : { id: "u1" } },
+        })),
       },
     },
     _single: single,
@@ -218,5 +226,33 @@ describe("requestPasswordReset", () => {
       expect(res).toEqual({ success: true });
     }
     expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("accepted application but no account -> generic success (no oracle) + create-account email", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        // No admin/jury profile role; an accepted application exists; no auth user.
+        profile: { role: "participant" },
+        application: { id: "app1", status: "accepted", first_name: "Frieda" },
+        authUserExists: false,
+        // generateLink is not reached: we return before it for this branch.
+        linkResult: { data: { properties: null }, error: { code: "user_not_found" } },
+      })
+    );
+
+    const res = await requestPasswordReset(fd("accepted-no-account@example.com"));
+    // Same generic response as every other path -> not an enumeration oracle.
+    expect(res).toEqual({ success: true });
+    // A create-account invite email was sent (via the deferred helper, which the
+    // mock runs inline), pointing the user to register.
+    expect(mocks.renderCreateAccountInviteEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "accepted-no-account@example.com",
+        registerUrl: expect.stringContaining("/register?email="),
+      })
+    );
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ subject: "Create your EHL account" })
+    );
   });
 });
