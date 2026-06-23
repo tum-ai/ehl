@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/actions/auth";
-import { uploadFile, getViewLink } from "@/lib/gdrive";
+import { uploadFile, getViewLink, makeFileLinkReadable } from "@/lib/gdrive";
 import { checkRateLimit, uploadLimiter } from "@/lib/ratelimit";
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20MB
@@ -115,6 +115,12 @@ export async function POST(request: Request) {
       file.type || "application/octet-stream",
       folderPath
     );
+
+    // Submission artifacts (e.g. pitch decks) are opened by the jury via an
+    // embedded Drive preview, so they must be readable by anyone with the link.
+    // uploadFile leaves files private (correct for CVs/admin uploads); we grant
+    // link access here, scoped to submission files only.
+    await makeFileLinkReadable(result.fileId);
 
     return NextResponse.json({
       url: getViewLink(result.fileId),

@@ -160,6 +160,26 @@ export async function uploadFile(
   };
 }
 
+/**
+ * Grant "anyone with the link" read access to a Drive file.
+ *
+ * Use ONLY for files that are meant to be viewable by people without a Google
+ * account / Drive access — currently submission artifacts (e.g. pitch decks),
+ * which the jury opens via an embedded Drive preview. Files created by uploadFile
+ * are private by default (only the service account can read them), which is
+ * correct for CVs and admin uploads — do NOT call this for those.
+ */
+export async function makeFileLinkReadable(fileId: string): Promise<void> {
+  const drive = getDrive();
+  await drive.permissions.create(
+    {
+      fileId,
+      requestBody: { role: "reader", type: "anyone" },
+      supportsAllDrives: true,
+    },
+    { timeout: DRIVE_TIMEOUT_MS }
+  );
+}
 
 /**
  * Download a file's content as a Buffer via the service account.
