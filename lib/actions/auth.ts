@@ -9,7 +9,7 @@ import { sendEmail } from "@/lib/email";
 import { renderJuryInviteEmail, renderJuryMagicLinkEmail, renderPasswordResetEmail } from "@/lib/emails/render";
 import { getSafeRedirect, getSiteUrl } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
-import { checkRateLimit, authLimiter, resetLimiter } from "@/lib/ratelimit";
+import { checkRateLimit, authLimiter, resetLimiter, resetEmailLimiter } from "@/lib/ratelimit";
 
 export async function signIn(formData: FormData, redirectTo?: string) {
   const email = formData.get("email") as string;
@@ -241,6 +241,25 @@ export async function requestPasswordReset(formData: FormData) {
   const rl = await checkRateLimit(resetLimiter, ip, "password reset");
   if (rl.limited) return { error: rl.error! };
 
+  // Per-RECIPIENT throttle dedicated to reset emails, applied to EVERY normalized
+  // email BEFORE any account-specific logic. This prevents reset-email bombing of
+  // a victim address, and because it runs before we ever look up the account AND
+  // returns the same generic success on a hit, it is not an account-enumeration
+  // oracle (known and unknown emails behave identically when throttled). It is
+  // separate from the general per-address emailLimiter so ordinary transactional
+  // mail the user recently received does not block a reset.
+  const normalizedEmail = email.trim().toLowerCase();
+  const resetEmailRl = await checkRateLimit(
+    resetEmailLimiter,
+    normalizedEmail,
+    "password reset email"
+  );
+  if (resetEmailRl.limited) {
+    // Same response as the happy path: no email is sent, and nothing reveals
+    // whether the address has an account.
+    return { success: true };
+  }
+
   const adminClient = createAdminClient();
   const siteUrl = getSiteUrl();
 
@@ -296,10 +315,27 @@ export async function requestPasswordReset(formData: FormData) {
     },
   });
 
-  if (error || !data.properties?.hashed_token) {
-    console.error("[requestPasswordReset] generateLink failed:", error?.message ?? "no token");
-    // Don't reveal whether the email exists
+  // Genuine "no account for this email": GoTrue returns a stable error code
+  // (user_not_found / 404). Stay silent so we never reveal whether the email
+  // exists (enumeration protection). Match on the stable code, NOT the message.
+  const errCode = (error as { code?: string; status?: number } | null)?.code;
+  const errStatus = (error as { code?: string; status?: number } | null)?.status;
+  if (error && (errCode === "user_not_found" || errStatus === 404)) {
     return { success: true };
+  }
+
+  if (error || !data.properties?.hashed_token) {
+    // A REAL failure (auth outage, corrupted auth.users row, or the invariant
+    // violation of "no error but no token"). Returning fake success here is what
+    // silently dropped a captain's reset in the Paris dry-run: the user saw
+    // "email sent" though none was generated. Return the SAME generic transient
+    // error for EVERY email so this path is not an enumeration oracle, while
+    // still telling the user the reset did not go through.
+    console.error("[requestPasswordReset] generateLink failed:", error?.message ?? "no token");
+    return {
+      error:
+        "We couldn't generate your reset link right now. Please try again in a moment, or contact support if it keeps happening.",
+    };
   }
 
   // Build the reset URL through our auth callback
@@ -321,6 +357,9 @@ export async function requestPasswordReset(formData: FormData) {
       to: email,
       subject: "Reset your EHL password",
       html,
+      // The dedicated resetEmailLimiter above is the per-recipient guard for
+      // resets, so skip the general per-address emailLimiter here.
+      skipRateLimit: true,
     });
   } catch (err) {
     console.error("Failed to send password reset email:", err);
