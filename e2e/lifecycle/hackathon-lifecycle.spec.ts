@@ -1292,6 +1292,62 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await expect(page.getByText("Published", { exact: true })).toBeVisible();
   });
 
+  test("9.3 Publish Results works for a chapter with NO scores (Paris bug)", async ({ page }) => {
+    // Paris dry-run bug: the Publish Results button was disabled whenever there
+    // were no scores, so a chapter with no finalized jury scores could never be
+    // completed. Use a THROWAWAY chapter (so the main suite is unaffected): in
+    // 'pitching' with zero scores, the button must be enabled and publishing must
+    // advance it to 'completed'.
+    const admin = getAdminClient();
+    const noScoreChapter = await createChapter({
+      name: `E2E No Scores ${RUN_ID}`,
+      city: "NS City",
+      country: "Germany",
+      countryCode: "DE",
+      description: "Throwaway chapter to test publishing with no scores.",
+      date: new Date(Date.now() + 86400000).toISOString().split("T")[0],
+      dateEnd: new Date(Date.now() + 2 * 86400000).toISOString().split("T")[0],
+      matchNumber: 97,
+    });
+    await setChapterStatus(noScoreChapter.id, "pitching");
+
+    // Confirm there really are no scores for it.
+    const { data: existingScores } = await admin
+      .from("scores")
+      .select("id")
+      .eq("chapter_id", noScoreChapter.id);
+    expect(existingScores?.length ?? 0).toBe(0);
+
+    await loginAsAdmin(page);
+    await page.goto(`/admin/chapters/${noScoreChapter.id}/scores`);
+    await page.waitForLoadState("networkidle");
+
+    // The Publish button must be ENABLED despite zero scores (the bug was it being
+    // permanently disabled). Accept the confirm dialog.
+    page.on("dialog", (d) => d.accept());
+    const publishBtn = page.getByRole("button", { name: /Publish Results/i });
+    await expect(publishBtn).toBeEnabled({ timeout: 10000 });
+    await publishBtn.click();
+
+    // The chapter must reach 'completed'.
+    await expect
+      .poll(
+        async () => {
+          const { data } = await admin
+            .from("chapters")
+            .select("status")
+            .eq("id", noScoreChapter.id)
+            .single();
+          return data?.status;
+        },
+        { timeout: 10000 }
+      )
+      .toBe("completed");
+
+    // Cleanup the throwaway chapter (no children to cascade beyond defaults).
+    await admin.from("chapters").delete().eq("id", noScoreChapter.id);
+  });
+
   // ── BLOCK 10: PUBLIC VERIFICATION ───────────────────────
 
   test("10.1 Leaderboard shows E2E teams", async ({ page }) => {
