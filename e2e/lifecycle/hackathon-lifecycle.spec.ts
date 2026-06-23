@@ -40,6 +40,24 @@ import {
 import { getAdminClient } from "../fixtures/supabase-admin";
 import { resolve } from "path";
 
+// ─── Per-run isolation token ─────────────────────────────────
+// The lifecycle chapter used to have a fixed slug ("e2e-match"), and
+// createChapter() defensively deletes any existing chapter with the same slug
+// before inserting. When two lifecycle runs share the test DB (CI + a local
+// run, or two CI runs), one run's createChapter would delete the other run's
+// chapter mid-flight, so pages like /apply/<slug> intermittently 404'd. A
+// per-run token makes the chapter name (and therefore the slug) unique, so
+// concurrent runs no longer clobber each other's chapter.
+// pid + time + randomness so two runs that start in the same millisecond (e.g.
+// two CI jobs, or CI overlapping a local run) still get distinct tokens.
+const RUN_ID = [
+  process.env.TEST_WORKER_INDEX ?? "0",
+  process.pid.toString(36),
+  Date.now().toString(36),
+  Math.random().toString(36).slice(2, 8),
+].join("-");
+const CHAPTER_NAME = `E2E Match ${RUN_ID}`;
+
 // ─── Shared state across serial tests ───────────────────────
 
 let chapterId: string;
@@ -383,7 +401,7 @@ test.describe.serial("Hackathon Lifecycle", () => {
     dayAfter.setDate(dayAfter.getDate() + 2);
 
     const chapter = await createChapter({
-      name: "E2E Match",
+      name: CHAPTER_NAME,
       city: "E2E City",
       country: "Germany",
       countryCode: "DE",
@@ -397,7 +415,9 @@ test.describe.serial("Hackathon Lifecycle", () => {
     chapterSlug = chapter.slug;
 
     expect(chapterId).toBeTruthy();
-    expect(chapterSlug).toBe("e2e-match");
+    // Slug is derived from CHAPTER_NAME and carries the per-run token, so it is
+    // unique across concurrent runs sharing the test DB (see RUN_ID above).
+    expect(chapterSlug).toMatch(/^e2e-match-/);
 
     // Set deadlines far in the future
     const futureDeadline = new Date();

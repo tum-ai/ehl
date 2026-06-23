@@ -347,8 +347,6 @@ export async function lookupExistingTeam(email: string) {
 // ─── Admin: Delete application ─────────────────────────────────
 
 export async function deleteApplication(applicationId: string) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
   // Fetch application data for the log before deleting
@@ -361,6 +359,9 @@ export async function deleteApplication(applicationId: string) {
   if (fetchError || !app) {
     return { error: "Application not found." };
   }
+
+  const authErr = await requireChapterAdminAction(app.chapter_id as string);
+  if (authErr) return { error: authErr };
 
   // Delete (screening_scores cascade, but team_members link via application doesn't exist)
   const { error } = await adminClient
