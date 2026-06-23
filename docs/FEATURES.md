@@ -254,6 +254,7 @@ There are two kinds of admin:
 - Status progression: draft > announced > applications_open > screening > registration_open > submissions_open > pitching > completed
 - Readiness checks prevent premature status advances (e.g. "at least one challenge exists")
 - Photo album management
+- Delete a chapter (global admins only): a type-to-confirm "Danger zone" that removes the chapter and cascades all its children (challenges, submissions, applications, scores, jury data, partners, media); audit-logged
 
 ### Application Screening (`/admin/chapters/<id>/applications`)
 - View all applications with filters

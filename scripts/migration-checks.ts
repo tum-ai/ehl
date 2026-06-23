@@ -239,6 +239,7 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
   { prefix: "00047", label: "chapter_admins_unique_user", sql: constraint("chapter_admins", "chapter_admins_user_id_unique") },
   { prefix: "00048", label: "cron_lock", sql: fn("try_acquire_cron_lock") },
   { prefix: "00049", label: "application_cancel_and_notes", sql: table("application_notes") },
+  { prefix: "00050", label: "delete_chapter_cascade", sql: fn("delete_chapter_cascade") },
 ];
 
 /**
