@@ -1,10 +1,8 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LimitBanner } from "@/components/admin/limit-banner";
-import { getSession } from "@/lib/actions/auth";
-import { getAdminChapterId } from "@/lib/chapter-admin";
+import { requireGlobalAdminPage } from "@/lib/admin-auth";
 import {
   getAllSubmissions,
   getAllChallengeRegistrations,
@@ -16,34 +14,28 @@ import { formatDate } from "@/lib/utils";
 import type { Challenge, Chapter } from "@/lib/types";
 
 /**
- * Global admin view of every submission across all chapters. Chapter admins see
- * only their own chapter's submissions. Also surfaces teams that REGISTERED for a
- * challenge but never submitted ("No submission"), so admins can see who is
- * missing an entry.
+ * Global-admin view of every submission across all chapters. Also surfaces teams
+ * that REGISTERED for a challenge but never submitted ("No submission"), so admins
+ * can see who is missing an entry.
+ *
+ * Global admins ONLY: RLS does not grant chapter_admins read access to the
+ * submissions table, so the view is not functional for them; we gate it to global
+ * admins rather than show a misleadingly empty page.
  */
 export default async function AdminSubmissionsPage() {
-  const session = await getSession();
-  const role = session?.profile?.role;
+  await requireGlobalAdminPage();
 
-  // Auth + scope: global admins see everything; chapter admins are confined to
-  // their own chapter; anyone else is bounced.
-  let scopedChapterId: string | null = null;
-  if (role === "admin") {
-    // global admin: no scope
-  } else if (session && role === "chapter_admin") {
-    scopedChapterId = await getAdminChapterId(session.user.id);
-    if (!scopedChapterId) redirect("/admin/login");
-  } else {
-    redirect("/admin/login");
-  }
-
-  const [{ submissions, limit, limited }, registrations, chapters, teams] =
-    await Promise.all([
-      getAllSubmissions(),
-      getAllChallengeRegistrations(),
-      getChaptersAdmin(),
-      getTeams(),
-    ]);
+  const [
+    { submissions, limit: subLimit, limited: subLimited },
+    { registrations, limit: regLimit, limited: regLimited },
+    chapters,
+    teams,
+  ] = await Promise.all([
+    getAllSubmissions(),
+    getAllChallengeRegistrations(),
+    getChaptersAdmin(),
+    getTeams(),
+  ]);
 
   // Load challenges for every chapter and build a challengeId -> challenge map.
   const challengeLists = await Promise.all(
@@ -78,15 +70,11 @@ export default async function AdminSubmissionsPage() {
     return ch ? chapterById.get(ch.chapterId) : undefined;
   };
 
-  const inScope = (chapterId: string | undefined) =>
-    !scopedChapterId || chapterId === scopedChapterId;
-
   const rows: Row[] = [];
 
   for (const s of submissions) {
     const challenge = challengeById.get(s.challengeId);
     const chapter = chapterFor(s.challengeId);
-    if (!inScope(chapter?.id)) continue;
     rows.push({
       key: `sub:${s.id}`,
       chapterName: chapter?.name ?? "Unknown match",
@@ -103,7 +91,6 @@ export default async function AdminSubmissionsPage() {
     if (submittedKeys.has(`${r.challengeId}:${r.teamId}`)) continue;
     const challenge = challengeById.get(r.challengeId);
     const chapter = chapterFor(r.challengeId);
-    if (!inScope(chapter?.id)) continue;
     rows.push({
       key: `reg:${r.id}`,
       chapterName: chapter?.name ?? "Unknown match",
@@ -134,11 +121,16 @@ export default async function AdminSubmissionsPage() {
         <h1 className="ad-title text-2xl">Submissions</h1>
         <p className="mt-1 ad-text-secondary">
           {submittedCount} submitted, {missingCount} registered without a
-          submission{scopedChapterId ? " (your chapter)" : ""}.
+          submission.
         </p>
       </div>
 
-      <LimitBanner count={limited ? limit : 0} limit={limit} label="submissions" />
+      <LimitBanner count={subLimited ? subLimit : 0} limit={subLimit} label="submissions" />
+      <LimitBanner
+        count={regLimited ? regLimit : 0}
+        limit={regLimit}
+        label="challenge registrations"
+      />
 
       <Card className="mt-4">
         <div className="overflow-x-auto">

@@ -59,16 +59,19 @@ export async function getRegistrationForTeam(
  * authenticated server client so RLS applies (global admins see all). Capped by
  * QUERY_LIMITS.challengeRegistrations.
  */
-export async function getAllChallengeRegistrations(): Promise<
-  ChallengeRegistration[]
-> {
+export async function getAllChallengeRegistrations(): Promise<{
+  registrations: ChallengeRegistration[];
+  limit: number;
+  limited: boolean;
+}> {
   const { createClient: createServerClient } = await import("@/lib/supabase/server");
   const supabase = await createServerClient();
+  const limit = QUERY_LIMITS.challengeRegistrations;
   const { data } = await supabase
     .from("challenge_registrations")
     .select("*")
-    .limit(QUERY_LIMITS.challengeRegistrations);
-  return (data ?? []).map((row) => ({
+    .limit(limit);
+  const registrations = (data ?? []).map((row) => ({
     id: row.id as string,
     chapterId: row.chapter_id as string,
     challengeId: row.challenge_id as string,
@@ -76,6 +79,7 @@ export async function getAllChallengeRegistrations(): Promise<
     roster: (row.roster as string[]) ?? [],
     registeredAt: row.registered_at as string,
   }));
+  return { registrations, limit, limited: registrations.length >= limit };
 }
 
 // ─── Pitch Order Queries ──────────────────────────────────

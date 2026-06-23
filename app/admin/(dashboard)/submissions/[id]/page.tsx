@@ -1,9 +1,8 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { getSession } from "@/lib/actions/auth";
-import { getAdminChapterId } from "@/lib/chapter-admin";
+import { requireGlobalAdminPage } from "@/lib/admin-auth";
 import {
   getSubmissionById,
   getChallengeById,
@@ -37,24 +36,14 @@ function getDriveEmbedUrl(url: string): string | null {
 export default async function AdminSubmissionDetailPage({ params }: PageProps) {
   const { id: submissionId } = await params;
 
-  const session = await getSession();
-  const role = session?.profile?.role;
-  if (!session || (role !== "admin" && role !== "chapter_admin")) {
-    redirect("/admin/login");
-  }
+  // Global admins only (RLS does not grant chapter_admins read on submissions).
+  await requireGlobalAdminPage();
 
   const submission = await getSubmissionById(submissionId);
   if (!submission) notFound();
 
   const challenge = await getChallengeById(submission.challengeId);
   if (!challenge) notFound();
-
-  // Chapter-admin scoping: a local admin may only view submissions for their own
-  // chapter. (challenge.chapterId is the chapter this submission belongs to.)
-  if (role === "chapter_admin") {
-    const ownChapter = await getAdminChapterId(session.user.id);
-    if (!ownChapter || ownChapter !== challenge.chapterId) notFound();
-  }
 
   const [teams, codeReview] = await Promise.all([
     getTeams(),
