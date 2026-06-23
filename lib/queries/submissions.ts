@@ -30,6 +30,29 @@ export async function getSubmissionsForChallengeAuthenticated(
   return (data ?? []).map(toSubmission);
 }
 
+/**
+ * All submissions across every chapter/challenge, for the global admin
+ * submissions view. Uses the authenticated server client so RLS applies (global
+ * admins see all; the page guard restricts who can call this). Returns the
+ * limit so the caller can show a LimitBanner when truncated.
+ */
+export async function getAllSubmissions(): Promise<{
+  submissions: Submission[];
+  limit: number;
+  limited: boolean;
+}> {
+  const { createClient: createServerClient } = await import("@/lib/supabase/server");
+  const supabase = await createServerClient();
+  const limit = QUERY_LIMITS.submissionsAll;
+  const { data } = await supabase
+    .from("submissions")
+    .select("*")
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+  const submissions = (data ?? []).map(toSubmission);
+  return { submissions, limit, limited: submissions.length >= limit };
+}
+
 export async function getSubmissionById(
   id: string
 ): Promise<Submission | null> {

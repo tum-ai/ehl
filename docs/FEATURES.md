@@ -287,6 +287,12 @@ There are two kinds of admin:
 - Remove individual members
 - Delete teams
 
+### Submissions (`/admin/submissions`)
+- List every submission across all chapters (match, challenge, team, project, updated)
+- Also shows teams that registered for a challenge but never submitted ("No submission")
+- Click through to the full submission detail (`/admin/submissions/<id>`): description, tech stack, links/repo/fork, embedded files (pitch deck preview), and the AI code review
+- Global admins see all submissions; chapter admins see only their own chapter's
+
 ### Score Management (`/admin/chapters/<id>/scores`)
 - View aggregated jury rankings per challenge
 - Individual juror vote inspection

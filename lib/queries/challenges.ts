@@ -53,6 +53,31 @@ export async function getRegistrationForTeam(
   };
 }
 
+/**
+ * All challenge registrations across every chapter, for the admin submissions
+ * view (to surface teams that registered but never submitted). Uses the
+ * authenticated server client so RLS applies (global admins see all). Capped by
+ * QUERY_LIMITS.challengeRegistrations.
+ */
+export async function getAllChallengeRegistrations(): Promise<
+  ChallengeRegistration[]
+> {
+  const { createClient: createServerClient } = await import("@/lib/supabase/server");
+  const supabase = await createServerClient();
+  const { data } = await supabase
+    .from("challenge_registrations")
+    .select("*")
+    .limit(QUERY_LIMITS.challengeRegistrations);
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    chapterId: row.chapter_id as string,
+    challengeId: row.challenge_id as string,
+    teamId: row.team_id as string,
+    roster: (row.roster as string[]) ?? [],
+    registeredAt: row.registered_at as string,
+  }));
+}
+
 // ─── Pitch Order Queries ──────────────────────────────────
 
 export async function getPitchOrder(

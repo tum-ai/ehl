@@ -1054,6 +1054,26 @@ test.describe.serial("Hackathon Lifecycle", () => {
     expect(res.status).toBe(404);
   });
 
+  test("7.6 Admin Submissions view lists submissions and opens the detail", async ({ page }) => {
+    // Paris dry-run gap: admins had no view of all submissions. The global
+    // /admin/submissions list must show this chapter's submissions and link to a
+    // full detail page.
+    await loginAsAdmin(page);
+    await page.goto("/admin/submissions");
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByRole("heading", { name: /submissions/i })).toBeVisible({ timeout: 10000 });
+    // The submitted project (from 7.1/7.2) appears in the list.
+    await expect(page.getByText("E2E Project Alpha")).toBeVisible({ timeout: 10000 });
+
+    // Click through to the detail page via the first "View" link.
+    await page.getByRole("link", { name: /View/i }).first().click();
+    await page.waitForURL(/\/admin\/submissions\/[0-9a-f-]+$/, { timeout: 10000 });
+    // The detail page shows the project name as a heading and a Back link.
+    await expect(page.getByRole("link", { name: /Back to submissions/i })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole("heading", { name: /E2E Project (Alpha|Beta)/i })).toBeVisible();
+  });
+
   // ── BLOCK 8: JURY VOTING ────────────────────────────────
 
   test("8.1 Assign jury to challenge", async () => {
