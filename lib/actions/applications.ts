@@ -10,7 +10,10 @@ import {
   renderApplicationReceivedEmail,
   renderApplicationAcceptedEmail,
   renderApplicationRejectedEmail,
+  renderApplicationCancelledEmail,
 } from "@/lib/emails/render";
+import { getSession } from "@/lib/actions/auth";
+import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
 import { formatDateRange } from "@/lib/utils";
 import type { ApplicationStatus, ApplicationTeamMember } from "@/lib/types";
 import { uploadFile } from "@/lib/gdrive";
@@ -387,6 +390,14 @@ export async function updateApplicationStatus(
   applicationId: string,
   status: ApplicationStatus
 ) {
+  // Cancellation must go through cancelApplication(), which records the reason,
+  // a note, and the cancel metadata. The generic action only writes status, so
+  // it must never produce a "cancelled" row (that would be a terminal state with
+  // no cancelled_at / cancel_reason / note / audit).
+  if (status === "cancelled") {
+    return { error: "Use the cancel action to cancel an applicant." };
+  }
+
   const adminClient = createAdminClient();
 
   // Check if status is locked (email already sent)
@@ -398,6 +409,15 @@ export async function updateApplicationStatus(
 
   const authErr = await requireChapterAdminAction(app?.chapter_id as string);
   if (authErr) return { error: authErr };
+
+  // Cancellation is terminal: a cancelled applicant can never be reactivated via
+  // the generic status action. The UI disables the buttons, but this server
+  // action is a public endpoint, so the invariant must be enforced here too.
+  // (An applicant cancelled while only "accepted"/"checked_in" has no email
+  // timestamp, so the email lock below would not catch it.)
+  if (app?.status === "cancelled") {
+    return { error: "Cancelled applications cannot be reactivated." };
+  }
 
   if (app?.acceptance_email_sent_at || app?.rejection_email_sent_at) {
     return { error: "Cannot change status after email has been sent." };
@@ -429,12 +449,18 @@ export async function bulkUpdateApplicationStatus(
   applicationIds: string[],
   status: ApplicationStatus
 ) {
+  // Cancellation must go through cancelApplication() (per-applicant reason +
+  // note + audit), never the bulk status action.
+  if (status === "cancelled") {
+    return { error: "Use the cancel action to cancel an applicant." };
+  }
+
   const adminClient = createAdminClient();
 
-  // Filter out locked applications (email already sent)
+  // Filter out locked applications (email already sent) and cancelled ones
   const { data: apps } = await adminClient
     .from("applications")
-    .select("id, acceptance_email_sent_at, rejection_email_sent_at, chapter_id")
+    .select("id, acceptance_email_sent_at, rejection_email_sent_at, status, chapter_id")
     .in("id", applicationIds);
 
   const chapterId = (apps ?? [])[0]?.chapter_id as string | undefined;
@@ -445,12 +471,18 @@ export async function bulkUpdateApplicationStatus(
   const crossChapter = (apps ?? []).some((a) => a.chapter_id !== chapterId);
   if (crossChapter) return { error: "All applications must belong to the same chapter." };
 
+  // Cancelled applications are terminal and excluded, just like email-locked ones.
   const actionableIds = (apps ?? [])
-    .filter((a) => !a.acceptance_email_sent_at && !a.rejection_email_sent_at)
+    .filter(
+      (a) =>
+        a.status !== "cancelled" &&
+        !a.acceptance_email_sent_at &&
+        !a.rejection_email_sent_at
+    )
     .map((a) => a.id as string);
 
   if (actionableIds.length === 0) {
-    return { error: "All selected applications are locked (email already sent)." };
+    return { error: "All selected applications are locked (email already sent) or cancelled." };
   }
 
   const { error } = await adminClient
@@ -614,6 +646,233 @@ export async function sendRejectionEmails(applicationIds: string[]) {
 
   return { success: true, sent };
 }
+
+// ─── Admin: Cancel an accepted applicant ─────────────────────
+
+// Unlike updateApplicationStatus, cancelling is allowed AFTER the acceptance
+// email has been sent: the whole point is to handle an accepted (and emailed)
+// person who can no longer attend. The reason is stored on the application and
+// written as the first note, and the transition is recorded in the event_log.
+export async function cancelApplication(
+  applicationId: string,
+  reason: string,
+  sendEmailToApplicant = false
+) {
+  const trimmedReason = reason?.trim();
+  if (!trimmedReason) {
+    return { error: "A reason is required to cancel an applicant." };
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: app } = await adminClient
+    .from("applications")
+    .select("*, chapters!inner(name, city, country, date, date_end)")
+    .eq("id", applicationId)
+    .single();
+
+  // Authorize before distinguishing not-found from unauthorized, so an
+  // unauthorized caller cannot use the error to probe which application IDs
+  // exist. When the row is missing we have no chapter_id, so run the guard with
+  // an empty chapter: only a global admin passes (and may see "not found");
+  // everyone else gets the generic auth error regardless of existence.
+  const authErr = await requireChapterAdminAction(
+    (app?.chapter_id as string) ?? ""
+  );
+  if (authErr) return { error: authErr };
+
+  if (!app) {
+    return { error: "Application not found." };
+  }
+
+  // Cancelling only makes sense for someone who was going to attend: an accepted
+  // or checked-in applicant who can no longer come. Pending/rejected/waitlisted
+  // applicants are handled by the normal review flow, not by this terminal path.
+  // This mirrors the button visibility in the admin UI.
+  if (app.status !== "accepted" && app.status !== "checked_in") {
+    if (app.status === "cancelled") {
+      return { error: "This applicant is already cancelled." };
+    }
+    return { error: "Only accepted or checked-in applicants can be cancelled." };
+  }
+
+  const session = await getSession();
+  const actorId = session?.profile?.id ?? null;
+  const actorEmail = session?.profile?.email ?? null;
+  const previousStatus = app.status as string;
+  const now = new Date().toISOString();
+
+  const { error } = await adminClient
+    .from("applications")
+    .update({
+      status: "cancelled",
+      cancelled_at: now,
+      cancelled_by: actorId,
+      cancel_reason: trimmedReason,
+      updated_at: now,
+    })
+    .eq("id", applicationId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  // Keep event-participation state consistent: a cancelled attendee must not
+  // remain in any challenge_registrations.roster, where they would still count
+  // toward the team (submission gating only checks the submitter's own check-in,
+  // never re-validates the roster). Rosters store profiles.id, but applications
+  // are keyed by email, so resolve the profile first. Best-effort: a failure
+  // here does not fail the cancel, since the application is already cancelled.
+  const cancelledEmail = app.email as string;
+  let rostersUpdated = 0;
+  let registrationsRemoved = 0;
+  const { data: profileRow } = await adminClient
+    .from("profiles")
+    .select("id")
+    .eq("email", cancelledEmail)
+    .maybeSingle();
+  const cancelledUserId = (profileRow?.id as string) ?? null;
+  if (cancelledUserId) {
+    const { data: regs } = await adminClient
+      .from("challenge_registrations")
+      .select("id, roster")
+      .eq("chapter_id", app.chapter_id as string);
+    for (const reg of regs ?? []) {
+      const roster = (reg.roster as string[]) ?? [];
+      if (!roster.includes(cancelledUserId)) continue;
+      const nextRoster = roster.filter((uid) => uid !== cancelledUserId);
+      // Removing the member can drop the roster below the registration minimum.
+      // Such a registration is invalid (submission gating only checks that a
+      // registration row exists, not its size), so delete it rather than persist
+      // an under-strength roster the team could still submit with. The team must
+      // re-register with a valid roster.
+      if (nextRoster.length < MIN_CHALLENGE_ROSTER) {
+        const { error: delErr } = await adminClient
+          .from("challenge_registrations")
+          .delete()
+          .eq("id", reg.id as string);
+        if (!delErr) registrationsRemoved++;
+      } else {
+        const { error: regErr } = await adminClient
+          .from("challenge_registrations")
+          .update({ roster: nextRoster })
+          .eq("id", reg.id as string);
+        if (!regErr) rostersUpdated++;
+      }
+    }
+  }
+
+  // The cancel reason becomes the first entry in the notes history.
+  await adminClient.from("application_notes").insert({
+    application_id: applicationId,
+    author_id: actorId,
+    author_email: actorEmail,
+    body: `Cancelled (was ${previousStatus}): ${trimmedReason}`,
+  });
+
+  logEvent({
+    action: "application.cancelled",
+    entityType: "application",
+    entityId: applicationId,
+    actorId,
+    actorType: "admin",
+    delta: {
+      status: { from: previousStatus, to: "cancelled" },
+      reason: trimmedReason,
+      email_sent: sendEmailToApplicant,
+      rosters_updated: rostersUpdated,
+      registrations_removed: registrationsRemoved,
+    },
+  });
+
+  if (sendEmailToApplicant) {
+    const chapter = app.chapters as Record<string, unknown>;
+    const dateStr = formatDateRange(
+      chapter.date as string,
+      chapter.date_end as string | null
+    );
+    sendEmailAfterResponse("application-cancelled", async () => {
+      const html = await renderApplicationCancelledEmail({
+        firstName: app.first_name as string,
+        chapterName: chapter.name as string,
+        chapterCity: `${chapter.city}, ${chapter.country}`,
+        chapterDate: dateStr,
+      });
+      await sendEmail({
+        to: app.email as string,
+        subject: `Your spot for ${chapter.name} has been cancelled`,
+        html,
+        skipRateLimit: true,
+      });
+    });
+  }
+
+  return { success: true };
+}
+
+// Note: cancellation is terminal. Once an applicant is cancelled there is no
+// further status transition at all: updateApplicationStatus refuses to act on a
+// cancelled row (no reversal to accepted, and no move to rejected either). This
+// is enforced server-side, not just in the UI.
+
+// ─── Admin: Application notes (append-only history) ──────────
+
+export async function addApplicationNote(applicationId: string, body: string) {
+  const trimmed = body?.trim();
+  if (!trimmed) {
+    return { error: "Note cannot be empty." };
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: app } = await adminClient
+    .from("applications")
+    .select("chapter_id")
+    .eq("id", applicationId)
+    .single();
+
+  // Authorize before distinguishing not-found from unauthorized (see
+  // cancelApplication): prevents probing application-ID existence.
+  const authErr = await requireChapterAdminAction(
+    (app?.chapter_id as string) ?? ""
+  );
+  if (authErr) return { error: authErr };
+
+  if (!app) {
+    return { error: "Application not found." };
+  }
+
+  const session = await getSession();
+  const actorId = session?.profile?.id ?? null;
+  const actorEmail = session?.profile?.email ?? null;
+
+  const { error } = await adminClient.from("application_notes").insert({
+    application_id: applicationId,
+    author_id: actorId,
+    author_email: actorEmail,
+    body: trimmed,
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  logEvent({
+    action: "application.note_added",
+    entityType: "application",
+    entityId: applicationId,
+    actorId,
+    actorType: "admin",
+    delta: { note: { added: true } },
+  });
+
+  return { success: true };
+}
+
+// Note: application notes are read by the admin detail API route
+// (app/api/admin/chapters/[id]/applications/[applicationId]/route.ts), which
+// queries application_notes directly alongside the application, so there is no
+// separate getApplicationNotes server action.
 
 // ─── Admin: Send all pending emails (acceptance + rejection) ─
 

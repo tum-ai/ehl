@@ -160,7 +160,7 @@ export default function AdminApplicationsPage({
   });
 
   // Dynamic sorting
-  const statusOrder: Record<string, number> = { checked_in: 0, accepted: 1, waitlisted: 2, pending: 3, rejected: 4 };
+  const statusOrder: Record<string, number> = { checked_in: 0, accepted: 1, waitlisted: 2, pending: 3, rejected: 4, cancelled: 5 };
 
   function toggleSort(col: typeof sortCol) {
     if (sortCol === col) {
@@ -546,6 +546,7 @@ export default function AdminApplicationsPage({
       case "rejected": return <Badge variant="default" light>Rejected</Badge>;
       case "waitlisted": return <Badge variant="announced" light>Waitlisted</Badge>;
       case "checked_in": return <Badge variant="live" light>Checked In</Badge>;
+      case "cancelled": return <Badge variant="default" light>Cancelled</Badge>;
       default: return <Badge variant="upcoming" light>Pending</Badge>;
     }
   };
@@ -977,6 +978,7 @@ export default function AdminApplicationsPage({
             <option value="rejected">Rejected</option>
             <option value="waitlisted">Waitlisted</option>
             <option value="checked_in">Checked In</option>
+            <option value="cancelled">Cancelled</option>
           </select>
           <select
             value={leagueFilter}

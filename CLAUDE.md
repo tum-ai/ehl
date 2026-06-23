@@ -92,24 +92,56 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-46 sequential migrations in `supabase/migrations/`. Key tables:
+49 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users), `teams`, `team_members`, `team_invites`, `team_join_requests`
-- `chapters` (matches), `challenges`, `chapter_unlocks`, `challenge_registrations`
+- `chapters` (matches), `challenges`, `challenge_registrations`
 - `submissions`, `code_reviews`
 - `jury_assignments`, `jury_rankings`, `jury_feedback`
-- `applications`, `screening_scores`, `verification_codes`, `participant_flags`
+- `applications`, `application_notes` (admin notes history), `screening_scores`, `verification_codes`, `participant_flags`
 - `scores`, `partners`, `media`
 - `admin_emails`, `chapter_admins` (local/chapter admins), `app_settings`, `admin_audit_log`
 - `leaderboard` (Postgres VIEW, not a table)
 
 RLS is enabled on all tables. Admin operations use `createAdminClient()` which bypasses RLS.
 
+### Verifying migrations are applied (catches "code shipped, migration didn't")
+Migrations here are applied ad-hoc via the Management API (`scripts/db-migrate.sh`,
+`apply-migrations-via-api.ts`), so there is no `schema_migrations` ledger. To confirm a
+database actually has every migration, run:
+```
+pnpm db:check          # PRODUCTION (default)
+pnpm db:check:test     # test instance
+```
+This runs one read-only probe per migration (in `scripts/migration-checks.ts`) against the
+live catalog and reports any that are missing. A red E2E test on a feature branch is often
+just a migration that never reached the target DB: run `db:check` before assuming app-code
+is at fault.
+
+Two layers run automatically in CI (`.github/workflows/test.yml`, `checks` job):
+- **Unit test** (`tests/migration-checks.test.ts`, runs in `pnpm test`, no DB needed): fails
+  if a migration file has no manifest entry. This is the guard that enforces the rule below.
+- **Live test-DB check**: runs `check-migrations-applied.ts` against the test Supabase. Only
+  runs when the `SUPABASE_ACCESS_TOKEN` + `SUPABASE_TEST_REF` repo secrets are set; skipped
+  otherwise so it never blocks forks. Production is checked manually with `pnpm db:check`.
+
+A migration with no independently observable artifact (its effect is reverted or absorbed
+by a later migration, or it is a defensive `... IF EXISTS` no-op) has nothing to probe. Mark
+it `unverifiable: { reason, coveredBy? }` instead of `sql` — the runner reports it as
+UNVERIFIABLE (never failed on), and `coveredBy` names the later migration whose probe
+verifies the net schema state.
+
+**RULE (NON-NEGOTIABLE): every new migration MUST add a matching entry to
+`scripts/migration-checks.ts` in the same PR**, keyed by its file prefix, asserting the
+most distinctive artifact it introduces (table, column, constraint, enum value, policy,
+index, function, or view fragment). A unit test (`tests/migration-checks.test.ts`) fails if
+a migration file has no manifest entry, so this cannot be silently skipped.
+
 ## Project Structure
 ```
 lib/
   actions/              — Server actions (registration, teams, submissions, jury, admin, applications, event, auth, screening, flags)
   queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles)
-  emails/               — React Email templates (layout.tsx shared, 11 individual templates)
+  emails/               — React Email templates (layout.tsx shared, 12 individual templates)
   certificates/         — PDF certificate template (@react-pdf/renderer)
   code-review/          — AI review pipeline (ingest, openrouter, pipeline, prompts)
   config/               — Centralized configuration (limits.ts with env var overrides)
@@ -232,7 +264,7 @@ that touches behavior without touching tests is incomplete. No exceptions.
 When a code change affects any of the following, update the corresponding docs in the same commit:
 - **New feature/flow**: Update `docs/FEATURES.md` with what it does and which roles can use it
 - **New env var**: Add to `.env.local.example` and `docs/SETUP.md` Section 10
-- **New migration**: Update migration count in `CLAUDE.md` Database section
+- **New migration**: Update migration count in `CLAUDE.md` Database section AND add a probe entry to `scripts/migration-checks.ts` (the `db:check` manifest; a unit test enforces this)
 - **Changed auth/security**: Update `docs/SECURITY.md`
 - **New/changed API route or action**: Update Architecture section in `CLAUDE.md` if it changes the data flow
 - **New test pattern**: Update `docs/TESTING.md` if it introduces a new testing approach

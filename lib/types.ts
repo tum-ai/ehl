@@ -377,7 +377,13 @@ export interface MediaItem {
 
 // ─── Applications ───────────────────────────────────────────
 
-export type ApplicationStatus = "pending" | "accepted" | "rejected" | "waitlisted" | "checked_in";
+export type ApplicationStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "waitlisted"
+  | "checked_in"
+  | "cancelled";
 
 export interface ApplicationFormData {
   dateOfBirth: string;
@@ -437,6 +443,18 @@ export interface Application {
   updatedAt: string;
   acceptanceEmailSentAt: string | null;
   rejectionEmailSentAt: string | null;
+  cancelledAt: string | null;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+}
+
+export interface ApplicationNote {
+  id: string;
+  applicationId: string;
+  authorId: string | null;
+  authorEmail: string | null;
+  body: string;
+  createdAt: string;
 }
 
 // ─── Screening ─────────────────────────────────────────────
