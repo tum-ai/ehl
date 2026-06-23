@@ -21,31 +21,22 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("redirect");
   const [error, setError] = useState<string | null>(null);
-  const [noAccountAccepted, setNoAccountAccepted] = useState(false);
-  const [submittedEmail, setSubmittedEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const turnstileRef = useRef<TurnstileRef>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
-    setNoAccountAccepted(false);
     setLoading(true);
 
     const turnstileToken = turnstileRef.current?.getToken() ?? "";
 
     const formData = new FormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
-    const email = formData.get("email") as string;
     const result = await signIn(formData, redirectTo ?? undefined);
 
     if (result?.error) {
-      if (result.error === "no_account_accepted") {
-        setNoAccountAccepted(true);
-        setSubmittedEmail(email);
-      } else {
-        setError(result.error);
-      }
+      setError(result.error);
       setLoading(false);
       turnstileRef.current?.reset();
     }
@@ -91,21 +82,6 @@ function LoginForm() {
 
           {error && (
             <p className="text-sm text-error">{error}</p>
-          )}
-
-          {noAccountAccepted && (
-            <div className="rounded-lg border border-gold/30 bg-gold/5 p-4">
-              <p className="text-sm font-medium text-gold">Application accepted!</p>
-              <p className="mt-1 text-sm text-text-secondary">
-                Your application has been accepted, but you need to create an account first. Register with the same email to get started.
-              </p>
-              <Link
-                href={`/register?email=${encodeURIComponent(submittedEmail)}`}
-                className="mt-3 inline-block rounded-lg bg-gold px-4 py-2 text-sm font-bold text-surface-deep transition-colors hover:bg-gold/90"
-              >
-                Create Account
-              </Link>
-            </div>
           )}
 
           <Turnstile ref={turnstileRef} />
