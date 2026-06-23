@@ -10,11 +10,14 @@ export type EntireFeedback = { entireOk?: boolean; entireWarning?: string };
  * user finds out at "Verify", not after clicking Submit — the confusing UX from
  * the Paris dry-run.
  *
- * Important: only block on a DEFINITE failure (entireOk === false). A transient
- * error makes entireFeedback return {} (entireOk undefined); we must NOT block on
- * that (no false positives), matching the "stay silent on transient errors" rule.
- * When the gate passes (entireOk true) or is not applicable ({}), the feedback is
- * merged into the base response unchanged.
+ * Important: only block on a DEFINITE failure (entireOk === false). When the gate
+ * is not applicable, or entireFeedback's own try/catch swallows a thrown error,
+ * it returns {} (entireOk undefined) and we must NOT block (no false positives).
+ * Note: checkCheckpointBranch treats a GitHub non-OK response as "branch not
+ * usable" (entireOk false), so a GitHub outage blocks at verify just as it would
+ * at submit — that is intentional parity with the submitProject hard gate, not a
+ * verify-only false positive. When the gate passes (entireOk true) or is not
+ * applicable ({}), the feedback is merged into the base response unchanged.
  */
 export function withEntireGate(
   base: Record<string, unknown>,
