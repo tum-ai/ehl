@@ -118,8 +118,17 @@ An operator re-runs the seed command above. Testers just reload.
 ## How the no-Google login works
 
 `/dev-login` (gated by `DEV_LOGIN_ENABLED=true`) calls `devLoginAction`
-(`lib/actions/dev-login.ts`), which mints a Supabase magic link via the service role and
-forwards the browser through the existing `app/auth/callback/route.ts` handler — the same
-mechanism as `scripts/dev-admin-login.js`, but one click and for every role. The page and
-action both **404 / refuse** unless `DEV_LOGIN_ENABLED === "true"`, so this must never be
-enabled in production.
+(`lib/actions/dev-login.ts`), which mints a single-use Supabase magic-link token via the
+service role and consumes it **server-side** with `verifyOtp` in the same request. The
+session cookie is written directly onto the action's response, then it redirects to the
+persona's destination. It deliberately does **not** bounce the token through the URL /
+`app/auth/callback/route.ts`: magic-link tokens are single-use, so a prefetch or retried
+click would consume the token and drop the user on the login page. Verifying server-side
+consumes it exactly once. (`scripts/dev-admin-login.js` is the older single-persona CLI
+variant; `/dev-login` is one click and covers every role.)
+
+The page and action both **404 / refuse** unless `DEV_LOGIN_ENABLED === "true"`, and a
+runtime tripwire additionally throws if the flag is ever set on the production deployment
+(`VERCEL_ENV === "production"`), so it cannot be enabled there even by mistake. The check
+keys off `VERCEL_ENV`, not `NODE_ENV`, because the Docker sim image intentionally runs with
+`NODE_ENV=production`.
