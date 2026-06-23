@@ -15,6 +15,7 @@ import type {
   Profile,
   SubmissionFieldConfig,
   Application,
+  ApplicationNote,
   ApplicationFormData,
   ApplicationTeamMember,
   ScreeningScore,
@@ -240,6 +241,20 @@ export function toApplication(row: Record<string, unknown>): Application {
     updatedAt: row.updated_at as string,
     acceptanceEmailSentAt: (row.acceptance_email_sent_at as string) ?? null,
     rejectionEmailSentAt: (row.rejection_email_sent_at as string) ?? null,
+    cancelledAt: (row.cancelled_at as string) ?? null,
+    cancelledBy: (row.cancelled_by as string) ?? null,
+    cancelReason: (row.cancel_reason as string) ?? null,
+  };
+}
+
+export function toApplicationNote(row: Record<string, unknown>): ApplicationNote {
+  return {
+    id: row.id as string,
+    applicationId: row.application_id as string,
+    authorId: (row.author_id as string) ?? null,
+    authorEmail: (row.author_email as string) ?? null,
+    body: row.body as string,
+    createdAt: row.created_at as string,
   };
 }
 

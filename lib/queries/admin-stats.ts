@@ -40,6 +40,7 @@ export interface ChapterDetailStats {
     rejected: number;
     waitlisted: number;
     checkedIn: number;
+    cancelled: number;
   };
   challenges: Array<{
     challengeId: string;
@@ -187,6 +188,7 @@ export async function getChapterDetailStats(
     rejected: allApps.filter((a) => a.status === "rejected").length,
     waitlisted: allApps.filter((a) => a.status === "waitlisted").length,
     checkedIn: allApps.filter((a) => a.status === "checked_in").length,
+    cancelled: allApps.filter((a) => a.status === "cancelled").length,
   };
 
   // Challenges for this chapter

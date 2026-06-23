@@ -25,6 +25,7 @@ export async function GET(
     rejected: rows.filter((r) => r.status === "rejected").length,
     waitlisted: rows.filter((r) => r.status === "waitlisted").length,
     checkedIn: rows.filter((r) => r.status === "checked_in").length,
+    cancelled: rows.filter((r) => r.status === "cancelled").length,
   };
 
   return NextResponse.json(stats);

@@ -237,6 +237,8 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
   { prefix: "00045", label: "chapter_admin_role", sql: enumValue("user_role", "chapter_admin") },
   { prefix: "00046", label: "chapter_admins", sql: table("chapter_admins") },
   { prefix: "00047", label: "chapter_admins_unique_user", sql: constraint("chapter_admins", "chapter_admins_user_id_unique") },
+  { prefix: "00048", label: "cron_lock", sql: fn("try_acquire_cron_lock") },
+  { prefix: "00049", label: "application_cancel_and_notes", sql: table("application_notes") },
 ];
 
 /**

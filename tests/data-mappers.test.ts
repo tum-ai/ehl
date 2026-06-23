@@ -7,6 +7,7 @@ import {
   toSubmission,
   toProfile,
   toApplication,
+  toApplicationNote,
   toTeamMember,
   toPitchOrder,
   toJuryRanking,
@@ -262,6 +263,26 @@ describe("toApplication", () => {
     expect(app.consentSponsorData).toBe(false);
     expect(app.acceptanceEmailSentAt).toBeNull();
     expect(app.rejectionEmailSentAt).toBeNull();
+    expect(app.cancelledAt).toBeNull();
+    expect(app.cancelledBy).toBeNull();
+    expect(app.cancelReason).toBeNull();
+  });
+
+  it("maps cancellation metadata for a cancelled application", () => {
+    const row = {
+      id: "a1", chapter_id: "c1", email: "test@example.com",
+      first_name: "John", last_name: "Doe", status: "cancelled",
+      check_in_token: "tok123",
+      consent_attendance: true, consent_privacy: true,
+      created_at: "2026-05-01", updated_at: "2026-06-01",
+      cancelled_at: "2026-06-01T09:00:00", cancelled_by: "admin-1",
+      cancel_reason: "emailed they cannot attend",
+    };
+    const app = toApplication(row);
+    expect(app.status).toBe("cancelled");
+    expect(app.cancelledAt).toBe("2026-06-01T09:00:00");
+    expect(app.cancelledBy).toBe("admin-1");
+    expect(app.cancelReason).toBe("emailed they cannot attend");
   });
 
   it("preserves consent flags when true", () => {
@@ -282,6 +303,40 @@ describe("toApplication", () => {
     expect(app.consentIpTransfer).toBe(true);
     expect(app.consentSponsorData).toBe(true);
     expect(app.acceptanceEmailSentAt).toBe("2026-05-02T10:00:00");
+  });
+});
+
+// ─── toApplicationNote ──────────────────────────────────────
+
+describe("toApplicationNote", () => {
+  it("maps all fields and defaults author info to null", () => {
+    const note = toApplicationNote({
+      id: "n1",
+      application_id: "a1",
+      body: "called him, will confirm tomorrow",
+      created_at: "2026-06-01T09:00:00",
+    });
+    expect(note).toEqual({
+      id: "n1",
+      applicationId: "a1",
+      authorId: null,
+      authorEmail: null,
+      body: "called him, will confirm tomorrow",
+      createdAt: "2026-06-01T09:00:00",
+    });
+  });
+
+  it("preserves author info when present", () => {
+    const note = toApplicationNote({
+      id: "n2",
+      application_id: "a1",
+      author_id: "admin-1",
+      author_email: "admin@tum-ai.com",
+      body: "cancelled",
+      created_at: "2026-06-01T10:00:00",
+    });
+    expect(note.authorId).toBe("admin-1");
+    expect(note.authorEmail).toBe("admin@tum-ai.com");
   });
 });
 

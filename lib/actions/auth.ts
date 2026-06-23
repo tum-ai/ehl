@@ -128,6 +128,27 @@ export async function signInAdminWithGoogle() {
   return { error: "Failed to initiate Google sign-in." };
 }
 
+export async function signInChapterAdminWithGoogle() {
+  const supabase = await createClient();
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: "google",
+    options: {
+      redirectTo: `${getSiteUrl()}/auth/callback?next=/admin`,
+    },
+  });
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  if (data.url) {
+    redirect(data.url);
+  }
+
+  return { error: "Failed to initiate Google sign-in." };
+}
+
 export async function signInJury(formData: FormData) {
   const email = formData.get("email") as string;
   const turnstileToken = formData.get("cf-turnstile-response") as string;
