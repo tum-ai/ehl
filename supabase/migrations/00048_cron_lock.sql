@@ -43,5 +43,5 @@ create or replace function release_cron_lock(lock_key text)
 returns void
 language sql
 as $$
-  update app_settings set expires_at = now() where key = lock_key;
+  update app_settings set expires_at = null where key = lock_key;
 $$;
