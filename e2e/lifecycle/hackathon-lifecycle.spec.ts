@@ -1190,6 +1190,65 @@ test.describe.serial("Hackathon Lifecycle", () => {
     // The important thing is that 2 rankings exist, one per jury member
   });
 
+  test("8.7 Registered team with NO submission shows as 'No submission' and is not rankable", async ({ page }) => {
+    // Regression for the Paris dry-run "ghost team" bug: a team registered for the
+    // challenge but that never submitted used to appear in the jury pitch order as
+    // a blank, confusing card with no indication why it had no details and could
+    // not be ranked. It must now be clearly labelled and excluded from ranking.
+    const admin = getAdminClient();
+
+    // Create a team that registers but never submits, and put it in the pitch order.
+    const ghostPresident = await createParticipant({
+      email: "e2e-ghost-pres@test-ehl.com",
+      name: "E2E Ghost Pres",
+    });
+    const ghostTeamId = await createTeam({
+      name: "E2E Ghost Team",
+      presidentUserId: ghostPresident,
+    });
+    await registerForChallenge({
+      chapterId,
+      challengeId,
+      teamId: ghostTeamId,
+      roster: [ghostPresident],
+    });
+    // Confirm there is genuinely no submission row for this team.
+    const { data: ghostSub } = await admin
+      .from("submissions")
+      .select("id")
+      .eq("challenge_id", challengeId)
+      .eq("team_id", ghostTeamId);
+    expect(ghostSub?.length ?? 0).toBe(0);
+
+    // Add the ghost to the pitch order so the jury overview renders its card.
+    await admin
+      .from("pitch_orders")
+      .update({ order_list: [teamAlphaId, teamBetaId, ghostTeamId] })
+      .eq("challenge_id", challengeId);
+
+    // Jury overview: the ghost card must be labelled "No submission", not blank.
+    await loginAsJury(page, E2E_ACCOUNTS.jury1.email);
+    await page.goto(`/jury/${chapterSlug}`);
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByText("E2E Ghost Team")).toBeVisible({ timeout: 10000 });
+    // Scope the assertions to the ghost team's own card so they can't be
+    // satisfied by unrelated text elsewhere on the page.
+    const ghostCard = page.locator(".ui-card").filter({ hasText: "E2E Ghost Team" });
+    await expect(ghostCard.getByText("No submission")).toBeVisible();
+    await expect(ghostCard.getByText(/did not submit a project/i)).toBeVisible();
+
+    // Ranking page: the ghost team must NOT be offered as a rankable team.
+    await page.goto(`/jury/${chapterSlug}/rank`);
+    await page.waitForLoadState("networkidle");
+    // The two submitting teams are eligible; the ghost team is not listed as a
+    // rankable button. (Alpha/Beta may already be placed from earlier votes, so we
+    // only assert the ghost is absent from the rankable controls.)
+    await expect(
+      page.getByRole("button", { name: /E2E Ghost Team/i })
+    ).toHaveCount(0);
+  });
+
   // ── BLOCK 9: RESULTS ────────────────────────────────────
 
   test("9.1 Create scores and publish", async () => {

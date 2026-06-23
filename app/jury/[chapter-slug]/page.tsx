@@ -126,7 +126,7 @@ export default async function JuryChapterPage({ params }: PageProps) {
       <div className="mt-8">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-bold uppercase tracking-wider text-text-muted">
-            Pitch Order ({submissions.length} teams)
+            Pitch Order ({orderedTeamIds.length} teams)
           </h2>
           <Link
             href={`/jury/${slug}/rank`}
@@ -152,7 +152,7 @@ export default async function JuryChapterPage({ params }: PageProps) {
                     </span>
                     <div>
                       <p className="font-bold">{team.name}</p>
-                      {sub && (
+                      {sub ? (
                         <div className="mt-1">
                           <p className="text-sm text-gold">{sub.projectName}</p>
                           {sub.shortDescription && (
@@ -161,12 +161,21 @@ export default async function JuryChapterPage({ params }: PageProps) {
                             </p>
                           )}
                         </div>
+                      ) : (
+                        <p className="mt-1 text-sm text-text-muted">
+                          Registered, but did not submit a project. Nothing to
+                          review, and this team cannot be ranked.
+                        </p>
                       )}
                     </div>
                   </div>
                   <div className="flex gap-2">
-                    {sub && sub.codeReview?.status === "completed" && (
-                      <Badge variant="announced">Code Review</Badge>
+                    {sub ? (
+                      sub.codeReview?.status === "completed" && (
+                        <Badge variant="announced">Code Review</Badge>
+                      )
+                    ) : (
+                      <Badge variant="upcoming">No submission</Badge>
                     )}
                   </div>
                 </div>
