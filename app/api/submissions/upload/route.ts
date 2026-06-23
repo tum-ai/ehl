@@ -120,7 +120,20 @@ export async function POST(request: Request) {
     // embedded Drive preview, so they must be readable by anyone with the link.
     // uploadFile leaves files private (correct for CVs/admin uploads); we grant
     // link access here, scoped to submission files only.
-    await makeFileLinkReadable(result.fileId);
+    //
+    // Best-effort: the file is already uploaded, so a transient grant failure
+    // must NOT 500 the request (that would orphan the file and force a re-upload).
+    // We log and proceed; scripts/backfill-submission-file-access.ts repairs any
+    // file that was left private.
+    try {
+      await makeFileLinkReadable(result.fileId);
+    } catch (permErr) {
+      console.error(
+        `Failed to grant link access to submission file ${result.fileId}; ` +
+          "uploaded but private. Run backfill-submission-file-access to repair.",
+        permErr
+      );
+    }
 
     return NextResponse.json({
       url: getViewLink(result.fileId),
