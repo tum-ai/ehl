@@ -41,9 +41,10 @@ const argv = process.argv.slice(2);
 const refFlagIndex = argv.indexOf("--ref");
 const explicitRef = refFlagIndex >= 0 ? argv[refFlagIndex + 1] : undefined;
 
-// `--ref` was passed but with no (or empty) value: error rather than silently
-// falling back to PRODUCTION — that fallback would be a surprising footgun.
-if (refFlagIndex >= 0 && !explicitRef) {
+// `--ref` was passed but with no value, or with another flag as its value
+// (e.g. `--ref --test`): error rather than silently treating "--test" as a ref
+// or falling back to PRODUCTION — either would be a surprising footgun.
+if (refFlagIndex >= 0 && (!explicitRef || explicitRef.startsWith("--"))) {
   console.error("--ref requires a project ref, e.g. --ref wbplmgiykuxzfkqxczzf");
   process.exit(1);
 }

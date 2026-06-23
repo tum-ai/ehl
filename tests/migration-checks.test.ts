@@ -21,6 +21,13 @@ describe("migration verification manifest", () => {
     expect(problems).toEqual([]);
   });
 
+  it("has no duplicate migration file prefixes on disk", () => {
+    // Two files sharing a prefix (e.g. another 00048_*.sql collision) would let
+    // one shadow the other in the manifest check; catch that explicitly.
+    const prefixes = migrationFilePrefixes();
+    expect(new Set(prefixes).size).toBe(prefixes.length);
+  });
+
   it("uses unique, sorted prefixes", () => {
     const prefixes = MIGRATION_CHECKS.map((c) => c.prefix);
     expect(new Set(prefixes).size).toBe(prefixes.length);
