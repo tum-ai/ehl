@@ -8,6 +8,7 @@ import { JuryMagicLinkEmail } from "./jury-magic-link";
 import { ApplicationReceivedEmail } from "./application-received";
 import { ApplicationAcceptedEmail } from "./application-accepted";
 import { ApplicationRejectedEmail } from "./application-rejected";
+import { ApplicationCancelledEmail } from "./application-cancelled";
 import { TeamInviteEmail } from "./team-invite";
 import { JoinRequestEmail } from "./join-request";
 import { CertificateEmail } from "./certificate";
@@ -21,6 +22,7 @@ type JuryMagicLinkProps = Parameters<typeof JuryMagicLinkEmail>[0];
 type ApplicationReceivedProps = Parameters<typeof ApplicationReceivedEmail>[0];
 type ApplicationAcceptedProps = Parameters<typeof ApplicationAcceptedEmail>[0];
 type ApplicationRejectedProps = Parameters<typeof ApplicationRejectedEmail>[0];
+type ApplicationCancelledProps = Parameters<typeof ApplicationCancelledEmail>[0];
 type TeamInviteProps = Parameters<typeof TeamInviteEmail>[0];
 type JoinRequestProps = Parameters<typeof JoinRequestEmail>[0];
 type CertificateProps = Parameters<typeof CertificateEmail>[0];
@@ -60,6 +62,10 @@ export async function renderApplicationAcceptedEmail(props: ApplicationAcceptedP
 
 export async function renderApplicationRejectedEmail(props: ApplicationRejectedProps): Promise<string> {
   return render(createElement(ApplicationRejectedEmail, props));
+}
+
+export async function renderApplicationCancelledEmail(props: ApplicationCancelledProps): Promise<string> {
+  return render(createElement(ApplicationCancelledEmail, props));
 }
 
 export async function renderTeamInviteEmail(props: TeamInviteProps): Promise<string> {

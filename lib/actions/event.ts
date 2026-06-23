@@ -5,6 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCheckinStatusForUsers } from "@/lib/queries/checkin";
 import { slugify } from "@/lib/utils";
 import { logEvent } from "@/lib/event-log";
+import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
 
 // ─── Get event status for a checked-in participant ──────────
 
@@ -458,7 +459,7 @@ export async function registerChallenge(
   }
 
   // Verify roster size (2-5, president must be included)
-  if (roster.length < 2 || roster.length > 5) {
+  if (roster.length < MIN_CHALLENGE_ROSTER || roster.length > 5) {
     return { error: "Roster must have 2 to 5 members." };
   }
 

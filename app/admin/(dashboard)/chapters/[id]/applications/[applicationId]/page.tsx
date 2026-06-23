@@ -8,8 +8,17 @@ import { Badge } from "@/components/ui/badge";
 import {
   updateApplicationStatus,
   sendAcceptanceEmails,
+  cancelApplication,
+  addApplicationNote,
 } from "@/lib/actions/applications";
-import type { Application, ApplicationStatus, ApplicationFormData } from "@/lib/types";
+import type {
+  Application,
+  ApplicationNote,
+  ApplicationStatus,
+  ApplicationFormData,
+} from "@/lib/types";
+
+type ApplicationDetail = Application & { notes: ApplicationNote[] };
 
 export default function AdminApplicationDetailPage({
   params,
@@ -17,7 +26,7 @@ export default function AdminApplicationDetailPage({
   params: Promise<{ id: string; applicationId: string }>;
 }) {
   const [chapterId, setChapterId] = useState("");
-  const [app, setApp] = useState<Application | null>(null);
+  const [app, setApp] = useState<ApplicationDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [acting, setActing] = useState(false);
   const [message, setMessage] = useState<{
@@ -25,13 +34,25 @@ export default function AdminApplicationDetailPage({
     text: string;
   } | null>(null);
 
+  // Cancel modal state
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelEmail, setCancelEmail] = useState(false);
+
+  // Notes
+  const [newNote, setNewNote] = useState("");
+
+  async function reload(id: string, applicationId: string) {
+    const data = await fetch(
+      `/api/admin/chapters/${id}/applications/${applicationId}`
+    ).then((r) => r.json());
+    setApp(data);
+  }
+
   useEffect(() => {
     params.then(async ({ id, applicationId }) => {
       setChapterId(id);
-      const data = await fetch(
-        `/api/admin/chapters/${id}/applications/${applicationId}`
-      ).then((r) => r.json());
-      setApp(data);
+      await reload(id, applicationId);
       setLoading(false);
     });
   }, [params]);
@@ -67,6 +88,42 @@ export default function AdminApplicationDetailPage({
     setActing(false);
   }
 
+  async function handleCancel() {
+    if (!app) return;
+    setActing(true);
+    setMessage(null);
+    const result = await cancelApplication(app.id, cancelReason, cancelEmail);
+    if (result.error) {
+      setMessage({ type: "error", text: result.error });
+    } else {
+      setShowCancel(false);
+      setCancelReason("");
+      setCancelEmail(false);
+      await reload(chapterId, app.id);
+      setMessage({
+        type: "success",
+        text: cancelEmail
+          ? "Applicant cancelled. Confirmation email queued."
+          : "Applicant cancelled.",
+      });
+    }
+    setActing(false);
+  }
+
+  async function handleAddNote() {
+    if (!app || !newNote.trim()) return;
+    setActing(true);
+    setMessage(null);
+    const result = await addApplicationNote(app.id, newNote);
+    if (result.error) {
+      setMessage({ type: "error", text: result.error });
+    } else {
+      setNewNote("");
+      await reload(chapterId, app.id);
+    }
+    setActing(false);
+  }
+
   if (loading) {
     return (
       <div>
@@ -84,6 +141,7 @@ export default function AdminApplicationDetailPage({
   }
 
   const fd = app.formData as ApplicationFormData;
+  const isCancelled = app.status === "cancelled";
 
   const statusBadge = (status: string) => {
     switch (status) {
@@ -95,6 +153,8 @@ export default function AdminApplicationDetailPage({
         return <Badge variant="announced" light>Waitlisted</Badge>;
       case "checked_in":
         return <Badge variant="live" light>Checked In</Badge>;
+      case "cancelled":
+        return <Badge variant="default" light>Cancelled</Badge>;
       default:
         return <Badge variant="upcoming" light>Pending</Badge>;
     }
@@ -135,7 +195,7 @@ export default function AdminApplicationDetailPage({
               size="sm"
               variant={app.status === status ? "primary" : "secondary"}
               onClick={() => handleStatusChange(status)}
-              disabled={acting || app.status === status}
+              disabled={acting || app.status === status || isCancelled}
             >
               {status.charAt(0).toUpperCase() + status.slice(1)}
             </Button>
@@ -145,7 +205,33 @@ export default function AdminApplicationDetailPage({
               Send Acceptance Email
             </Button>
           )}
+          {(app.status === "accepted" || app.status === "checked_in") && (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setShowCancel(true)}
+              disabled={acting}
+            >
+              Cancel Applicant
+            </Button>
+          )}
         </div>
+
+        {isCancelled && (
+          <div className="mt-4 rounded-lg ad-bg-error ad-text-error px-4 py-3 text-sm">
+            <p className="font-medium">
+              This applicant has been cancelled. This is final and cannot be undone.
+            </p>
+            {app.cancelReason && (
+              <p className="mt-1">Reason: {app.cancelReason}</p>
+            )}
+            {app.cancelledAt && (
+              <p className="mt-1 opacity-80">
+                Cancelled on {new Date(app.cancelledAt).toLocaleString("de-DE")}
+              </p>
+            )}
+          </div>
+        )}
       </Card>
 
       {message && (
@@ -158,6 +244,55 @@ export default function AdminApplicationDetailPage({
         >
           {message.text}
         </p>
+      )}
+
+      {/* Cancel modal */}
+      {showCancel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <Card className="w-full max-w-md">
+            <h2 className="mb-2 ad-heading text-lg">Cancel Applicant</h2>
+            <p className="mb-4 text-sm ad-text-muted">
+              This keeps the record but marks {app.firstName} as cancelled. A reason
+              is required and stored in the notes history.
+            </p>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Reason (e.g. emailed that they cannot attend)"
+              rows={3}
+              className="w-full rounded-lg border ad-border ad-bg-input px-3 py-2 text-sm"
+            />
+            <label className="mt-3 flex items-center gap-2 text-sm ad-text">
+              <input
+                type="checkbox"
+                checked={cancelEmail}
+                onChange={(e) => setCancelEmail(e.target.checked)}
+              />
+              Send cancellation confirmation email to applicant
+            </label>
+            <div className="mt-4 flex justify-end gap-3">
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  setShowCancel(false);
+                  setCancelReason("");
+                  setCancelEmail(false);
+                }}
+                disabled={acting}
+              >
+                Back
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleCancel}
+                disabled={acting || !cancelReason.trim()}
+              >
+                Confirm Cancel
+              </Button>
+            </div>
+          </Card>
+        </div>
       )}
 
       <div className="mt-8 grid gap-6 lg:grid-cols-2">
@@ -290,6 +425,45 @@ export default function AdminApplicationDetailPage({
                 </a>
               </div>
             )}
+          </div>
+        </Card>
+
+        {/* Admin notes history */}
+        <Card className="lg:col-span-2">
+          <h2 className="mb-4 ad-heading text-lg">Admin Notes</h2>
+          {app.notes.length === 0 ? (
+            <p className="text-sm ad-text-muted">No notes yet.</p>
+          ) : (
+            <div className="space-y-3">
+              {app.notes.map((note) => (
+                <div
+                  key={note.id}
+                  className="rounded-lg border ad-border ad-bg-input px-3 py-2"
+                >
+                  <p className="text-sm ad-text whitespace-pre-wrap">{note.body}</p>
+                  <p className="mt-1 text-xs ad-text-muted">
+                    {note.authorEmail || "Unknown"} on{" "}
+                    {new Date(note.createdAt).toLocaleString("de-DE")}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="mt-4 flex gap-2">
+            <textarea
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+              placeholder="Add a note..."
+              rows={2}
+              className="flex-1 rounded-lg border ad-border ad-bg-input px-3 py-2 text-sm"
+            />
+            <Button
+              size="sm"
+              onClick={handleAddNote}
+              disabled={acting || !newNote.trim()}
+            >
+              Add
+            </Button>
           </div>
         </Card>
 

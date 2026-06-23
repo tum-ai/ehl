@@ -92,12 +92,12 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-46 sequential migrations in `supabase/migrations/`. Key tables:
+49 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users), `teams`, `team_members`, `team_invites`, `team_join_requests`
 - `chapters` (matches), `challenges`, `chapter_unlocks`, `challenge_registrations`
 - `submissions`, `code_reviews`
 - `jury_assignments`, `jury_rankings`, `jury_feedback`
-- `applications`, `screening_scores`, `verification_codes`, `participant_flags`
+- `applications`, `application_notes` (admin notes history), `screening_scores`, `verification_codes`, `participant_flags`
 - `scores`, `partners`, `media`
 - `admin_emails`, `chapter_admins` (local/chapter admins), `app_settings`, `admin_audit_log`
 - `leaderboard` (Postgres VIEW, not a table)
@@ -109,7 +109,7 @@ RLS is enabled on all tables. Admin operations use `createAdminClient()` which b
 lib/
   actions/              — Server actions (registration, teams, submissions, jury, admin, applications, event, auth, screening, flags)
   queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles)
-  emails/               — React Email templates (layout.tsx shared, 11 individual templates)
+  emails/               — React Email templates (layout.tsx shared, 12 individual templates)
   certificates/         — PDF certificate template (@react-pdf/renderer)
   code-review/          — AI review pipeline (ingest, openrouter, pipeline, prompts)
   config/               — Centralized configuration (limits.ts with env var overrides)
