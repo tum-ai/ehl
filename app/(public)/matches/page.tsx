@@ -8,6 +8,10 @@ import { TimelineScrollHighlight } from "@/components/chapter/TimelineScrollHigh
 import { getChapters, getAllPartners, getChapterStats } from "@/lib/queries";
 import { formatDateRange, cn } from "@/lib/utils";
 
+// Revalidate every minute so "Apply Now" links flip to the match page shortly
+// after the deadline cron closes applications (the list is otherwise static).
+export const revalidate = 60;
+
 export async function generateMetadata(): Promise<Metadata> {
   const { totalMatches } = await getChapterStats();
   return {
