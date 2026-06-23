@@ -2,7 +2,7 @@
   "crons": [
     {
       "path": "/api/cron/deadline-check",
-      "schedule": "0 0 * * *"
+      "schedule": "* * * * *"
     }
   ],
   "git": {

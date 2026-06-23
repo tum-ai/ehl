@@ -298,7 +298,7 @@ Under **Settings > Domains**, add your domain. Vercel gives you DNS records to s
 
 ### 9.3 Cron Job
 
-The `vercel.json` in the repo configures a daily cron job at midnight UTC that checks deadlines and auto-transitions chapter statuses. This requires the `CRON_SECRET` env var.
+The `vercel.json` in the repo configures a cron job that runs every minute, checking deadlines and auto-transitioning chapter statuses so a passed deadline closes within ~a minute rather than at the next midnight. This requires the `CRON_SECRET` env var. Runs are serialized by a self-healing DB lock (`app_settings`, migration `00048`) so an overlapping run exits as a no-op. Minute-cadence crons require the Vercel Pro plan.
 
 ### 9.4 Plan
 

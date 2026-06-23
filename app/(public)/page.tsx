@@ -7,6 +7,11 @@ import { TourTimeline } from "@/components/landing/tour-timeline";
 import { PartnersBar } from "@/components/landing/partners-bar";
 import { getLeaderboard, getChapters, getChapterStats } from "@/lib/queries";
 
+// Revalidate every minute so the per-chapter "Apply Now" CTAs disappear shortly
+// after the deadline cron closes applications. Without this the page is fully
+// static and would keep showing a live apply button until the next deploy.
+export const revalidate = 60;
+
 export async function generateMetadata(): Promise<Metadata> {
   const { totalMatches, cityNames } = await getChapterStats();
   const cities = cityNames.join(", ");
