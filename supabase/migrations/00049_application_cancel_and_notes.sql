@@ -49,11 +49,13 @@ alter table application_notes enable row level security;
 -- this "for all" policy intentionally has no WITH CHECK clause: inserts/updates
 -- never travel through a normal authenticated client. (If that ever changes, add
 -- a matching WITH CHECK so writes are not silently rejected.)
+drop policy if exists "Admin full access application_notes" on application_notes;
 create policy "Admin full access application_notes" on application_notes
   for all using (
     exists (select 1 from profiles where id = auth.uid() and role = 'admin')
   );
 
+drop policy if exists "Chapter admin reads notes for own chapter" on application_notes;
 create policy "Chapter admin reads notes for own chapter" on application_notes
   for select using (
     exists (
