@@ -155,7 +155,16 @@ export default function AdminScoresPage({
   }
 
   async function handlePublish() {
-    if (!confirm("Publish scores and mark this chapter as completed? This will make results visible on the public leaderboard.")) {
+    // Publishing is what advances a chapter to "completed". It must always be
+    // reachable, even with no scores (e.g. a chapter with no jury-scored
+    // challenge, or where finalization produced none) — otherwise the chapter can
+    // never be completed. But completing with no scores means an empty
+    // leaderboard, so make that an explicit, louder confirmation.
+    const message =
+      scores.length === 0
+        ? "This chapter has NO scores yet. Publishing will mark it as completed with an empty leaderboard. If you expected scores, finalize the jury rankings first. Continue anyway?"
+        : "Publish scores and mark this chapter as completed? This will make results visible on the public leaderboard.";
+    if (!confirm(message)) {
       return;
     }
     setPublishing(true);
@@ -461,11 +470,14 @@ export default function AdminScoresPage({
                 Publishing will make scores visible on the public leaderboard and set the chapter
                 status to completed.
               </p>
+              {scores.length === 0 && (
+                <p className="mt-2 text-sm ad-text-warning">
+                  No scores yet. Finalize the jury rankings to generate scores, or
+                  publish anyway to complete the chapter with an empty leaderboard.
+                </p>
+              )}
             </div>
-            <Button
-              onClick={handlePublish}
-              disabled={publishing || scores.length === 0}
-            >
+            <Button onClick={handlePublish} disabled={publishing}>
               {publishing ? "Publishing..." : "Publish Results"}
             </Button>
           </div>
