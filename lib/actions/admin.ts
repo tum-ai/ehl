@@ -527,6 +527,59 @@ export async function deleteChallenge(challengeId: string, chapterId: string) {
   return { success: true };
 }
 
+/**
+ * Delete a chapter (match) and everything under it. GLOBAL admins only
+ * (requireAdminAction rejects chapter_admins, per CLAUDE.md: local admins may
+ * never delete).
+ *
+ * Most children cascade on delete (challenges then submissions, jury rankings,
+ * jury feedback, code reviews; applications then notes and screening_scores;
+ * scores, jury_assignments, challenge_registrations, chapter_admins). But three
+ * FKs are NO ACTION (media, partners, team_join_requests) and would block the
+ * delete with a constraint violation. The delete_chapter_cascade RPC (migration
+ * 00050) removes those three children and the chapter in a SINGLE transaction,
+ * so the operation is atomic: it never leaves a chapter partially stripped.
+ */
+export async function deleteChapter(chapterId: string) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const adminClient = createAdminClient();
+
+  // Fetch name before deleting for the audit log.
+  const { data: chapter } = await adminClient
+    .from("chapters")
+    .select("name")
+    .eq("id", chapterId)
+    .single();
+
+  if (!chapter) return { error: "Chapter not found." };
+
+  // Atomic delete: a single Postgres function removes the NO-ACTION children
+  // (media, partners, team_join_requests) and the chapter in one transaction, so
+  // a failure can never leave the chapter partially stripped (see migration
+  // 00050_delete_chapter_cascade). The remaining children cascade.
+  const { error } = await adminClient.rpc("delete_chapter_cascade", {
+    target_chapter_id: chapterId,
+  });
+  if (error) return { error: `Failed to delete chapter: ${error.message}` };
+
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "chapter.deleted",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { deleted: { name: chapter.name ?? null } },
+  });
+
+  // Revalidate the admin list AND the public surfaces that show matches.
+  revalidatePath("/admin/chapters");
+  revalidatePath("/matches");
+  revalidatePath("/");
+  return { success: true };
+}
+
 // ─── Pitch Order ───────────────────────────────────────────
 
 export async function generatePitchOrder(challengeId: string) {

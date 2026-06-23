@@ -5,6 +5,7 @@ import { getChapterByIdAdmin } from "@/lib/queries";
 import { ChapterStatsPanel } from "@/components/admin/stats/chapter-stats-panel";
 import Link from "next/link";
 import { ChapterEditWrapper } from "./chapter-edit-wrapper";
+import { DeleteChapterButton } from "./delete-chapter-button";
 import type { ChapterStatus } from "@/lib/types";
 import { requireChapterAdminPage } from "@/lib/admin-auth";
 import { getSession } from "@/lib/actions/auth";
@@ -191,6 +192,12 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
         </ChapterEditWrapper>
       ) : (
         <div className="mt-8">{manageCard}</div>
+      )}
+
+      {/* Destructive delete: global admins only (chapter admins must never
+          delete, per CLAUDE.md). */}
+      {isGlobalAdmin && (
+        <DeleteChapterButton chapterId={chapter.id} chapterName={chapter.name} />
       )}
     </div>
   );

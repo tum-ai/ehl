@@ -1416,4 +1416,82 @@ test.describe.serial("Hackathon Lifecycle", () => {
       expect(response?.status()).toBeLessThan(400);
     }
   });
+
+  test("12.5 Admin can delete a chapter via UI, cascading its children", async ({ page }) => {
+    // Paris dry-run gap: there was no way to delete a chapter. This creates a
+    // THROWAWAY chapter (not the lifecycle's main one) with children that include
+    // the FK NO-ACTION tables (partners, media) plus a cascading challenge, then
+    // deletes it through the admin UI and verifies the row and its children are
+    // gone. Uses its own chapter so it cannot affect other tests.
+    const admin = getAdminClient();
+    const delChapter = await createChapter({
+      name: "E2E Delete Me",
+      city: "Del City",
+      country: "Germany",
+      countryCode: "DE",
+      description: "Throwaway chapter for the delete test.",
+      date: new Date(Date.now() + 86400000).toISOString().split("T")[0],
+      dateEnd: new Date(Date.now() + 2 * 86400000).toISOString().split("T")[0],
+      matchNumber: 98,
+    });
+    const delChapterId = delChapter.id;
+
+    await createChallenge({ chapterId: delChapterId, title: "Del Challenge" });
+    // A team_join_request scoped to this chapter exercises the third NO-ACTION FK.
+    const delPres = await createParticipant({
+      email: "e2e-del-pres@test-ehl.com",
+      name: "E2E Del Pres",
+    });
+    const delTeamId = await createTeam({ name: "E2E Del Team", presidentUserId: delPres });
+
+    // Insert the three NO-ACTION children. Assert each insert SUCCEEDS, otherwise
+    // the later "cascaded to 0" checks would be vacuously true (a bad enum/value
+    // would silently no-op the insert).
+    const partnerIns = await admin
+      .from("partners")
+      .insert({ chapter_id: delChapterId, name: "Del Partner", tier: "gold" });
+    expect(partnerIns.error, "partners insert").toBeNull();
+    const mediaIns = await admin
+      .from("media")
+      .insert({ chapter_id: delChapterId, type: "photo", url: "https://example.test/x.png" });
+    expect(mediaIns.error, "media insert").toBeNull();
+    const tjrIns = await admin
+      .from("team_join_requests")
+      .insert({ team_id: delTeamId, user_id: delPres, chapter_id: delChapterId });
+    expect(tjrIns.error, "team_join_requests insert").toBeNull();
+
+    // Sanity: all three rows exist before the delete (so the cascade check means something).
+    for (const table of ["partners", "media", "team_join_requests"] as const) {
+      const { data } = await admin.from(table).select("id").eq("chapter_id", delChapterId);
+      expect(data?.length ?? 0, `${table} present before delete`).toBeGreaterThan(0);
+    }
+
+    // Delete through the admin UI (type-to-confirm danger zone).
+    await loginAsAdmin(page);
+    await page.goto(`/admin/chapters/${delChapterId}`);
+    await page.waitForLoadState("networkidle");
+
+    await page.getByRole("button", { name: /^Delete match$/i }).click();
+    await page.locator('input[type="text"]').last().fill("E2E Delete Me");
+    await page.getByRole("button", { name: /Permanently delete/i }).click();
+
+    // UI navigates back to the chapters list on success (required, not swallowed).
+    await page.waitForURL(/\/admin\/chapters$/, { timeout: 15000 });
+
+    // DB: chapter and its NO-ACTION + cascading children must be gone.
+    await expect
+      .poll(
+        async () => {
+          const { data } = await admin.from("chapters").select("id").eq("id", delChapterId);
+          return data?.length ?? 0;
+        },
+        { timeout: 10000 }
+      )
+      .toBe(0);
+
+    for (const table of ["partners", "media", "team_join_requests", "challenges"] as const) {
+      const { data } = await admin.from(table).select("id").eq("chapter_id", delChapterId);
+      expect(data?.length ?? 0, `${table} should be cascaded`).toBe(0);
+    }
+  });
 });

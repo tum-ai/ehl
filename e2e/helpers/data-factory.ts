@@ -372,6 +372,7 @@ export async function createChapter(opts: {
     await admin.from("scores").delete().in("chapter_id", existingIds);
     await admin.from("media").delete().in("chapter_id", existingIds);
     await admin.from("partners").delete().in("chapter_id", existingIds);
+    await admin.from("team_join_requests").delete().in("chapter_id", existingIds);
     await admin.from("chapters").delete().in("id", existingIds);
   }
 
