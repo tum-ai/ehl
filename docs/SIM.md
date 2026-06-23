@@ -132,3 +132,15 @@ runtime tripwire additionally throws if the flag is ever set on the production d
 (`VERCEL_ENV === "production"`), so it cannot be enabled there even by mistake. The check
 keys off `VERCEL_ENV`, not `NODE_ENV`, because the Docker sim image intentionally runs with
 `NODE_ENV=production`.
+
+### Admin-only mode (`DEV_LOGIN_ADMIN_ONLY=true`)
+
+For a **public-facing** sim deployment (e.g. a Vercel preview with deployment
+protection turned off, where anyone with the URL can reach the page), set
+`DEV_LOGIN_ADMIN_ONLY=true` alongside `DEV_LOGIN_ENABLED=true`. Dev login then
+offers **only the admin persona**; participants and jury must use the normal
+login/registration flows. The restriction is enforced both in the page UI
+(`getDevPersonas()`) and **server-side** in `devLoginAction` (a crafted POST for
+a jury/participant persona is rejected before any token is minted), so it is a
+real control, not just a hidden button. Leave it unset for the local Docker sim,
+where the full multi-persona picker is the whole point.
