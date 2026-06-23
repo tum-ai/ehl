@@ -48,7 +48,10 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 // (id, name, email) so this never drifts from the seed file.
 function parseSeedUsers(): { id: string; email: string; name: string }[] {
   const seed = readFileSync(resolve(__dirname, "../supabase/seed.sql"), "utf-8");
-  const re = /'([ab c]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',\s*'([^']*)',\s*'([^']*@example\.com)'/g;
+  // Seed profile emails are @example.com, plus the one external local-admin
+  // persona on @partner.com (proves a non-admin-domain partner can be a
+  // chapter_admin). Both must get auth.users rows so dev-login can mint a token.
+  const re = /'([ab c]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',\s*'([^']*)',\s*'([^']*@(?:example|partner)\.com)'/g;
   const seen = new Map<string, { id: string; email: string; name: string }>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(seed)) !== null) {
@@ -64,8 +67,13 @@ const SEED_USERS = parseSeedUsers();
 
 async function ensureSeedUser(u: { id: string; email: string; name: string }) {
   // createUser doesn't let us choose the id, so insert directly via SQL into
-  // auth.users with the fixed UUID (idempotent).
+  // auth.users with the fixed UUID (idempotent). First drop any stale row that
+  // owns this email under a DIFFERENT id — e.g. an account created ad-hoc via
+  // the admin UI (createUser picks a random id), which would otherwise collide
+  // on the auth email unique index. profiles.id references auth.users on delete
+  // cascade, so the dependent profile (if any) is cleaned up with it.
   const sql = `
+    DELETE FROM auth.users WHERE email = '${u.email}' AND id <> '${u.id}';
     INSERT INTO auth.users (id, instance_id, aud, role, email, encrypted_password,
       email_confirmed_at, created_at, updated_at, confirmation_token, recovery_token,
       email_change, email_change_token_new, raw_app_meta_data, raw_user_meta_data)

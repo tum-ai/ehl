@@ -117,9 +117,25 @@ describe("devLoginAction", () => {
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
   });
 
-  it("every persona email is on the allowlist (sanity)", () => {
+  it("every persona email is a known seed address (sanity)", () => {
+    // Personas are confined to seeded addresses: the @example.com fixtures plus
+    // the single external local-admin on @partner.com. No arbitrary domains.
     expect(DEV_PERSONAS.length).toBeGreaterThan(0);
-    expect(DEV_PERSONAS.every((p) => p.email.endsWith("@example.com"))).toBe(true);
+    expect(
+      DEV_PERSONAS.every(
+        (p) => p.email.endsWith("@example.com") || p.email === "test@partner.com"
+      )
+    ).toBe(true);
+  });
+
+  it("exposes the external local-admin persona scoped via /admin", () => {
+    // The partner persona proves a non-admin-domain email can be a chapter_admin.
+    // It deliberately lands on /admin so middleware confinement bounces it to its
+    // own chapter, rather than pre-baking the chapter URL here.
+    const partner = DEV_PERSONAS.find((p) => p.email === "test@partner.com");
+    expect(partner).toBeDefined();
+    expect(partner?.role).toBe("chapter_admin");
+    expect(partner?.next).toBe("/admin");
   });
 });
 

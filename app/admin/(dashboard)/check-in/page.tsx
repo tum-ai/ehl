@@ -9,6 +9,7 @@ import {
   searchApplicationsForCheckIn,
   checkInApplicationById,
 } from "@/lib/actions/applications";
+import { stopScannerSafely } from "@/lib/qr-scanner";
 
 interface Chapter {
   id: string;
@@ -47,10 +48,10 @@ export default function AdminCheckInPage() {
   const checkInChapters = chapters.filter((ch) => CHECK_IN_STATUSES.has(ch.status));
 
   useEffect(() => {
-    // Load chapters (filtered to check-in eligible phases)
-    fetch("/api/admin/jury/chapters")
+    // Load chapters (role-scoped: local admins only get their own chapter)
+    fetch("/api/admin/check-in/chapters")
       .then((r) => r.json())
-      .then((all: Chapter[]) => setChapters(all))
+      .then((all: Chapter[]) => setChapters(Array.isArray(all) ? all : []))
       .catch(() => {});
 
     // Get admin user ID from session
@@ -141,7 +142,7 @@ export default function AdminCheckInPage() {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("NotAllowedError") || message.includes("Permission")) {
         setCameraError("Camera permission denied. Please allow camera access in your browser settings and try again.");
-      } else if (message.includes("NotFoundError") || message.includes("no camera") || message.includes("Requested device not found")) {
+      } else if (message.includes("NotFoundError") || message.includes("no camera") || message.includes("Requested device not found") || message.includes("No cameras detected")) {
         setCameraError("No camera found. Please connect a camera or use manual token entry below.");
       } else if (message.includes("NotReadableError") || message.includes("Could not start")) {
         setCameraError("Camera is in use by another application. Close other apps using the camera and try again.");
@@ -156,14 +157,13 @@ export default function AdminCheckInPage() {
       await new Promise((r) => setTimeout(r, 100));
       if (cancelled) return;
 
-      // Check if the DOM element exists
       const container = document.getElementById("qr-reader");
       if (!container) {
         handleCameraError(new Error("Scanner container not found"));
         return;
       }
 
-      let Html5Qrcode;
+      let Html5Qrcode: typeof import("html5-qrcode").Html5Qrcode;
       try {
         const mod = await import("html5-qrcode");
         Html5Qrcode = mod.Html5Qrcode;
@@ -173,6 +173,31 @@ export default function AdminCheckInPage() {
       }
 
       if (cancelled) return;
+
+      // Enumerate cameras before creating the scanner. getCameras() triggers the
+      // permission prompt exactly once and returns real device IDs. The old
+      // "try environment, catch and retry user" pattern re-called start() on the
+      // same instance after a failure; html5-qrcode then threw an internal error
+      // whose message contained "Permission", causing the wrong error banner to
+      // appear even when camera access was already granted.
+      let cameras: Array<{ id: string; label: string }>;
+      try {
+        cameras = await Html5Qrcode.getCameras();
+      } catch (err) {
+        if (!cancelled) handleCameraError(err);
+        return;
+      }
+
+      if (cancelled) return;
+
+      if (!cameras || cameras.length === 0) {
+        handleCameraError(new Error("NotFoundError: No cameras detected on this device"));
+        return;
+      }
+
+      // Prefer the back/environment camera (mobile); fall back to first available.
+      const backCamera = cameras.find((c) => /back|environment|rear/i.test(c.label));
+      const cameraId = (backCamera ?? cameras[0]).id;
 
       let scanner;
       try {
@@ -185,16 +210,10 @@ export default function AdminCheckInPage() {
 
       const scanConfig = { fps: 10, qrbox: { width: 250, height: 250 } };
       const onSuccess = (decodedText: string) => processCheckIn(decodedText);
-      const onFailure = () => {}; // Normal while scanning
+      const onFailure = () => {};
 
       try {
-        // Try back camera first (mobile), fall back to front camera (desktop)
-        try {
-          await scanner.start({ facingMode: "environment" }, scanConfig, onSuccess, onFailure);
-        } catch {
-          if (cancelled) return;
-          await scanner.start({ facingMode: "user" }, scanConfig, onSuccess, onFailure);
-        }
+        await scanner.start(cameraId, scanConfig, onSuccess, onFailure);
       } catch (err) {
         if (!cancelled) handleCameraError(err);
       }
@@ -209,12 +228,10 @@ export default function AdminCheckInPage() {
       const scanner = scannerRef.current;
       if (scanner) {
         scannerRef.current = null;
-        // Stop the scanner gracefully, then clear after a delay
-        scanner.stop().then(() => {
-          try { scanner.clear(); } catch { /* ignore */ }
-        }).catch(() => {
-          try { scanner.clear(); } catch { /* ignore */ }
-        });
+        // stop() throws synchronously when the scanner never started (camera
+        // denied/absent), so guard the whole teardown — an escaping throw here
+        // would crash the page via the admin error boundary.
+        stopScannerSafely(scanner);
       }
     };
   }, [scanning, processCheckIn]);
@@ -372,22 +389,25 @@ export default function AdminCheckInPage() {
                 {cameraError}
               </div>
             )}
-            {scanning ? (
-              <div className="space-y-4">
-                <div id="qr-reader" className="mx-auto max-w-sm overflow-hidden rounded-xl" style={{ minHeight: 300 }} />
-                {!cameraError && (
-                  <p className="text-center text-xs ad-text-muted">Point camera at QR code...</p>
-                )}
-                <div className="text-center">
-                  <Button
-                    variant="secondary"
-                    onClick={() => setScanning(false)}
-                  >
-                    Stop Scanner
-                  </Button>
-                </div>
+            {/* The #qr-reader container stays mounted whether or not we are
+                scanning. html5-qrcode injects <video>/<canvas> nodes INTO it;
+                if React unmounts the div while those library-owned nodes are
+                present, reconciliation throws a cryptic node-removal error
+                ("undefined" with no stack) that takes down the whole admin page
+                via the error boundary. Hiding the wrapper instead of unmounting
+                it lets the library own its DOM safely. */}
+            <div className={scanning ? "space-y-4" : "hidden"}>
+              <div id="qr-reader" className="mx-auto max-w-sm overflow-hidden rounded-xl" style={{ minHeight: 300 }} />
+              {!cameraError && (
+                <p className="text-center text-xs ad-text-muted">Point camera at QR code...</p>
+              )}
+              <div className="text-center">
+                <Button variant="secondary" onClick={() => setScanning(false)}>
+                  Stop Scanner
+                </Button>
               </div>
-            ) : (
+            </div>
+            {!scanning && (
               <div className="text-center">
                 <p className="mb-4 text-sm ad-text-muted">
                   Use your device camera to scan participant QR codes.

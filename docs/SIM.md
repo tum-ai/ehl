@@ -14,8 +14,7 @@ consistent across testers. Login is a one-click persona picker (no Google).
 ## One-time setup (operator, once per shared DB)
 
 Seeds the shared test DB with the fixed personas (`auth.users`) and the full scenario
-(3 chapters, 6 teams, jury, submissions, scores). Re-run any time to reset to a clean
-world.
+(3 chapters, 6 teams, jury, submissions, scores). Re-run any time to reset to a clean world.
 
 ```bash
 cd ehl
@@ -36,12 +35,14 @@ Success prints e.g. `Chapters now in test DB: munich-1, zurich-2, berlin-3`.
 
 Needs **Docker only** — no Node or pnpm required.
 
-1. Get `.env.sim` (real shared test-DB values). Either copy it from the team, or:
+1. Get `.env.sim`. Either copy it from the team, or build it yourself:
    ```bash
    cd ehl
    cp .env.sim.example .env.sim
-   # paste the test-DB values from ehl-ops/.env.test into .env.sim:
+   # Required — paste from ehl-ops/.env.test:
    #   NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY
+   # Optional — paste from ehl-ops/.env.local to enable full repo snapshot + AI code review:
+   #   GITHUB_TOKEN, OPENROUTER_API_KEY
    ```
    `.env.sim` is gitignored — never commit it (this repo is public).
 
@@ -81,12 +82,32 @@ time (or use separate browser profiles on one machine).
 
 1. **Admin** advances a chapter (e.g. Zurich) through the status flow:
    `challenge_selection → submissions_open → pitching → completed`.
-2. **Participants** open their dashboard and create/edit submissions while
-   `submissions_open`.
-3. **Admin** assigns jury to challenges; **Jury** reviews and ranks submissions.
-4. **Admin** publishes scores; the public leaderboard updates.
+2. **Participants** open their dashboard and submit while `submissions_open`. Each
+   submission requires a GitHub repo URL. If the challenge has `entire_required`, the
+   repo must also have an `entire/checkpoints/v1` branch with at least one checkpoint.
+3. **Admin** locks a challenge — this closes submissions and triggers two background steps:
+   - **Snapshot**: forks each team's repo into the snapshot org (`GITHUB_TOKEN_EHL` required).
+     Without the token, locking still works but the fork is skipped.
+   - **AI code review**: runs the multi-agent OpenRouter pipeline on the snapshot
+     (`OPENROUTER_API_KEY` required). Without the key, no report is generated.
+4. **Admin** assigns jury to challenges; **Jury** reviews submissions and the AI code
+   review report, then ranks them.
+5. **Admin** publishes scores; the public leaderboard updates.
 
 Everyone sees the same state because they share one DB.
+
+### Simulating the Entire.io check
+
+If a challenge has `entire_required = true`, participants must submit a repo that has
+an `entire/checkpoints/v1` branch with at least one captured prompt. To simulate this:
+
+1. Install the Entire CLI: `entire enable --agent claude-code` (or your agent)
+2. Work in the repo with your AI tool — Entire records the session to the branch automatically
+3. Push the branch along with your code: `git push origin entire/checkpoints/v1`
+4. Submit that repo URL — the check runs at submit time and shows the result inline
+
+To skip the check during simulation, set `entire_required = false` on the challenge row
+in the test DB directly via the Supabase dashboard.
 
 ---
 

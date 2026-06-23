@@ -27,13 +27,21 @@ Three strictly separated auth flows. They must NEVER cross.
 | Role | Method | Login Page | How it works |
 |------|--------|------------|-------------|
 | **Admin** | Google OAuth | `/admin/login` | Google redirects to Supabase, Supabase redirects to `/auth/callback`. Email checked against `admin_emails` DB table + `ADMIN_FALLBACK_EMAILS` env var. |
+| **Local (chapter) admin** | Google OAuth | `/admin/login` | Same OAuth flow. When the email is NOT on the global allowlist, `/auth/callback` checks the `chapter_admins` table; a match grants a chapter-scoped session and redirects to that chapter. Accounts are pre-provisioned by `inviteChapterAdmin`, so the first OAuth login works despite signups being disabled. |
 | **Jury** | Email magic link | `/jury/login` | Supabase sends a magic link email. Clicking it authenticates via `/auth/callback`. Access checked against `jury_assignments` table. |
 | **Participant** | Email + password | `/login`, `/register` | Standard Supabase email/password auth. Registration requires email verification via encrypted code. |
 
 ### Why this matters
 - An attacker who compromises a participant account cannot access admin or jury functions
 - Admin access requires both a valid Google account AND being on the email allowlist
+- Local admins are invited explicitly (a `chapter_admins` row written only via the service role) and are confined to one chapter; they never reach global admin views (see below)
 - Jury access requires an explicit admin invitation (no self-registration)
+
+### Local admin confinement (defense in depth)
+Local admins (role `chapter_admin`) are bounded by three independent layers, so a missing check in one does not grant cross-chapter access:
+1. **Middleware** (`lib/supabase/middleware.ts`) allows `chapter_admin` into `/admin`, then hard-restricts them to `/admin/chapters/<their-chapter>/**` and `/admin/check-in`, redirecting any other `/admin` path to their chapter.
+2. **Page guards** — global pages use `requireGlobalAdminPage()` (bounces local admins to their chapter); chapter pages use `requireChapterAdminPage(id)` (only their chapter). Write-heavy controls (edit/status/scores/jury/partners/challenges/local-admin management) are rendered only for global admins.
+3. **Action/API guards** — the two writes a local admin may perform (`submitScore`, the check-in actions) and the per-chapter read APIs they use call `requireChapterAdminAction(chapterId)` / `requireChapterAdminApi(chapterId)`, which authorize a global admin OR the local admin of that exact chapter. Every other admin action/route keeps the global-only `requireAdmin*` guards.
 
 ---
 
@@ -61,13 +69,14 @@ Every server action follows this pattern:
 5. Return result
 ```
 
-- Admin actions call `requireAdminAction()` first
+- Admin actions call `requireAdminAction()` first (global admins only)
+- Chapter-scoped actions (screening, check-in) call `requireChapterAdminAction(chapterId)` — passes a global admin or the local admin of that chapter
 - Participant actions verify the user owns the resource (e.g. is a member of the team)
 - Jury actions verify the user is assigned to the relevant challenge
 
 ### API Route Guards
 
-- Admin API routes check the session and email allowlist
+- Admin API routes check the session and email allowlist (`requireAdmin()`); per-chapter routes a local admin may read use `requireChapterAdminApi(chapterId)`
 - Cron routes use Bearer token auth (`CRON_SECRET`)
 - Certificate routes require session auth (team member or admin) and only serve published scores
 - Jury API routes check both session and role (jury or admin)

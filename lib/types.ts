@@ -13,7 +13,7 @@ export type PartnerTier = "challenge_partner" | "tech_partner" | "community_part
 
 export type MediaType = "photo" | "video" | "aftermovie" | "short";
 
-export type UserRole = "participant" | "jury" | "admin";
+export type UserRole = "participant" | "jury" | "admin" | "chapter_admin";
 
 export type CodeReviewStatus = "pending" | "queued" | "processing" | "completed" | "failed";
 

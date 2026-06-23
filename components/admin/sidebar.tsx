@@ -7,7 +7,9 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/lib/actions/auth";
 
-const navItems = [
+type NavItem = { href: string; label: string; icon: string };
+
+const globalNavItems: NavItem[] = [
   { href: "/admin", label: "Dashboard", icon: "grid" },
   { href: "/admin/chapters", label: "Chapters", icon: "calendar" },
   { href: "/admin/teams", label: "Teams", icon: "users" },
@@ -18,6 +20,24 @@ const navItems = [
   { href: "/admin/logs", label: "Logs", icon: "log" },
   { href: "/admin/settings", label: "Settings", icon: "cog" },
 ];
+
+// Local (chapter) admins see a reduced nav scoped to their one chapter.
+function chapterAdminNavItems(chapterId: string): NavItem[] {
+  return [
+    { href: `/admin/chapters/${chapterId}`, label: "Chapter", icon: "calendar" },
+    {
+      href: `/admin/chapters/${chapterId}/applications`,
+      label: "Screening",
+      icon: "shield",
+    },
+    {
+      href: `/admin/chapters/${chapterId}/members`,
+      label: "Teams",
+      icon: "users",
+    },
+    { href: "/admin/check-in", label: "Check-in", icon: "qr" },
+  ];
+}
 
 const icons: Record<string, React.ReactNode> = {
   grid: (
@@ -68,14 +88,22 @@ const icons: Record<string, React.ReactNode> = {
   ),
 };
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
+function SidebarContent({
+  navItems,
+  homeHref,
+  onNavigate,
+}: {
+  navItems: NavItem[];
+  homeHref: string;
+  onNavigate?: () => void;
+}) {
   const pathname = usePathname();
 
   return (
     <>
       {/* Logo */}
       <div className="flex h-16 items-center px-6">
-        <Link href="/admin" className="flex items-center gap-2" onClick={onNavigate}>
+        <Link href={homeHref} className="flex items-center gap-2" onClick={onNavigate}>
           <Image
             src="/images/ehl-logo.svg"
             alt="EHL"
@@ -92,9 +120,8 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
         <ul className="space-y-1">
           {navItems.map((item) => {
             const isActive =
-              item.href === "/admin"
-                ? pathname === "/admin"
-                : pathname.startsWith(item.href);
+              pathname === item.href ||
+              (item.href !== homeHref && pathname.startsWith(`${item.href}/`));
             return (
               <li key={item.href}>
                 <Link
@@ -144,7 +171,13 @@ function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
-export function AdminSidebar() {
+export function AdminSidebar({
+  role,
+  chapterId,
+}: {
+  role?: string;
+  chapterId?: string | null;
+}) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -152,6 +185,14 @@ export function AdminSidebar() {
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
+
+  const isChapterAdmin = role === "chapter_admin" && !!chapterId;
+  const navItems = isChapterAdmin
+    ? chapterAdminNavItems(chapterId as string)
+    : globalNavItems;
+  const homeHref = isChapterAdmin
+    ? `/admin/chapters/${chapterId}`
+    : "/admin";
 
   return (
     <>
@@ -166,7 +207,7 @@ export function AdminSidebar() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <Link href="/admin" className="flex items-center gap-2">
+        <Link href={homeHref} className="flex items-center gap-2">
           <Image
             src="/images/ehl-logo.svg"
             alt="EHL"
@@ -188,14 +229,18 @@ export function AdminSidebar() {
           />
           {/* Sidebar panel */}
           <aside className="relative z-10 flex h-full w-56 flex-col border-r border-purple-900/30 bg-[#110724] font-hero-body">
-            <SidebarContent onNavigate={() => setMobileOpen(false)} />
+            <SidebarContent
+              navItems={navItems}
+              homeHref={homeHref}
+              onNavigate={() => setMobileOpen(false)}
+            />
           </aside>
         </div>
       )}
 
       {/* Desktop sidebar (unchanged, hidden on mobile) */}
       <aside className="hidden md:fixed md:left-0 md:top-0 md:z-40 md:flex md:h-screen md:w-56 md:flex-col border-r border-purple-900/30 bg-[#110724] font-hero-body">
-        <SidebarContent />
+        <SidebarContent navItems={navItems} homeHref={homeHref} />
       </aside>
     </>
   );

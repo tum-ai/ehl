@@ -1,15 +1,15 @@
 import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireChapterAdminApi } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const denied = await requireAdmin();
+  const { id: chapterId } = await params;
+  const denied = await requireChapterAdminApi(chapterId);
   if (denied) return denied;
 
-  const { id: chapterId } = await params;
   const { searchParams } = new URL(request.url);
   const challengeId = searchParams.get("challengeId");
 
@@ -17,6 +17,15 @@ export async function GET(
   let query = adminClient.from("submissions").select("*");
 
   if (challengeId) {
+    // Verify the challenge belongs to this chapter before querying submissions.
+    const { data: challenge } = await adminClient
+      .from("challenges")
+      .select("id")
+      .eq("id", challengeId)
+      .eq("chapter_id", chapterId)
+      .single();
+    if (!challenge) return NextResponse.json([], { status: 200 });
+
     query = query.eq("challenge_id", challengeId);
   } else {
     // Get all submissions for challenges in this chapter

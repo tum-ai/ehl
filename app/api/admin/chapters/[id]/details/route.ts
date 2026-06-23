@@ -1,15 +1,14 @@
 import { NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdmin } from "@/lib/admin-auth";
+import { requireChapterAdminApi } from "@/lib/admin-auth";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const denied = await requireAdmin();
-  if (denied) return denied;
-
   const { id } = await params;
+  const denied = await requireChapterAdminApi(id);
+  if (denied) return denied;
   const adminClient = createAdminClient();
 
   const { data } = await adminClient

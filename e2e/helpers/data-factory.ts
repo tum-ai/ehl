@@ -187,6 +187,47 @@ export async function createJury(opts: {
   return userId;
 }
 
+/**
+ * Create a local (chapter) admin: an account scoped to a single chapter via the
+ * chapter_admins table. Mirrors how inviteChapterAdmin() provisions one.
+ */
+export async function createChapterAdmin(opts: {
+  email: string;
+  name: string;
+  chapterId: string;
+}) {
+  const admin = getAdminClient();
+
+  const existing = await findAuthUserByEmail(admin, opts.email);
+
+  let userId: string;
+  if (existing) {
+    userId = existing.id;
+  } else {
+    const { data, error } = await admin.auth.admin.createUser({
+      email: opts.email,
+      email_confirm: true,
+      user_metadata: { name: opts.name },
+    });
+    if (error)
+      throw new Error(`Failed to create chapter admin ${opts.email}: ${error.message}`);
+    userId = data.user.id;
+  }
+
+  await admin.from("profiles").upsert({
+    id: userId,
+    email: opts.email,
+    name: opts.name,
+    role: "chapter_admin",
+  });
+
+  await admin
+    .from("chapter_admins")
+    .upsert({ user_id: userId, chapter_id: opts.chapterId });
+
+  return userId;
+}
+
 // ─── Magic Link Generation ─────────────────────────────────
 
 /**
@@ -252,6 +293,14 @@ export async function createTeam(opts: {
 }) {
   const admin = getAdminClient();
   const slug = opts.name.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+
+  // Defensively delete any leftover team with the same slug (from a failed previous run).
+  const { data: existing } = await admin.from("teams").select("id").eq("slug", slug);
+  if (existing && existing.length > 0) {
+    const ids = existing.map((t) => t.id as string);
+    await admin.from("team_members").delete().in("team_id", ids);
+    await admin.from("teams").delete().in("id", ids);
+  }
 
   const { data: team, error } = await admin
     .from("teams")
