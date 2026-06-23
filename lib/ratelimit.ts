@@ -39,6 +39,10 @@ interface MemoryFallbackConfig {
 export interface RateLimiter {
   limiter: Ratelimit | null;
   fallback: MemoryFallbackConfig;
+  /** Bucket namespace. Used by Redis (Ratelimit prefix) AND the in-memory
+   *  fallback so two limiters sharing an identifier (e.g. an email used by both
+   *  emailLimiter and resetEmailLimiter) never share a fallback bucket. */
+  prefix: string;
 }
 
 const DEFAULT_FALLBACK: MemoryFallbackConfig = { limit: 10, windowMs: 60_000 };
@@ -54,6 +58,7 @@ function makeLimiter(
       ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(perWindow, window), prefix })
       : null,
     fallback,
+    prefix,
   };
 }
 
@@ -73,6 +78,11 @@ export const apiLimiter = makeLimiter("rl:api", 1000, "60 s", { limit: 200, wind
 export const certLimiter = makeLimiter("rl:cert", 30, "60 s", { limit: 30, windowMs: 60_000 });
 // Email sending: 10 per hour per address (fallback 5/min)
 export const emailLimiter = makeLimiter("rl:email", 10, "3600 s", { limit: 5, windowMs: 60_000 });
+// Password-reset emails: per-RECIPIENT throttle to prevent reset-email bombing of
+// a victim address. Separate from the general emailLimiter so a user who recently
+// received ordinary transactional mail can still reset, while still capping how
+// often reset mail goes to any single address. 3/hour, fallback 1/min.
+export const resetEmailLimiter = makeLimiter("rl:reset-email", 3, "3600 s", { limit: 1, windowMs: 60_000 });
 // Client error reports: 10 per 60s per IP
 export const errorReportLimiter = makeLimiter("rl:error", 10, "60 s", { limit: 10, windowMs: 60_000 });
 
@@ -141,6 +151,11 @@ export async function checkRateLimit(
 ): Promise<{ limited: boolean; error?: string }> {
   const config = rl?.fallback ?? DEFAULT_FALLBACK;
   const limiter = rl?.limiter ?? null;
+  // Namespace the in-memory bucket by the limiter's prefix so two distinct
+  // limiters that share the same identifier (e.g. emailLimiter + resetEmailLimiter
+  // both keyed by an email) do not consume each other's fallback budget. The
+  // Redis path is already namespaced via the Ratelimit `prefix`.
+  const memoryKey = rl ? `${rl.prefix}:${identifier}` : identifier;
   const errorMsg = context
     ? `Too many ${context} requests. Please wait a minute and try again.`
     : "Too many requests. Please try again later.";
@@ -149,7 +164,7 @@ export async function checkRateLimit(
     // No Redis available: use in-memory fallback with per-limiter limits.
     // Warn once per process to avoid flooding logs under sustained traffic.
     warnFallbackOnce();
-    if (!checkMemoryLimit(identifier, config.limit, config.windowMs)) {
+    if (!checkMemoryLimit(memoryKey, config.limit, config.windowMs)) {
       return { limited: true, error: errorMsg };
     }
     return { limited: false };
@@ -164,8 +179,8 @@ export async function checkRateLimit(
   } catch (err) {
     // Redis error: fall back to in-memory limiter with per-limiter limits
     console.error("[rate-limit] Redis error, falling back to in-memory:", err);
-    console.warn(`[rate-limit] Fallback active for: ${identifier} (limit: ${config.limit}/${config.windowMs}ms)`);
-    if (!checkMemoryLimit(identifier, config.limit, config.windowMs)) {
+    console.warn(`[rate-limit] Fallback active for: ${memoryKey} (limit: ${config.limit}/${config.windowMs}ms)`);
+    if (!checkMemoryLimit(memoryKey, config.limit, config.windowMs)) {
       return { limited: true, error: errorMsg };
     }
     return { limited: false };

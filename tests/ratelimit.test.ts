@@ -129,4 +129,24 @@ describe("checkRateLimit fallback policy (no Redis)", () => {
     }
     expect((await mod.checkRateLimit(mod.uploadLimiter, "up-ip")).limited).toBe(true);
   });
+
+  it("isolates fallback buckets per limiter even when the identifier is identical", async () => {
+    // Regression: two limiters sharing the same identifier (e.g. an email used by
+    // both emailLimiter and resetEmailLimiter) must NOT share the in-memory
+    // fallback budget, or ordinary transactional mail could exhaust the
+    // password-reset bucket and silently block resets when Redis is down.
+    const mod = await loadRatelimitWithoutRedis();
+    mod._resetMemoryStore();
+    const email = "victim@example.com";
+
+    // Exhaust the general emailLimiter (fallback 5/min) for this address.
+    for (let i = 0; i < 5; i++) {
+      expect((await mod.checkRateLimit(mod.emailLimiter, email)).limited).toBe(false);
+    }
+    expect((await mod.checkRateLimit(mod.emailLimiter, email)).limited).toBe(true);
+
+    // The dedicated resetEmailLimiter (fallback 1/min) for the SAME email must
+    // still be allowed: its bucket is namespaced by prefix, not shared.
+    expect((await mod.checkRateLimit(mod.resetEmailLimiter, email)).limited).toBe(false);
+  });
 });
