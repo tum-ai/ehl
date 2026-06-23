@@ -77,7 +77,10 @@ jobs:
   e2e:
     name: E2E Lifecycle
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15 min headroom for install + Playwright browser + the full lifecycle suite.
+    # Email goes through a fake transport (EMAIL_FAKE_TRANSPORT below), so there is
+    # no real-SMTP latency; the suite runs in ~3 min locally.
+    timeout-minutes: 15
     needs: checks  # Only run E2E if fast checks pass
     steps:
       - uses: actions/checkout@v4
@@ -100,6 +103,10 @@ jobs:
         run: pnpm dev --port 3001 &
         env:
           NODE_ENV: development
+          # Don't hit real SMTP from CI: tests that send email (verification
+          # codes, broadcast) use a fake transport so they're fast and never
+          # email real inboxes.
+          EMAIL_FAKE_TRANSPORT: "true"
 
       - name: Wait for server
         run: npx wait-on http://localhost:3001 --timeout 60000
@@ -109,6 +116,7 @@ jobs:
         env:
           CI: true
           BASE_URL: http://localhost:3001
+          EMAIL_FAKE_TRANSPORT: "true"
 
       - name: Upload test results
         if: always()

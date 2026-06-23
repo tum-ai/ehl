@@ -1063,8 +1063,10 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await page.waitForLoadState("networkidle");
 
     await expect(page.getByRole("heading", { name: /submissions/i })).toBeVisible({ timeout: 10000 });
-    // The submitted project (from 7.1/7.2) appears in the list.
-    await expect(page.getByText("E2E Project Alpha")).toBeVisible({ timeout: 10000 });
+    // The submitted project (from 7.1/7.2) appears in the list. The global view
+    // shows ALL chapters, so leftover test chapters can repeat the project name —
+    // assert at least one match (.first()) rather than strict uniqueness.
+    await expect(page.getByText("E2E Project Alpha").first()).toBeVisible({ timeout: 10000 });
 
     // Click through to the detail page via the first "View" link.
     await page.getByRole("link", { name: /View/i }).first().click();
@@ -1594,6 +1596,155 @@ test.describe.serial("Hackathon Lifecycle", () => {
     for (const table of ["partners", "media", "team_join_requests", "challenges"] as const) {
       const { data } = await admin.from(table).select("id").eq("chapter_id", delChapterId);
       expect(data?.length ?? 0, `${table} should be cascaded`).toBe(0);
+    }
+  });
+
+  // ── BLOCK 13: COMMUNICATIONS (custom acceptance email, broadcast, event info) ──
+
+  test("13.1 Admin saves custom acceptance email + event info via UI", async ({ page }) => {
+    const admin = getAdminClient();
+    await loginAsAdmin(page);
+    await page.goto(`/admin/chapters/${chapterId}/communications`);
+    await page.waitForLoadState("networkidle");
+
+    const subject = `Welcome to ${RUN_ID}!`;
+    const message = "Join our Discord for last-minute details.";
+    const eventInfo = `Discord: https://discord.gg/${RUN_ID}\nDoors open 09:00`;
+
+    await page.getByLabel("Subject").first().fill(subject);
+    await page.getByLabel("Custom message (optional)").fill(message);
+    await page.getByRole("button", { name: "Save acceptance email" }).click();
+    await expect(page.getByText("Acceptance email settings saved.")).toBeVisible({
+      timeout: 10000,
+    });
+
+    await page.getByPlaceholder("Discord:", { exact: false }).fill(eventInfo);
+    await page.getByRole("button", { name: "Save event info" }).click();
+    await expect(
+      page.getByText("Event info saved.", { exact: false })
+    ).toBeVisible({ timeout: 10000 });
+
+    // DB state: persisted in the admin-only chapter_communications table (NOT on
+    // the publicly-readable chapters row).
+    const { data: row } = await admin
+      .from("chapter_communications")
+      .select("acceptance_email_subject, acceptance_email_message, event_info")
+      .eq("chapter_id", chapterId)
+      .single();
+    expect(row?.acceptance_email_subject).toBe(subject);
+    expect(row?.acceptance_email_message).toBe(message);
+    expect(row?.event_info).toBe(eventInfo);
+  });
+
+  test("13.2 Checked-in participant sees event info panel on the event hub", async ({ page }) => {
+    const admin = getAdminClient();
+    // The president is checked in (block 6); ensure the event info is set.
+    await admin.from("chapter_communications").upsert(
+      {
+        chapter_id: chapterId,
+        event_info: `Discord: https://discord.gg/${RUN_ID}\nDoors open 09:00`,
+      },
+      { onConflict: "chapter_id" }
+    );
+
+    await loginAsParticipant(page, E2E_ACCOUNTS.president.email);
+    await page.goto(`/event/${chapterSlug}`);
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByText("Event info")).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByText(`https://discord.gg/${RUN_ID}`, { exact: false })
+    ).toBeVisible();
+  });
+
+  test("13.3 Admin broadcast targets only the chosen status and records an audit row", async ({ page }) => {
+    // The broadcast action sends one email per recipient and only reports "Sent to"
+    // after all sends + the audit row complete. In CI email goes through a fake
+    // transport (EMAIL_FAKE_TRANSPORT), so this is fast; the generous timeout is
+    // headroom. We target a single waitlisted recipient for a deterministic count.
+    test.setTimeout(90_000);
+    const admin = getAdminClient();
+
+    // A dedicated accepted applicant for this run, a rejected one that must NOT
+    // receive the broadcast, and a single waitlisted one that is the only target
+    // of the broadcast below (keeps the real-SMTP send to one recipient).
+    const acceptedEmail = `broadcast-accepted-${RUN_ID}@test-ehl.com`;
+    const rejectedEmail = `broadcast-rejected-${RUN_ID}@test-ehl.com`;
+    const waitlistedEmail = `broadcast-waitlisted-${RUN_ID}@test-ehl.com`;
+    await admin.from("applications").delete().in("email", [acceptedEmail, rejectedEmail, waitlistedEmail]);
+    await admin.from("applications").insert([
+      {
+        chapter_id: chapterId,
+        email: acceptedEmail,
+        first_name: "Broadcast",
+        last_name: "Accepted",
+        status: "accepted",
+        form_data: {},
+        consent_attendance: true,
+        consent_privacy: true,
+      },
+      {
+        chapter_id: chapterId,
+        email: rejectedEmail,
+        first_name: "Broadcast",
+        last_name: "Rejected",
+        status: "rejected",
+        form_data: {},
+        consent_attendance: true,
+        consent_privacy: true,
+      },
+    ]);
+
+    try {
+      await loginAsAdmin(page);
+      await page.goto(`/admin/chapters/${chapterId}/communications`);
+      await page.waitForLoadState("networkidle");
+
+      const bcSubject = `Final details ${RUN_ID}`;
+      // Target ONLY waitlisted to keep this to a single recipient: the broadcast
+      // sends a real email per recipient over SMTP, so a small, deterministic
+      // audience keeps the test fast and reliable. Prior lifecycle data has
+      // accepted/checked-in people but no waitlisted, so we add exactly one.
+      await admin.from("applications").delete().eq("email", waitlistedEmail);
+      await admin.from("applications").insert({
+        chapter_id: chapterId,
+        email: waitlistedEmail,
+        first_name: "Broadcast",
+        last_name: "Waitlisted",
+        status: "waitlisted",
+        form_data: {},
+        consent_attendance: true,
+        consent_privacy: true,
+      });
+
+      // Target the broadcast composer's own fields by id (unambiguous).
+      await page.locator("#broadcast-subject").fill(bcSubject);
+      await page.locator("#broadcast-message").fill("See you all at the venue!");
+      // Default recipients are Accepted + Checked-in; switch to Waitlisted only.
+      await page.getByRole("checkbox", { name: "Accepted" }).uncheck();
+      await page.getByRole("checkbox", { name: "Checked in" }).uncheck();
+      await page.getByRole("checkbox", { name: "Waitlisted" }).check();
+
+      await page.once("dialog", (d) => d.accept());
+      await page.getByRole("button", { name: "Send broadcast" }).click();
+      await expect(page.getByText("Sent to", { exact: false })).toBeVisible({
+        timeout: 30000,
+      });
+
+      // The audit row records exactly the targeted status and one recipient, and
+      // never includes rejected/cancelled.
+      const { data: bc } = await admin
+        .from("chapter_broadcasts")
+        .select("subject, status_filter, recipient_count")
+        .eq("chapter_id", chapterId)
+        .eq("subject", bcSubject)
+        .single();
+      expect(bc).toBeTruthy();
+      expect(bc?.status_filter).toEqual(["waitlisted"]);
+      expect(bc?.status_filter).not.toContain("rejected");
+      expect(bc?.recipient_count).toBe(1);
+    } finally {
+      await admin.from("applications").delete().in("email", [acceptedEmail, rejectedEmail, waitlistedEmail]);
     }
   });
 });

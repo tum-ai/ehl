@@ -13,6 +13,9 @@ import {
   renderApplicationCancelledEmail,
 } from "@/lib/emails/render";
 import { getSession } from "@/lib/actions/auth";
+import { getChapterCommunications } from "@/lib/queries";
+import { acceptanceEmailSubject } from "@/lib/communications";
+import { splitParagraphs } from "@/lib/emails/text-block";
 import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
 import { formatDateRange } from "@/lib/utils";
 import type { ApplicationStatus, ApplicationTeamMember } from "@/lib/types";
@@ -527,6 +530,11 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
   const crossChapter = applications.some((a) => a.chapter_id !== chapterId);
   if (crossChapter) return { error: "All applications must belong to the same chapter." };
 
+  // Per-chapter email customization lives in the admin-only chapter_communications
+  // table (never on the public chapters row). Fetch it once for the whole batch;
+  // when no row exists / fields are null, the email is byte-identical to legacy.
+  const comms = await getChapterCommunications(chapterId as string);
+
   let sent = 0;
   const failed: string[] = [];
   for (const app of applications) {
@@ -538,6 +546,16 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
       chapter.date as string,
       chapter.date_end as string | null
     );
+
+    // When both are null this reproduces the legacy email exactly: the literal
+    // subject and a template with no message block.
+    const subject = acceptanceEmailSubject(
+      comms.acceptanceEmailSubject,
+      chapter.name as string
+    );
+    const customMessageParagraphs = comms.acceptanceEmailMessage
+      ? splitParagraphs(comms.acceptanceEmailMessage)
+      : undefined;
 
     try {
       // QR generation and render are inside the try so one bad row (e.g. a
@@ -555,11 +573,12 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
         chapterDate: dateStr,
         chapterSlug: chapter.slug as string,
         checkInToken: app.check_in_token as string,
+        customMessageParagraphs,
       });
 
       await sendEmail({
         to: app.email as string,
-        subject: `You're in! Accepted for ${chapter.name}`,
+        subject,
         html,
         skipRateLimit: true,
         attachments: [

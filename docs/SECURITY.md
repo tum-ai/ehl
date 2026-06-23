@@ -56,6 +56,7 @@ RLS is enabled on **every table** in the database. This is the primary data acce
 - **Read-only query modules** (`lib/queries/`) may use `createAdminClient()` for server-side data fetching when RLS would be too restrictive (e.g. public team pages reading member names). These are safe because they are server-only, read-only, and select only non-sensitive fields.
 - **Rule**: Never use `createAdminClient()` for write operations in participant-facing code paths
 - **Profiles table**: RLS restricts reads to authenticated users only (`auth.uid() is not null`, migration 00028). Anonymous API access (anon key without session) cannot read profiles. Fine-grained authorization (admin, jury, team membership) is enforced at the application level.
+- **Chapter communications**: the `chapters` table is publicly readable (`status != 'draft'`). RLS gates rows, not columns, so the admin/participant-only per-chapter communications text (acceptance email subject/message, event info) is NOT stored on `chapters`. It lives in a separate admin-only table `chapter_communications` (no public read policy, migration 00052). Event info reaches participants only through the gated `getChapterEventInfo()` server action, which returns it solely to applicants of that chapter with status `accepted`/`checked_in`.
 
 ### Server Action Guards
 

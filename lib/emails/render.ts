@@ -14,6 +14,7 @@ import { JoinRequestEmail } from "./join-request";
 import { CertificateEmail } from "./certificate";
 import { AccountClaimEmail } from "./account-claim";
 import { CreateAccountInviteEmail } from "./create-account-invite";
+import { ChapterBroadcastEmail } from "./chapter-broadcast";
 
 type WelcomeProps = Parameters<typeof WelcomeEmail>[0];
 type PasswordResetProps = Parameters<typeof PasswordResetEmail>[0];
@@ -29,6 +30,7 @@ type JoinRequestProps = Parameters<typeof JoinRequestEmail>[0];
 type CertificateProps = Parameters<typeof CertificateEmail>[0];
 type AccountClaimProps = Parameters<typeof AccountClaimEmail>[0];
 type CreateAccountInviteProps = Parameters<typeof CreateAccountInviteEmail>[0];
+type ChapterBroadcastProps = Parameters<typeof ChapterBroadcastEmail>[0];
 
 export async function renderWelcomeEmail(props: WelcomeProps): Promise<string> {
   return render(createElement(WelcomeEmail, props));
@@ -84,4 +86,8 @@ export async function renderJoinRequestEmail(props: JoinRequestProps): Promise<s
 
 export async function renderCertificateEmail(props: CertificateProps): Promise<string> {
   return render(createElement(CertificateEmail, props));
+}
+
+export async function renderChapterBroadcastEmail(props: ChapterBroadcastProps): Promise<string> {
+  return render(createElement(ChapterBroadcastEmail, props));
 }

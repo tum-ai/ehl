@@ -390,6 +390,8 @@ All query limits have sensible defaults. Override via env vars if you need highe
 | `LIMIT_CHALLENGE_REGISTRATIONS` | 500 | Max challenge registrations |
 | `LIMIT_USERS_LOOKING_FOR_TEAM` | 500 | Max "looking for team" users |
 | `LIMIT_CODE_REVIEW_QUEUE_DEPTH` | 200 | Max concurrent code reviews in queue |
+| `LIMIT_BROADCAST_RECIPIENTS` | 200 | Max recipients per chapter broadcast send (capped to fit the function timeout) |
+| `LIMIT_BROADCASTS` | 50 | Max broadcast history rows loaded in the admin composer |
 
 To change: go to **Vercel Dashboard > Settings > Environment Variables**, add the variable, redeploy.
 

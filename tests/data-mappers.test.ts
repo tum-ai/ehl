@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   toTeam,
   toChapter,
+  toChapterCommunications,
   toScore,
   toChallenge,
   toSubmission,
@@ -100,6 +101,27 @@ describe("toChapter", () => {
     expect(chapter.heroImageUrl).toBeNull();
     expect(chapter.submissionDeadline).toBeNull();
     expect(chapter.photoAlbumUrl).toBeNull();
+  });
+});
+
+describe("toChapterCommunications", () => {
+  it("maps a full row correctly", () => {
+    const comms = toChapterCommunications({
+      chapter_id: "c1",
+      acceptance_email_subject: "Custom subject",
+      acceptance_email_message: "See you in Munich!",
+      event_info: "Discord: https://discord.gg/x",
+    });
+    expect(comms.acceptanceEmailSubject).toBe("Custom subject");
+    expect(comms.acceptanceEmailMessage).toBe("See you in Munich!");
+    expect(comms.eventInfo).toBe("Discord: https://discord.gg/x");
+  });
+
+  it("defaults all fields to null when absent", () => {
+    const comms = toChapterCommunications({ chapter_id: "c1" });
+    expect(comms.acceptanceEmailSubject).toBeNull();
+    expect(comms.acceptanceEmailMessage).toBeNull();
+    expect(comms.eventInfo).toBeNull();
   });
 });
 
