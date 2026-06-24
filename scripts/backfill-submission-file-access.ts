@@ -35,7 +35,13 @@ async function main() {
   }
   const db = createClient(url, serviceKey, { auth: { persistSession: false } });
 
-  const { data: subs, error } = await db.from("submissions").select("id, fields");
+  // Pull each submission with its challenge's field config so we only ever grant
+  // access to values stored in FILE-type fields. A stray Drive URL pasted into a
+  // text/url field (or any non-file field) must never be made public by this
+  // backfill — defense in depth on top of the submissions-table-only scope.
+  const { data: subs, error } = await db
+    .from("submissions")
+    .select("id, fields, challenges(submission_fields)");
   if (error) {
     console.error("Failed to read submissions:", error.message);
     process.exit(1);
@@ -44,7 +50,16 @@ async function main() {
   const fileIds = new Set<string>();
   for (const s of subs ?? []) {
     const fields = (s.fields ?? {}) as Record<string, unknown>;
-    for (const v of Object.values(fields)) {
+    const challenge = (s as { challenges?: { submission_fields?: unknown } }).challenges;
+    const fieldConfig = (challenge?.submission_fields ?? []) as Array<{
+      key?: string;
+      type?: string;
+    }>;
+    const fileKeys = new Set(
+      fieldConfig.filter((f) => f.type === "file").map((f) => f.key)
+    );
+    for (const [key, v] of Object.entries(fields)) {
+      if (!fileKeys.has(key)) continue; // only file-type fields
       const id = driveFileId(v);
       if (id) fileIds.add(id);
     }

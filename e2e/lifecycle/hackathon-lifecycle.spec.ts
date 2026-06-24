@@ -1246,12 +1246,14 @@ test.describe.serial("Hackathon Lifecycle", () => {
     const admin = getAdminClient();
 
     // Create a team that registers but never submits, and put it in the pitch order.
+    // Names carry RUN_ID so concurrent runs sharing the test DB don't collide on
+    // the team slug (createTeam defensively deletes same-slug teams).
     const ghostPresident = await createParticipant({
-      email: "e2e-ghost-pres@test-ehl.com",
+      email: `e2e-ghost-pres-${RUN_ID}@test-ehl.com`,
       name: "E2E Ghost Pres",
     });
     const ghostTeamId = await createTeam({
-      name: "E2E Ghost Team",
+      name: `E2E Ghost Team ${RUN_ID}`,
       presidentUserId: ghostPresident,
     });
     await registerForChallenge({
@@ -1528,8 +1530,11 @@ test.describe.serial("Hackathon Lifecycle", () => {
     // deletes it through the admin UI and verifies the row and its children are
     // gone. Uses its own chapter so it cannot affect other tests.
     const admin = getAdminClient();
+    // Names carry RUN_ID so concurrent runs sharing the test DB don't collide on
+    // chapter/team slugs (createChapter/createTeam defensively delete same-slug rows).
+    const delChapterName = `E2E Delete Me ${RUN_ID}`;
     const delChapter = await createChapter({
-      name: "E2E Delete Me",
+      name: delChapterName,
       city: "Del City",
       country: "Germany",
       countryCode: "DE",
@@ -1543,10 +1548,10 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await createChallenge({ chapterId: delChapterId, title: "Del Challenge" });
     // A team_join_request scoped to this chapter exercises the third NO-ACTION FK.
     const delPres = await createParticipant({
-      email: "e2e-del-pres@test-ehl.com",
+      email: `e2e-del-pres-${RUN_ID}@test-ehl.com`,
       name: "E2E Del Pres",
     });
-    const delTeamId = await createTeam({ name: "E2E Del Team", presidentUserId: delPres });
+    const delTeamId = await createTeam({ name: `E2E Del Team ${RUN_ID}`, presidentUserId: delPres });
 
     // Insert the three NO-ACTION children. Assert each insert SUCCEEDS, otherwise
     // the later "cascaded to 0" checks would be vacuously true (a bad enum/value
@@ -1576,7 +1581,7 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await page.waitForLoadState("networkidle");
 
     await page.getByRole("button", { name: /^Delete match$/i }).click();
-    await page.locator('input[type="text"]').last().fill("E2E Delete Me");
+    await page.locator('input[type="text"]').last().fill(delChapterName);
     await page.getByRole("button", { name: /Permanently delete/i }).click();
 
     // UI navigates back to the chapters list on success (required, not swallowed).
