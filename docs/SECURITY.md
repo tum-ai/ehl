@@ -43,6 +43,8 @@ Local admins (role `chapter_admin`) are bounded by three independent layers, so 
 2. **Page guards** — global pages use `requireGlobalAdminPage()` (bounces local admins to their chapter); chapter pages use `requireChapterAdminPage(id)` (only their chapter). Write-heavy controls (edit/status/scores/jury/partners/challenges/local-admin management) are rendered only for global admins.
 3. **Action/API guards** — the two writes a local admin may perform (`submitScore`, the check-in actions) and the per-chapter read APIs they use call `requireChapterAdminAction(chapterId)` / `requireChapterAdminApi(chapterId)`, which authorize a global admin OR the local admin of that exact chapter. Every other admin action/route keeps the global-only `requireAdmin*` guards.
 
+The CV proxy (`GET /api/admin/cv/[fileId]`) is a special case: the request carries only a Drive `fileId`, not a chapter. The route therefore resolves the owning chapter server-side (looking up the `applications` row whose `cv_url` equals the `fileId`) and then calls `requireChapterAdminApi(<owning chapter>)`. A local admin can read CVs only for applicants in their own chapter; a global admin reads any. A `fileId` not owned by any application is rejected (404) before the guard or Drive are touched, so the proxy cannot be used to pull arbitrary Drive files by id. The chapter is never taken from caller input, so it cannot be spoofed.
+
 ---
 
 ## 2. Authorization and Data Access

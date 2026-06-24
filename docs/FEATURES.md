@@ -245,7 +245,8 @@ There are two kinds of admin:
 - A local admin sees a reduced sidebar (Chapter, Screening, Teams, Check-in) and is
   confined to that one chapter: application screening, the chapter's teams &
   participants, submissions, and check-in.
-- They **can**: score applications (screening) and check participants in.
+- They **can**: score applications (screening), view the CVs of applicants in their
+  own chapter, and check participants in.
 - They **cannot**: see other chapters or any global admin view, edit chapter
   settings, change status, manage challenges/jury/partners, publish scores, or delete
   anything. Inviting/removing local admins is a global-admin action.
@@ -264,7 +265,8 @@ There are two kinds of admin:
 - Screener scoring per application
 - Bulk accept/reject/waitlist
 - Send branded acceptance/rejection emails
-- View CVs (downloaded from Google Drive)
+- View CVs (proxied from Google Drive via the service account; chapter-scoped, so a
+  local admin sees only CVs of applicants in their own chapter)
 - Cancel an accepted applicant (e.g. they can no longer attend): keeps the record
   with a visible "cancelled" status, requires a reason, and can optionally send a
   branded cancellation email. Allowed even after the acceptance email was sent.
