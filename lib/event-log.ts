@@ -15,6 +15,7 @@
  *   Update: { "field": { "from": oldValue, "to": newValue } }
  */
 
+import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export interface EventLogOpts {
@@ -85,14 +86,38 @@ async function insertEvent(opts: EventLogOpts): Promise<void> {
 }
 
 /**
- * Fire-and-forget event logging for non-critical actions.
- * Does not await, does not throw. Failures are silently logged to console.
+ * Non-blocking event logging for non-critical actions. Does not block the
+ * response and never throws.
+ *
+ * On Vercel a plain floating promise is silently dropped: the function instance
+ * freezes the moment the server action returns, before the insert settles (the
+ * same failure mode that dropped transactional emails). So in a request scope we
+ * schedule the insert via next/server's after(), which keeps the instance alive
+ * until it completes. Outside a request scope (standalone scripts, cron without a
+ * request) after() throws "outside of a request"; there the floating promise is
+ * fine because the process stays alive, so we fall back to it.
+ *
+ * Note: lib/email-deferred.ts calls after() unconditionally (no fallback) and is
+ * kept as a separate module. Here we deliberately use one dual-context function
+ * with a try/catch fallback, because logEvent is also called from standalone
+ * scripts. Don't "align" the two by removing this fallback.
+ *
  * Use for: registrations, team updates, invites, flag operations, etc.
  */
 export function logEvent(opts: EventLogOpts): void {
-  insertEvent(opts).catch((err) => {
-    console.error("[EventLog] Non-critical log failed:", err.message, opts.action);
-  });
+  const run = () =>
+    insertEvent(opts).catch((err) => {
+      console.error("[EventLog] Non-critical log failed:", err.message, opts.action);
+    });
+
+  try {
+    // Request scope (server action / route handler): survive the post-response
+    // freeze by deferring through after().
+    after(run);
+  } catch {
+    // No request scope (scripts/cron): the process stays alive, so fire-and-forget.
+    run();
+  }
 }
 
 /**
