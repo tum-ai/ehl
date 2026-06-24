@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { downloadFile } from "@/lib/gdrive";
 import { requireChapterAdminApi } from "@/lib/admin-auth";
+import { getSession } from "@/lib/actions/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(
@@ -11,6 +12,17 @@ export async function GET(
 
   if (!fileId || fileId.length < 10) {
     return NextResponse.json({ error: "Invalid file ID" }, { status: 400 });
+  }
+
+  // Cheap role pre-gate before any DB work: only an admin or chapter admin may
+  // probe this route at all. Without it, an unauthenticated caller could force a
+  // DB lookup and distinguish owned (403) from orphan (404) file ids. The
+  // chapter-scoped check below still enforces WHICH chapter a chapter admin may
+  // read; this only rejects non-admins early with a uniform 403.
+  const session = await getSession();
+  const role = session?.profile?.role;
+  if (role !== "admin" && role !== "chapter_admin") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
   }
 
   // Resolve which chapter this CV belongs to. The fileId is the Google Drive

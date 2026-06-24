@@ -15,12 +15,16 @@ import { NextResponse } from "next/server";
 
 const mocks = vi.hoisted(() => ({
   requireChapterAdminApi: vi.fn(),
+  getSession: vi.fn(),
   createAdminClient: vi.fn(),
   downloadFile: vi.fn(),
 }));
 
 vi.mock("@/lib/admin-auth", () => ({
   requireChapterAdminApi: mocks.requireChapterAdminApi,
+}));
+vi.mock("@/lib/actions/auth", () => ({
+  getSession: mocks.getSession,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: mocks.createAdminClient,
@@ -65,6 +69,9 @@ function makeDb(ownerChapterByFile: Record<string, string>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default caller is a global admin so the role pre-gate passes; individual
+  // tests override this (chapter admin, non-admin) as needed.
+  mocks.getSession.mockResolvedValue({ user: { id: "admin-1" }, profile: { role: "admin" } });
   mocks.createAdminClient.mockReturnValue(
     makeDb({ [FILE_IN_CHAPTER_A]: CHAPTER_A })
   );
@@ -146,6 +153,33 @@ describe("GET /api/admin/cv/[fileId]", () => {
 
     expect(res.status).toBe(403);
     expect(mocks.downloadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects a non-admin caller BEFORE any DB lookup (no owned-vs-orphan oracle)", async () => {
+    // A participant / unauthenticated caller must be turned away by the role
+    // pre-gate, so the route never runs the cv_url DB lookup and cannot be used
+    // to distinguish a real CV file id (403) from an orphan id (404).
+    mocks.getSession.mockResolvedValue({ user: { id: "p1" }, profile: { role: "participant" } });
+    const dbSpy = vi.fn(() => makeDb({ [FILE_IN_CHAPTER_A]: CHAPTER_A }));
+    mocks.createAdminClient.mockImplementation(dbSpy);
+
+    const res = await GET(new Request("http://t/"), paramsFor(FILE_IN_CHAPTER_A));
+
+    expect(res.status).toBe(403);
+    expect(dbSpy).not.toHaveBeenCalled();
+    expect(mocks.requireChapterAdminApi).not.toHaveBeenCalled();
+    expect(mocks.downloadFile).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unauthenticated caller (no session) before any DB lookup", async () => {
+    mocks.getSession.mockResolvedValue(null);
+    const dbSpy = vi.fn(() => makeDb({ [FILE_IN_CHAPTER_A]: CHAPTER_A }));
+    mocks.createAdminClient.mockImplementation(dbSpy);
+
+    const res = await GET(new Request("http://t/"), paramsFor(FILE_IN_CHAPTER_A));
+
+    expect(res.status).toBe(403);
+    expect(dbSpy).not.toHaveBeenCalled();
   });
 
   it("returns 404 for a file id not owned by any application (no chapter to authorize against)", async () => {
