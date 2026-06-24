@@ -3,6 +3,7 @@ import { requireChapterAdminApi } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { ApplicationFormData, ApplicationTeamMember } from "@/lib/types";
 import { extractLinkedInUsername, extractGitHubUsername, normalizeName, findBestNameMatch } from "@/lib/flag-utils";
+import { computeNoShows, buildCheckinEnabledChapters } from "@/lib/screening-flags";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 
 function toApplication(row: Record<string, unknown>) {
@@ -72,7 +73,7 @@ export async function GET(
     adminClient.from("team_members").select("team_id, user_id, profiles(email, name)").limit(QUERY_LIMITS.allTeamMembers),
     adminClient.from("leaderboard").select("team_id, team_name, total_points").limit(QUERY_LIMITS.leaderboard),
     adminClient.from("screening_scores").select("application_id, screener_id, score, notes, created_at").limit(QUERY_LIMITS.screeningScores),
-    adminClient.from("applications").select("id, email, chapter_id, status, chapters!inner(name)").limit(QUERY_LIMITS.applicationStats),
+    adminClient.from("applications").select("id, email, chapter_id, status, checked_in_at, chapters!inner(name)").limit(QUERY_LIMITS.applicationStats),
     adminClient.from("submissions").select("challenge_id, team_id").limit(QUERY_LIMITS.submissionsPerChallenge * 50),
     adminClient.from("challenge_registrations").select("chapter_id, team_id, challenge_id").limit(QUERY_LIMITS.challengeRegistrations),
     adminClient.from("tumai_members").select("email, name").limit(QUERY_LIMITS.profiles),
@@ -220,6 +221,16 @@ export async function GET(
     });
   }
 
+  // Chapters where check-in actually ran (any application has a real
+  // checked_in_at). Chapters absent from this set predate the check-in feature
+  // (e.g. the first hackathon) and must never produce no-show flags.
+  const checkinEnabledChapters = buildCheckinEnabledChapters(
+    (allApplications ?? []).map((a) => ({
+      chapterId: a.chapter_id as string,
+      checkedInAt: (a.checked_in_at as string | null) ?? null,
+    }))
+  );
+
   // Build team_id+chapter_id -> has submissions lookup for no-show detection
   const teamChapterSubmissions = new Set<string>();
   if (allSubmissions && allRegistrations) {
@@ -275,18 +286,14 @@ export async function GET(
     // Past participations (checked_in at other chapters)
     const pastParticipations = otherApps.filter((a) => a.status === "checked_in").length;
 
-    // No-shows: checked_in but team had no submission
-    let noShows = 0;
-    if (teamInfo) {
-      for (const other of otherApps) {
-        if (other.status === "checked_in") {
-          const key = `${teamInfo.teamId}:${other.chapterId}`;
-          if (!teamChapterSubmissions.has(key)) {
-            noShows++;
-          }
-        }
-      }
-    }
+    // No-shows: checked_in but team had no submission, only counted for
+    // chapters where check-in actually ran (pre-check-in events excluded).
+    const noShows = computeNoShows({
+      otherApps: otherApps.map((a) => ({ status: a.status, chapterId: a.chapterId })),
+      teamId: teamInfo?.teamId ?? null,
+      teamChapterSubmissions,
+      checkinEnabledChapters,
+    });
 
     // TUM.ai verification
     const selfReported = app.formData?.isTumaiMember ?? false;
