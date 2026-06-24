@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import { Card } from "@/components/ui/card";
 import { LimitBanner } from "@/components/admin/limit-banner";
 import {
@@ -63,6 +64,12 @@ export function CommunicationsClient({
   const [message, setMessage] = useState(initial.acceptanceMessage);
   const [savingAccept, setSavingAccept] = useState(false);
   const [acceptMsg, setAcceptMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Last-saved baselines for the persistent settings, so the unsaved-changes
+  // guard clears after a successful save (props don't refresh without a reload).
+  const savedAccept = useRef({
+    subject: initial.acceptanceSubject,
+    message: initial.acceptanceMessage,
+  });
 
   async function saveAcceptance() {
     setSavingAccept(true);
@@ -71,11 +78,12 @@ export function CommunicationsClient({
       acceptanceSubject: subject,
       acceptanceMessage: message,
     });
-    setAcceptMsg(
-      res.error
-        ? { ok: false, text: res.error }
-        : { ok: true, text: "Acceptance email settings saved." }
-    );
+    if (res.error) {
+      setAcceptMsg({ ok: false, text: res.error });
+    } else {
+      savedAccept.current = { subject, message };
+      setAcceptMsg({ ok: true, text: "Acceptance email settings saved." });
+    }
     setSavingAccept(false);
   }
 
@@ -83,16 +91,18 @@ export function CommunicationsClient({
   const [eventInfo, setEventInfo] = useState(initial.eventInfo);
   const [savingInfo, setSavingInfo] = useState(false);
   const [infoMsg, setInfoMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const savedEventInfo = useRef(initial.eventInfo);
 
   async function saveEventInfo() {
     setSavingInfo(true);
     setInfoMsg(null);
     const res = await updateChapterEmailSettings(chapterId, { eventInfo });
-    setInfoMsg(
-      res.error
-        ? { ok: false, text: res.error }
-        : { ok: true, text: "Event info saved. Participants see it immediately." }
-    );
+    if (res.error) {
+      setInfoMsg({ ok: false, text: res.error });
+    } else {
+      savedEventInfo.current = eventInfo;
+      setInfoMsg({ ok: true, text: "Event info saved. Participants see it immediately." });
+    }
     setSavingInfo(false);
   }
 
@@ -105,6 +115,17 @@ export function CommunicationsClient({
   const [recipientCount, setRecipientCount] = useState<number | null>(null);
   const [sending, setSending] = useState(false);
   const [bcMsg, setBcMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Warn before leaving with unsaved acceptance/event-info edits or an unsent,
+  // partly-composed broadcast. The broadcast is transient (no draft persistence),
+  // so a half-written one is exactly what's easy to lose by navigating away.
+  const isDirty =
+    subject !== savedAccept.current.subject ||
+    message !== savedAccept.current.message ||
+    eventInfo !== savedEventInfo.current ||
+    bcSubject.trim() !== "" ||
+    bcBody.trim() !== "";
+  useUnsavedChanges(isDirty);
 
   const refreshCount = useCallback(async () => {
     if (statuses.length === 0) {

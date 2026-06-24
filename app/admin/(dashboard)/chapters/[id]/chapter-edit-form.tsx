@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Toggle } from "@/components/ui/toggle";
 import { updateChapterDetails } from "@/lib/actions/admin";
 import { adminUpload } from "@/lib/upload";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 
 interface ChapterEditFormProps {
   chapterId: string;
@@ -96,6 +97,9 @@ export function ChapterEditForm({ chapterId, initialData, onSaved }: ChapterEdit
       subDeadline !== toLocalDatetime(initialData.submissionDeadline)
     );
   })();
+
+  // Warn before navigating away with unsaved chapter edits.
+  useUnsavedChanges(hasChanges);
 
   async function handleHeroUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];

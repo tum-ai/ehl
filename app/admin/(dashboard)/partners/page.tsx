@@ -6,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { adminUpload } from "@/lib/upload";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 
 interface Partner {
   id: string;
@@ -46,6 +47,18 @@ export default function AdminPartnersPage() {
   const [tier, setTier] = useState("challenge_partner");
   const [description, setDescription] = useState("");
   const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
+
+  // Warn before leaving with an open, partly-filled partner form (no draft
+  // persistence, so anything typed is lost on navigation).
+  const formDirty =
+    showForm &&
+    (name.trim() !== "" ||
+      url.trim() !== "" ||
+      description.trim() !== "" ||
+      logoUrl !== "" ||
+      selectedChapterIds.length > 0 ||
+      tier !== "challenge_partner");
+  useUnsavedChanges(formDirty);
 
   useEffect(() => {
     fetch("/api/admin/partners")

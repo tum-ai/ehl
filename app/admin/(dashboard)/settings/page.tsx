@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import {
   getSettings,
   getSettingFullValue,
@@ -88,6 +89,10 @@ export default function SettingsPage() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+
+  // Warn before leaving mid-edit with an unsaved secret typed in (these are
+  // credentials like API tokens; losing one to an accidental click is costly).
+  useUnsavedChanges(editing !== null && (values[editing]?.trim() ?? "") !== "");
 
   async function loadSettings() {
     const [data, fallbacks] = await Promise.all([

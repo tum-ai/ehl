@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -87,11 +88,13 @@ const WEIGHT_KEYS: { key: keyof CodeReviewConfig["weights"]; label: string }[] =
 
 function ReviewConfigEditor({
   challenge,
+  chapterId,
   models,
   modelsLoading,
   onSaved,
 }: {
   challenge: Challenge;
+  chapterId: string;
   models: OpenRouterModel[];
   modelsLoading: boolean;
   onSaved: () => void;
@@ -108,6 +111,25 @@ function ReviewConfigEditor({
   const [tokenBudget, setTokenBudget] = useState(existingConfig?.token_budget ?? 50000);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+
+  // Baseline = the config as it was when this editor mounted. Dirty when the
+  // current selections diverge, so we warn before navigating away unsaved.
+  const baseline = useRef(
+    JSON.stringify({
+      models: existingConfig?.models ?? DEFAULT_MODELS,
+      weights: existingConfig?.weights ?? DEFAULT_WEIGHTS,
+      language: existingConfig?.language ?? "en",
+      token_budget: existingConfig?.token_budget ?? 50000,
+    })
+  );
+  const isDirty =
+    JSON.stringify({
+      models: selectedModels,
+      weights,
+      language,
+      token_budget: tokenBudget,
+    }) !== baseline.current;
+  useUnsavedChanges(isDirty);
 
   const weightsTotal = Object.values(weights).reduce((a, b) => a + b, 0);
 
@@ -127,18 +149,22 @@ function ReviewConfigEditor({
       token_budget: tokenBudget,
     };
 
+    // Partial update: send ONLY the fields this editor owns. updateChallenge
+    // leaves every absent field untouched, so the Entire/Fork/scoring toggles
+    // and submission fields configured on the challenge form are preserved.
     const formData = new FormData();
     formData.set("challengeId", challenge.id);
-    formData.set("chapterId", ""); // not used for update path matching
+    formData.set("chapterId", chapterId);
     formData.set("title", challenge.title);
     formData.set("codeReviewConfig", JSON.stringify(config));
-    if (challenge.codeReviewEnabled) formData.set("codeReviewEnabled", "on");
 
     const result = await updateChallenge(formData);
     if (result?.error) {
       setMessage(result.error);
     } else {
       setMessage("Configuration saved");
+      // The saved config is now the clean baseline, so the form is no longer dirty.
+      baseline.current = JSON.stringify(config);
       onSaved();
     }
     setSaving(false);
@@ -655,6 +681,7 @@ export default function AdminCodeReviewsPage({
                   <div className="mt-4">
                     <ReviewConfigEditor
                       challenge={challenge}
+                      chapterId={chapterId}
                       models={availableModels}
                       modelsLoading={modelsLoading}
                       onSaved={reloadChallenges}

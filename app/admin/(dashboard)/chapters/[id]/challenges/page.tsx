@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { createChallenge, updateChallenge, deleteChallenge } from "@/lib/actions/admin";
 import { adminUpload } from "@/lib/upload";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 import type { SubmissionFieldConfig, CodeReviewConfig } from "@/lib/types";
 
 interface Challenge {
@@ -137,6 +138,26 @@ function FieldEditor({
   );
 }
 
+// Serializes the editable challenge-form fields so the live form state can be
+// compared against the baseline captured when the form opened (dirty check).
+function buildChallengeSnapshot(v: {
+  title: string;
+  description: string;
+  sponsorName: string;
+  sponsorLogoUrl: string;
+  prizeDescription: string;
+  judgingCriteria: string;
+  codeReviewEnabled: boolean;
+  codeReviewInstructions: string;
+  isScored: boolean;
+  inviteJuryToForks: boolean;
+  entireRequired: boolean;
+  submissionFields: SubmissionFieldConfig[];
+  briefFileId: string | null;
+}): string {
+  return JSON.stringify(v);
+}
+
 export default function AdminChallengesPage({ params }: { params: Promise<{ id: string }> }) {
   const [chapterId, setChapterId] = useState("");
   const [challenges, setChallenges] = useState<Challenge[]>([]);
@@ -167,6 +188,28 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
   const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const logoInputRef = useRef<HTMLInputElement>(null);
 
+  // Snapshot of the editable fields, captured when the form opens. The form is
+  // "dirty" when the live values diverge from this baseline. Used to warn before
+  // navigating away with unsaved challenge edits (e.g. toggled Entire/Fork but
+  // not yet saved).
+  const [baseline, setBaseline] = useState("");
+  const snapshot = buildChallengeSnapshot({
+    title,
+    description,
+    sponsorName,
+    sponsorLogoUrl,
+    prizeDescription,
+    judgingCriteria,
+    codeReviewEnabled,
+    codeReviewInstructions,
+    isScored,
+    inviteJuryToForks,
+    entireRequired,
+    submissionFields,
+    briefFileId,
+  });
+  useUnsavedChanges(showForm && snapshot !== baseline);
+
   useEffect(() => {
     params.then(async ({ id }) => {
       setChapterId(id);
@@ -194,6 +237,23 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     setLogoPreview(null);
     setEditingId(null);
     setError(null);
+    setBaseline(
+      buildChallengeSnapshot({
+        title: "",
+        description: "",
+        sponsorName: "",
+        sponsorLogoUrl: "",
+        prizeDescription: "",
+        judgingCriteria: "",
+        codeReviewEnabled: true,
+        codeReviewInstructions: "",
+        isScored: true,
+        inviteJuryToForks: false,
+        entireRequired: true,
+        submissionFields: DEFAULT_FIELDS,
+        briefFileId: null,
+      })
+    );
   }
 
   function startEdit(challenge: Challenge) {
@@ -213,6 +273,23 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     setBriefFileId(challenge.briefFileId);
     setEditingId(challenge.id);
     setShowForm(true);
+    setBaseline(
+      buildChallengeSnapshot({
+        title: challenge.title,
+        description: challenge.description || "",
+        sponsorName: challenge.sponsorName || "",
+        sponsorLogoUrl: challenge.sponsorLogoUrl || "",
+        prizeDescription: challenge.prizeDescription || "",
+        judgingCriteria: challenge.judgingCriteria || "",
+        codeReviewEnabled: challenge.codeReviewEnabled,
+        codeReviewInstructions: challenge.codeReviewInstructions || "",
+        isScored: challenge.isScored,
+        inviteJuryToForks: challenge.inviteJuryToForks,
+        entireRequired: challenge.entireRequired,
+        submissionFields: challenge.submissionFields,
+        briefFileId: challenge.briefFileId,
+      })
+    );
   }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -228,11 +305,14 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     formData.set("sponsorLogoUrl", sponsorLogoUrl);
     formData.set("prizeDescription", prizeDescription);
     formData.set("judgingCriteria", judgingCriteria);
-    if (codeReviewEnabled) formData.set("codeReviewEnabled", "on");
-    if (codeReviewInstructions.trim()) formData.set("codeReviewInstructions", codeReviewInstructions.trim());
-    if (isScored) formData.set("isScored", "on");
-    if (inviteJuryToForks) formData.set("inviteJuryToForks", "on");
-    if (entireRequired) formData.set("entireRequired", "on");
+    // Always send explicit on/off for every toggle. updateChallenge treats an
+    // absent key as "leave unchanged", so the full challenge form must send the
+    // real state of each toggle (including "off") to be able to turn one off.
+    formData.set("codeReviewEnabled", codeReviewEnabled ? "on" : "off");
+    formData.set("isScored", isScored ? "on" : "off");
+    formData.set("inviteJuryToForks", inviteJuryToForks ? "on" : "off");
+    formData.set("entireRequired", entireRequired ? "on" : "off");
+    formData.set("codeReviewInstructions", codeReviewInstructions.trim());
     formData.set("submissionFields", JSON.stringify(submissionFields));
     if (briefFileId) formData.set("briefFileId", briefFileId);
 

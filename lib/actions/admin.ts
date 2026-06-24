@@ -425,57 +425,75 @@ export async function updateChallenge(formData: FormData) {
   const challengeId = formData.get("challengeId") as string;
   const chapterId = formData.get("chapterId") as string;
   const title = formData.get("title") as string;
-  const description = (formData.get("description") as string) || null;
-  const sponsorName = (formData.get("sponsorName") as string) || null;
-  const sponsorLogoUrl = (formData.get("sponsorLogoUrl") as string) || null;
-  const prizeDescription = (formData.get("prizeDescription") as string) || null;
-  const judgingCriteria = (formData.get("judgingCriteria") as string) || null;
-  const codeReviewEnabled = formData.get("codeReviewEnabled") === "on";
-  const isScored = formData.get("isScored") === "on";
-  const inviteJuryToForks = formData.get("inviteJuryToForks") === "on";
-  const entireRequired = formData.get("entireRequired") === "on";
-  const submissionFieldsJson = formData.get("submissionFields") as string;
-  const briefFileId = (formData.get("briefFileId") as string) || null;
-  const codeReviewInstructions = (formData.get("codeReviewInstructions") as string) || null;
-  const codeReviewConfigJson = formData.get("codeReviewConfig") as string;
 
   if (!challengeId || !title) {
     return { error: "Challenge ID and title are required." };
   }
 
-  let submissionFields;
-  try {
-    submissionFields = submissionFieldsJson ? JSON.parse(submissionFieldsJson) : undefined;
-  } catch {
-    return { error: "Invalid submission fields JSON." };
+  // PARTIAL UPDATE: only write columns whose form key is actually present in the
+  // payload. A field that is absent from FormData is left untouched in the DB.
+  //
+  // This is a hard safety guarantee: a caller that saves a subset of the
+  // challenge config (e.g. the Code Reviews page saving only code_review_config)
+  // must NEVER silently reset other fields it did not send. Booleans like
+  // entire_required / invite_jury_to_forks are toggled off ONLY when the caller
+  // explicitly sends "off" for them, never by their mere absence. See the
+  // regression test in tests/update-challenge-partial.test.ts.
+  const update: Record<string, unknown> = { title };
+
+  // Text fields: present key -> write (empty string normalizes to null).
+  const textFields: { key: string; col: string }[] = [
+    { key: "description", col: "description" },
+    { key: "sponsorName", col: "sponsor_name" },
+    { key: "sponsorLogoUrl", col: "sponsor_logo_url" },
+    { key: "prizeDescription", col: "prize_description" },
+    { key: "judgingCriteria", col: "judging_criteria" },
+    { key: "codeReviewInstructions", col: "code_review_instructions" },
+    { key: "briefFileId", col: "brief_file_id" },
+  ];
+  for (const { key, col } of textFields) {
+    if (formData.has(key)) {
+      update[col] = (formData.get(key) as string) || null;
+    }
   }
 
-  let codeReviewConfig;
-  try {
-    codeReviewConfig = codeReviewConfigJson ? JSON.parse(codeReviewConfigJson) : undefined;
-  } catch {
-    // Ignore invalid config
+  // Boolean toggles: a present key is written as true only for the literal
+  // value "on"; any other present value (e.g. "off") writes false. Absent keys
+  // are NOT written, so the stored value is preserved.
+  const boolFields: { key: string; col: string }[] = [
+    { key: "codeReviewEnabled", col: "code_review_enabled" },
+    { key: "isScored", col: "is_scored" },
+    { key: "inviteJuryToForks", col: "invite_jury_to_forks" },
+    { key: "entireRequired", col: "entire_required" },
+  ];
+  for (const { key, col } of boolFields) {
+    if (formData.has(key)) {
+      update[col] = formData.get(key) === "on";
+    }
+  }
+
+  // JSON fields: only write when a (parseable) value is present.
+  if (formData.has("submissionFields")) {
+    const raw = formData.get("submissionFields") as string;
+    try {
+      update.submission_fields = raw ? JSON.parse(raw) : null;
+    } catch {
+      return { error: "Invalid submission fields JSON." };
+    }
+  }
+  if (formData.has("codeReviewConfig")) {
+    const raw = formData.get("codeReviewConfig") as string;
+    try {
+      if (raw) update.code_review_config = JSON.parse(raw);
+    } catch {
+      return { error: "Invalid code review config JSON." };
+    }
   }
 
   const adminClient = createAdminClient();
   const { error } = await adminClient
     .from("challenges")
-    .update({
-      title,
-      description,
-      sponsor_name: sponsorName,
-      sponsor_logo_url: sponsorLogoUrl,
-      prize_description: prizeDescription,
-      judging_criteria: judgingCriteria,
-      code_review_enabled: codeReviewEnabled,
-      is_scored: isScored,
-      invite_jury_to_forks: inviteJuryToForks,
-      entire_required: entireRequired,
-      submission_fields: submissionFields,
-      brief_file_id: briefFileId,
-      code_review_instructions: codeReviewInstructions,
-      code_review_config: codeReviewConfig,
-    })
+    .update(update)
     .eq("id", challengeId);
 
   if (error) return { error: error.message };

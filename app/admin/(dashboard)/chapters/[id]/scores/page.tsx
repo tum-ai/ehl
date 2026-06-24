@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { PLACEMENT_POINTS, PARTICIPATION_POINTS } from "@/lib/scoring";
 import { publishScores, sendCertificateEmails } from "@/lib/actions/admin";
+import { useUnsavedChanges } from "@/lib/hooks/use-unsaved-changes";
 
 interface Team {
   id: string;
@@ -71,6 +72,10 @@ export default function AdminScoresPage({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // Score overrides are staged in local state until "Save Override(s)" is
+  // clicked; warn before navigating away with unsaved overrides.
+  useUnsavedChanges(Object.keys(overrides).length > 0);
 
   useEffect(() => {
     params.then(async ({ id }) => {
