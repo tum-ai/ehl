@@ -2,24 +2,33 @@ import nodemailer from "nodemailer";
 import path from "path";
 import { checkRateLimit, emailLimiter } from "@/lib/ratelimit";
 
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || "smtp.gmail.com",
-  port: Number(process.env.SMTP_PORT) || 587,
-  secure: false,
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASSWORD,
-  },
-  // Pool connections so bulk sends (acceptance/rejection for hundreds of
-  // applicants) reuse a few TCP/auth sessions instead of opening one per
-  // message — the latter made each send ~1-2s and timed out the function.
-  pool: true,
-  maxConnections: 3,
-  maxMessages: 100,
-  connectionTimeout: 10_000,  // 10s to connect
-  greetingTimeout: 10_000,    // 10s for greeting
-  socketTimeout: 15_000,      // 15s for socket inactivity
-});
+// EMAIL_FAKE_TRANSPORT=true uses Nodemailer's built-in JSON transport: it never
+// opens a network connection, just serializes the message and resolves. Used by
+// E2E/CI so tests exercising email paths (verification codes, broadcasts) don't
+// block on real SMTP (which made the lifecycle suite exceed the CI time budget)
+// and never send to real inboxes. Production/preview leave it unset -> real SMTP.
+const useFakeTransport = process.env.EMAIL_FAKE_TRANSPORT === "true";
+
+const transporter = useFakeTransport
+  ? nodemailer.createTransport({ jsonTransport: true })
+  : nodemailer.createTransport({
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: Number(process.env.SMTP_PORT) || 587,
+      secure: false,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASSWORD,
+      },
+      // Pool connections so bulk sends (acceptance/rejection for hundreds of
+      // applicants) reuse a few TCP/auth sessions instead of opening one per
+      // message — the latter made each send ~1-2s and timed out the function.
+      pool: true,
+      maxConnections: 3,
+      maxMessages: 100,
+      connectionTimeout: 10_000,  // 10s to connect
+      greetingTimeout: 10_000,    // 10s for greeting
+      socketTimeout: 15_000,      // 15s for socket inactivity
+    });
 
 interface Attachment {
   filename: string;

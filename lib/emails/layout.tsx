@@ -81,9 +81,16 @@ export function Heading({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function Text({ children, muted }: { children: React.ReactNode; muted?: boolean }) {
+export function Text({ children, muted, preserveLines }: { children: React.ReactNode; muted?: boolean; preserveLines?: boolean }) {
   return (
-    <p style={{ fontSize: 15, color: muted ? colors.textMuted : colors.text, margin: "0 0 16px", lineHeight: "24px" }}>
+    <p style={{
+      fontSize: 15,
+      color: muted ? colors.textMuted : colors.text,
+      margin: "0 0 16px",
+      lineHeight: "24px",
+      // Keep single newlines admins typed inside a paragraph as line breaks.
+      whiteSpace: preserveLines ? ("pre-line" as const) : undefined,
+    }}>
       {children}
     </p>
   );

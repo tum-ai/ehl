@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
-import { getEventStatus } from "@/lib/actions/event";
+import { getEventStatus, getChapterEventInfo } from "@/lib/actions/event";
 import { TeamSelector } from "./team-selector";
 import { ChallengeSelector } from "./challenge-selector";
 import { JoinRequestManager } from "./join-request-manager";
@@ -51,8 +51,16 @@ interface EventState {
 export function EventHub({ chapterId, chapterName, chapterSlug }: EventHubProps) {
   const [state, setState] = useState<EventState | null>(null);
   const [teamMembers, setTeamMembers] = useState<TeamMemberStatus[]>([]);
+  const [eventInfo, setEventInfo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Event info is gated server-side: getChapterEventInfo returns null unless the
+  // viewer is an attending applicant of this chapter, so the panel only renders
+  // for the intended audience and never exposes the text more broadly.
+  useEffect(() => {
+    getChapterEventInfo(chapterId).then(setEventInfo).catch(() => {});
+  }, [chapterId]);
 
   const loadState = useCallback(async () => {
     const result = await getEventStatus(chapterId);
@@ -84,24 +92,45 @@ export function EventHub({ chapterId, chapterName, chapterSlug }: EventHubProps)
     loadState();
   }, [loadState]);
 
+  // Admin-authored event info (Discord link, schedule, venue). `eventInfo` is
+  // non-null only for attending applicants (accepted/checked_in), enforced by
+  // getChapterEventInfo server-side, so rendering it above every state branch is
+  // safe: a non-applicant or non-attending viewer simply gets null and no panel.
+  // This lets accepted-but-not-yet-checked-in participants see it even though the
+  // rest of the hub stays gated behind check-in.
+  const eventInfoPanel = eventInfo && eventInfo.trim().length > 0 ? (
+    <Card className="mb-8">
+      <h2 className="text-lg font-bold text-gold">Event info</h2>
+      <p className="mt-2 whitespace-pre-line text-sm text-text-secondary">
+        {eventInfo}
+      </p>
+    </Card>
+  ) : null;
+
   if (loading) {
     return (
-      <div className="text-center py-16">
-        <p className="text-text-secondary">Loading event...</p>
+      <div className="mx-auto max-w-3xl">
+        {eventInfoPanel}
+        <div className="text-center py-16">
+          <p className="text-text-secondary">Loading event...</p>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="text-center py-16">
-        <h1 className="text-2xl font-bold">Access Denied</h1>
-        <p className="mt-2 text-text-secondary">{error}</p>
+      <div className="mx-auto max-w-3xl">
+        {eventInfoPanel}
+        <div className="text-center py-16">
+          <h1 className="text-2xl font-bold">Access Denied</h1>
+          <p className="mt-2 text-text-secondary">{error}</p>
+        </div>
       </div>
     );
   }
 
-  if (!state) return null;
+  if (!state) return eventInfoPanel;
 
   const teamDone = !!state.team;
   const challengeDone = !!state.challengeRegistration;
@@ -110,6 +139,7 @@ export function EventHub({ chapterId, chapterName, chapterSlug }: EventHubProps)
 
   return (
     <div className="mx-auto max-w-3xl">
+      {eventInfoPanel}
       <div className="mb-8">
         <h1 className="text-3xl font-black">
           <span className="text-gold">{chapterName}</span>

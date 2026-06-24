@@ -246,6 +246,13 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
      where table_schema = 'public' and table_name = 'challenges'
        and column_name = 'entire_required'
    ) as present` },
+  { prefix: "00052", label: "chapter_communications", sql: `select exists (
+     select 1 from information_schema.tables
+     where table_schema = 'public' and table_name = 'chapter_communications'
+   ) and exists (
+     select 1 from information_schema.tables
+     where table_schema = 'public' and table_name = 'chapter_broadcasts'
+   ) as present` },
 ];
 
 /**

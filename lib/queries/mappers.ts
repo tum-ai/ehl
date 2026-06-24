@@ -1,6 +1,8 @@
 import type {
   Team,
   Chapter,
+  ChapterBroadcast,
+  ChapterCommunications,
   Score,
   Partner,
   MediaItem,
@@ -59,6 +61,29 @@ export function toChapter(row: Record<string, unknown>): Chapter {
     challengeRegistrationEnabled: (row.challenge_registration_enabled as boolean) ?? false,
     applicationDeadline: (row.application_deadline as string) ?? null,
     challengeSelectionDeadline: (row.challenge_selection_deadline as string) ?? null,
+  };
+}
+
+export function toChapterCommunications(
+  row: Record<string, unknown>
+): ChapterCommunications {
+  return {
+    acceptanceEmailSubject: (row.acceptance_email_subject as string) ?? null,
+    acceptanceEmailMessage: (row.acceptance_email_message as string) ?? null,
+    eventInfo: (row.event_info as string) ?? null,
+  };
+}
+
+export function toChapterBroadcast(row: Record<string, unknown>): ChapterBroadcast {
+  return {
+    id: row.id as string,
+    chapterId: row.chapter_id as string,
+    subject: row.subject as string,
+    body: row.body as string,
+    statusFilter: (row.status_filter as ChapterBroadcast["statusFilter"]) ?? [],
+    sentBy: (row.sent_by as string) ?? null,
+    recipientCount: (row.recipient_count as number) ?? 0,
+    sentAt: row.sent_at as string,
   };
 }
 

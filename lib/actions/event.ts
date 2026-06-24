@@ -133,6 +133,57 @@ export async function getEventStatus(chapterId: string) {
   };
 }
 
+// ─── Event info panel (gated to attending applicants) ────────
+
+/**
+ * The chapter's admin-authored event info (Discord link, schedule, venue), but
+ * ONLY for a participant who actually applied to this chapter and is attending
+ * (accepted or checked_in). Event info is never exposed through the public
+ * chapters read; this is the gated path that surfaces it. Returns null for
+ * anyone who is not an attending applicant, so the panel simply does not render.
+ */
+export async function getChapterEventInfo(
+  chapterId: string
+): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const adminClient = createAdminClient();
+
+  const { data: profile } = await adminClient
+    .from("profiles")
+    .select("email")
+    .eq("id", user.id)
+    .single();
+  if (!profile) return null;
+
+  const { data: application } = await adminClient
+    .from("applications")
+    .select("status")
+    .eq("chapter_id", chapterId)
+    .eq("email", profile.email as string)
+    .single();
+
+  // Only people who are actually coming see the venue/Discord/schedule.
+  if (
+    !application ||
+    (application.status !== "accepted" && application.status !== "checked_in")
+  ) {
+    return null;
+  }
+
+  const { data: comms } = await adminClient
+    .from("chapter_communications")
+    .select("event_info")
+    .eq("chapter_id", chapterId)
+    .single();
+
+  return (comms?.event_info as string) ?? null;
+}
+
 // ─── Create a new team at the event ─────────────────────────
 
 export async function createEventTeam(chapterId: string, teamName: string) {

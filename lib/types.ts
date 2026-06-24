@@ -82,6 +82,29 @@ export interface Chapter {
   challengeSelectionDeadline: string | null;
 }
 
+/**
+ * Per-chapter communications settings (00050). Stored in a SEPARATE admin-only
+ * table (chapter_communications), not on the publicly-readable chapters table, so
+ * the text is never exposed through the public chapters read. Null fields =
+ * legacy default behavior (the acceptance email is unchanged).
+ */
+export interface ChapterCommunications {
+  acceptanceEmailSubject: string | null;
+  acceptanceEmailMessage: string | null;
+  eventInfo: string | null;
+}
+
+export interface ChapterBroadcast {
+  id: string;
+  chapterId: string;
+  subject: string;
+  body: string;
+  statusFilter: ApplicationStatus[];
+  sentBy: string | null;
+  recipientCount: number;
+  sentAt: string;
+}
+
 export interface Challenge {
   id: string;
   chapterId: string;

@@ -8,6 +8,12 @@ interface ApplicationAcceptedEmailProps {
   chapterDate: string;
   chapterSlug: string;
   checkInToken: string;
+  /**
+   * Optional admin-authored note paragraphs (see lib/emails/text-block.ts).
+   * When omitted/empty the email is identical to the legacy template, so the
+   * fixed QR/info/button parts are never affected.
+   */
+  customMessageParagraphs?: string[];
 }
 
 export function ApplicationAcceptedEmail({
@@ -17,8 +23,10 @@ export function ApplicationAcceptedEmail({
   chapterDate,
   chapterSlug,
   checkInToken,
+  customMessageParagraphs,
 }: ApplicationAcceptedEmailProps) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ehl.gg";
+  const hasCustomMessage = !!customMessageParagraphs && customMessageParagraphs.length > 0;
 
   return (
     <EmailLayout preview={`You're in! Accepted for ${chapterName}`}>
@@ -28,6 +36,17 @@ export function ApplicationAcceptedEmail({
         Hey {firstName}, congratulations! You have been accepted to compete in the{" "}
         <strong style={{ color: "#E8B84B" }}>{chapterName}</strong>.
       </Text>
+
+      {hasCustomMessage && (
+        <>
+          {customMessageParagraphs!.map((p, i) => (
+            <Text key={i} preserveLines>
+              {p}
+            </Text>
+          ))}
+          <Divider />
+        </>
+      )}
 
       <table cellPadding={0} cellSpacing={0} role="presentation" style={{ width: "100%", marginBottom: 16 }}>
         <tbody>

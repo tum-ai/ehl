@@ -113,6 +113,9 @@ Available to participants who are checked in at an event.
 ### Event Hub (`/event/<slug>`)
 - Central page for everything happening during the hackathon
 - Shows current match status, deadlines, challenge info
+- **Event info panel**: an admin-maintained note (Discord link, schedule, venue) shown at
+  the top of the hub. Visible to accepted participants even before they are checked in
+  (the rest of the hub is gated on check-in). Edited under admin Communications.
 
 ### Check-in (Admin side)
 - Admin scans participant QR code at `/admin/check-in`
@@ -273,6 +276,22 @@ There are two kinds of admin:
 - Admin notes history per application (append-only): the cancellation is recorded
   and admins can add free-text notes. Transitions are also written to the
   immutable `event_log`.
+
+### Communications (`/admin/chapters/<id>/communications`)
+Global and chapter admins. Three tools for talking to a chapter's participants:
+- **Customizable acceptance email**: an editable subject line and an optional custom
+  message block per chapter. The fixed parts (QR code, check-in instructions, match
+  details, button) are always included, so check-in is never affected. When left blank,
+  the email is identical to the default (`You're in! Accepted for <match>`).
+- **Broadcast email**: compose a one-off branded email to the chapter's applicants and
+  pick the recipient statuses per send (accepted, checked-in, waitlisted; defaulting to
+  accepted + checked-in). Rejected and cancelled applicants never receive broadcasts. A
+  live recipient count is shown, sends are capped (`LIMIT_BROADCAST_RECIPIENTS`, default
+  200) so they fit the function timeout, and each send is recorded in `chapter_broadcasts`
+  for audit (the last send is shown in the composer). Good for sharing the Discord link
+  and final details.
+- **Event info**: a free-text panel (Discord link, schedule, venue) saved instantly with
+  no email sent. Shown at the top of the participant event hub.
 
 ### Challenge Configuration (`/admin/chapters/<id>/challenges`)
 - Create challenges with: title, description, sponsor, prize, judging criteria

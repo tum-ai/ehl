@@ -4,6 +4,7 @@
 export {
   toTeam,
   toChapter,
+  toChapterCommunications,
   toScore,
   toPartner,
   toMediaItem,
@@ -59,6 +60,8 @@ export {
   getMedia,
   getMediaForChapter,
   getPublishedScoresForTeam,
+  getChapterCommunications,
+  getRecentChapterBroadcasts,
 } from "./chapters";
 
 export {

@@ -37,6 +37,12 @@ export const QUERY_LIMITS = {
   codeReviewQueueDepth: envInt("LIMIT_CODE_REVIEW_QUEUE_DEPTH", 200),
   adminStatsApplications: envInt("LIMIT_ADMIN_STATS_APPLICATIONS", 10000),
   applicationNotes: envInt("LIMIT_APPLICATION_NOTES", 500),
+  // Max recipients fetched per chapter broadcast send. Capped so the synchronous
+  // send loop stays within the Vercel function timeout (see sendChapterBroadcast,
+  // which also stops early on a wall-clock budget). Through a 3-connection SMTP
+  // pool, 200 sends comfortably fit; raise only if your SMTP throughput allows.
+  broadcastRecipients: envInt("LIMIT_BROADCAST_RECIPIENTS", 200),
+  broadcasts: envInt("LIMIT_BROADCASTS", 50),
 };
 
 export type QueryLimitKey = keyof typeof QUERY_LIMITS;

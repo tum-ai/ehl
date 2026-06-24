@@ -1,6 +1,21 @@
-import type { Chapter, Score, Partner, MediaItem, LeaderboardEntry } from "../types";
+import type {
+  Chapter,
+  ChapterBroadcast,
+  ChapterCommunications,
+  Score,
+  Partner,
+  MediaItem,
+  LeaderboardEntry,
+} from "../types";
 import { getClient } from "./client";
-import { toChapter, toScore, toPartner, toMediaItem } from "./mappers";
+import {
+  toChapter,
+  toChapterBroadcast,
+  toChapterCommunications,
+  toScore,
+  toPartner,
+  toMediaItem,
+} from "./mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 
 // ─── Chapter Queries ──────────────────────────────────────
@@ -251,4 +266,44 @@ export async function getMediaForChapter(
     .eq("chapter_id", chapterId)
     .order("featured", { ascending: false });
   return (data ?? []).map(toMediaItem);
+}
+
+// ─── Communications Queries ───────────────────────────────
+
+/**
+ * Per-chapter communications settings (custom acceptance subject/message, event
+ * info). Uses the service-role client (bypasses RLS); callers must be
+ * admin-guarded. Returns all-null defaults when no row exists yet. Admin only.
+ */
+export async function getChapterCommunications(
+  chapterId: string
+): Promise<ChapterCommunications> {
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("chapter_communications")
+    .select("acceptance_email_subject, acceptance_email_message, event_info")
+    .eq("chapter_id", chapterId)
+    .single();
+  return data
+    ? toChapterCommunications(data)
+    : { acceptanceEmailSubject: null, acceptanceEmailMessage: null, eventInfo: null };
+}
+
+/**
+ * Recent broadcast history for one chapter (most recent first). Uses the
+ * service-role client (bypasses RLS); callers must be admin-guarded. Admin only.
+ */
+export async function getRecentChapterBroadcasts(
+  chapterId: string
+): Promise<ChapterBroadcast[]> {
+  const { createAdminClient } = await import("@/lib/supabase/admin");
+  const supabase = createAdminClient();
+  const { data } = await supabase
+    .from("chapter_broadcasts")
+    .select("*")
+    .eq("chapter_id", chapterId)
+    .order("sent_at", { ascending: false })
+    .limit(QUERY_LIMITS.broadcasts);
+  return (data ?? []).map(toChapterBroadcast);
 }
