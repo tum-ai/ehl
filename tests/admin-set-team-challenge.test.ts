@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // on a change, and that an audit entry is written.
 const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
+  getActingUserId: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
   logEvent: vi.fn(),
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: mocks.requireAdminAction,
+  getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: mocks.createAdminClient,
@@ -131,6 +133,7 @@ function defaultResponder(overrides: Partial<{
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireAdminAction.mockResolvedValue(null);
+  mocks.getActingUserId.mockResolvedValue(CALLER);
   mocks.logEventStrict.mockResolvedValue(undefined);
   mocks.createClient.mockResolvedValue({
     auth: { getUser: async () => ({ data: { user: { id: CALLER } } }) },
