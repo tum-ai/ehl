@@ -126,6 +126,8 @@ Available to participants who are checked in at an event.
 - After check-in, teams browse available challenges
 - Each challenge shows: sponsor, description, prize, judging criteria, brief PDF
 - Team registers for exactly one challenge per match
+- A team must have 2 to 5 members to register for a challenge (single-person teams cannot select a challenge); enforced server-side and reflected in the UI
+- All team members must be checked in before the team can register
 - Challenge registration can be opened/closed by admin via deadline
 
 ### Team Formation (Event Day)
