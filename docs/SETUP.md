@@ -368,6 +368,7 @@ Complete list of every environment variable. Set all "Required" vars before firs
 | `CRON_SECRET` | _(none)_ | Bearer token for `/api/cron/` endpoints |
 | `ADMIN_FALLBACK_EMAILS` | _(none)_ | Comma-separated admin emails (fallback if DB empty) |
 | `VERIFICATION_ENCRYPTION_KEY` | _(falls back to service role key)_ | AES-256-GCM key for verification codes |
+| `CERTIFICATE_LINK_SECRET` | _(falls back to `VERIFICATION_ENCRYPTION_KEY`)_ | HMAC secret for signing public certificate-link capability tokens. Rotating it invalidates already-emailed certificate links (logged-in users are unaffected). |
 
 ### Query Limits (optional overrides)
 
