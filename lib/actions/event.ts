@@ -267,6 +267,7 @@ export async function createEventTeam(chapterId: string, teamName: string) {
     action: "team.created_at_event",
     entityType: "team",
     entityId: team.id as string,
+    actorId: user.id,
     actorType: "participant",
     delta: { created: { name: teamName.trim() } },
   });
@@ -433,6 +434,7 @@ export async function resolveJoinRequest(
     action: "team.join_resolved",
     entityType: "team",
     entityId: request.team_id as string,
+    actorId: user.id,
     actorType: "participant",
     delta: { status: { from: "pending", to: approved ? "approved" : "rejected" } },
   });

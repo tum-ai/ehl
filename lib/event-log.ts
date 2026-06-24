@@ -29,6 +29,28 @@ export interface EventLogOpts {
 }
 
 /**
+ * Audit-integrity invariant: every non-system event MUST name its actor.
+ *
+ * An admin/participant/jury action is always taken by an authenticated user, so
+ * the audit row has to record WHICH account did it. Only "system" events (cron,
+ * deadline automation, unauthenticated client error reports) legitimately have
+ * no human actor. A null/empty actorId on any other actor type means a call site
+ * failed to resolve the acting user — and a "who did this?" audit row with no
+ * "who" is worthless.
+ *
+ * Returns an error message when the invariant is violated, else null. The actor
+ * defaults to "system" only when actorType is explicitly omitted AND no actorId
+ * was supplied; an explicit non-system actorType with a missing id is a bug.
+ */
+export function actorIntegrityError(opts: EventLogOpts): string | null {
+  const actorType = opts.actorType ?? "system";
+  if (actorType === "system") return null;
+  const actorId = opts.actorId;
+  if (typeof actorId === "string" && actorId.trim().length > 0) return null;
+  return `Audit integrity violation: actorType "${actorType}" requires a non-empty actorId, but got ${JSON.stringify(actorId)} (action="${opts.action}", entity=${opts.entityType}:${opts.entityId}). Every admin/participant/jury action must record the acting account.`;
+}
+
+/**
  * Compute SHA-256 hash for chain integrity.
  * Uses Web Crypto API (available in Node.js 18+ and Edge).
  */
@@ -41,8 +63,26 @@ async function computeHash(data: string): Promise<string> {
 
 /**
  * Internal: insert event into the log with hash-chain.
+ *
+ * `strict` controls how an actor-integrity violation is handled:
+ *  - strict (logEventStrict): throw, so the violation surfaces in dev/tests and
+ *    the calling action can abort/rollback. A score/jury action with no actor is
+ *    never silently accepted.
+ *  - non-strict (logEvent): log a loud server error but STILL write the row. We
+ *    must not regress the recent fix that stopped dropping audit events — losing
+ *    the row entirely is worse than recording one whose actor a developer must
+ *    chase down. The real fix is that call sites never reach here with a null
+ *    actor; this is the backstop that makes such a regression scream in CI/dev.
  */
-async function insertEvent(opts: EventLogOpts): Promise<void> {
+async function insertEvent(opts: EventLogOpts, strict: boolean): Promise<void> {
+  const integrityError = actorIntegrityError(opts);
+  if (integrityError) {
+    if (strict) throw new Error(integrityError);
+    // Non-strict: never drop the row, but fail loudly so this is caught long
+    // before it reaches a production audit log.
+    console.error(`[EventLog] ${integrityError}`);
+  }
+
   const adminClient = createAdminClient();
   const now = new Date().toISOString();
 
@@ -106,7 +146,7 @@ async function insertEvent(opts: EventLogOpts): Promise<void> {
  */
 export function logEvent(opts: EventLogOpts): void {
   const run = () =>
-    insertEvent(opts).catch((err) => {
+    insertEvent(opts, false).catch((err) => {
       console.error("[EventLog] Non-critical log failed:", err.message, opts.action);
     });
 
@@ -126,7 +166,7 @@ export function logEvent(opts: EventLogOpts): void {
  * Use for: score publishing, jury rankings, submission locks, score overrides.
  */
 export async function logEventStrict(opts: EventLogOpts): Promise<void> {
-  await insertEvent(opts);
+  await insertEvent(opts, true);
 }
 
 /**

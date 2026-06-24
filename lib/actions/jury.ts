@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { PLACEMENT_POINTS, PARTICIPATION_POINTS } from "@/lib/scoring";
 import { logEvent, logEventStrict } from "@/lib/event-log";
 import { validateJuryRanking } from "@/lib/jury-validation";
@@ -12,6 +12,8 @@ export async function removeJuryMember(userId: string): Promise<{ success?: bool
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
+  const adminUserId = await getActingUserId();
+  if (!adminUserId) return { error: "Could not identify admin user." };
 
   // Remove all assignments first
   await adminClient
@@ -39,6 +41,7 @@ export async function removeJuryMember(userId: string): Promise<{ success?: bool
     action: "jury.member_removed",
     entityType: "jury",
     entityId: userId,
+    actorId: adminUserId,
     actorType: "admin",
     delta: { deleted: { user_id: userId } },
   });
@@ -171,6 +174,7 @@ export async function submitJuryRanking(formData: FormData) {
     action: "jury.ranking_submitted",
     entityType: "jury_ranking",
     entityId: challengeId,
+    actorId: user.id,
     actorType: "jury",
     delta: { created: { team_count: Object.keys(ranking).length } },
   });
@@ -229,6 +233,11 @@ export async function skipJuryVote(challengeId: string) {
 export async function finalizeJuryVotes(challengeId: string) {
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
+  // Resolve the acting admin BEFORE any score/finalization write, so a missing
+  // actor aborts the action instead of throwing from logEventStrict after the
+  // mutations have already landed.
+  const adminUserId = await getActingUserId();
+  if (!adminUserId) return { error: "Could not identify admin user." };
   const adminClient = createAdminClient();
 
   // Get all individual rankings for this challenge
@@ -365,24 +374,18 @@ export async function finalizeJuryVotes(challengeId: string) {
     }
   }
 
-  // Get current admin user
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
   // Mark all rankings for this challenge as final
   await adminClient
     .from("jury_rankings")
     .update({ is_final: true })
     .eq("challenge_id", challengeId);
 
-  // Mark challenge as finalized
+  // Mark challenge as finalized (acting admin resolved at the top)
   await adminClient
     .from("challenges")
     .update({
       jury_finalized_at: new Date().toISOString(),
-      jury_finalized_by: user?.id || null,
+      jury_finalized_by: adminUserId,
     })
     .eq("id", challengeId);
 
@@ -390,6 +393,7 @@ export async function finalizeJuryVotes(challengeId: string) {
     action: "jury.votes_finalized",
     entityType: "challenge",
     entityId: challengeId,
+    actorId: adminUserId,
     actorType: "admin",
     delta: { created: { rankings_count: rankings.length } },
   });

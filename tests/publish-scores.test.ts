@@ -13,7 +13,17 @@ const mocks = vi.hoisted(() => ({
   revalidatePath: vi.fn(),
 }));
 
-vi.mock("@/lib/admin-auth", () => ({ requireAdminAction: mocks.requireAdminAction }));
+vi.mock("@/lib/admin-auth", () => ({
+  requireAdminAction: mocks.requireAdminAction,
+  // Audit actor resolution; reads the same (mocked) server client the action uses.
+  getActingUserId: async () => {
+    const c = await mocks.createClient();
+    const {
+      data: { user },
+    } = await c.auth.getUser();
+    return user?.id ?? null;
+  },
+}));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/event-log", () => ({
@@ -84,6 +94,28 @@ describe("publishScores", () => {
     expect(calls).toContainEqual(
       expect.objectContaining({ table: "chapters", payload: { status: "completed" } })
     );
+
+    // Audit integrity: the score.published event must record the acting admin.
+    expect(mocks.logEventStrict).toHaveBeenCalledTimes(1);
+    const ev = mocks.logEventStrict.mock.calls[0][0];
+    expect(ev.action).toBe("score.published");
+    expect(ev.actorType).toBe("admin");
+    expect(ev.actorId).toBe("admin-1");
+  });
+
+  it("aborts WITHOUT publishing if the acting admin cannot be resolved", async () => {
+    // Guard passes but no session user -> the action must not mutate scores or
+    // the chapter (which would otherwise leave a published-but-unattributed row).
+    mocks.createClient.mockResolvedValue({
+      auth: { getUser: async () => ({ data: { user: null } }) },
+    });
+    const calls: Array<{ table: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ calls }));
+
+    const res = await publishScores(CHAPTER);
+    expect(res).toEqual({ error: "Could not identify admin user." });
+    expect(calls).toEqual([]); // nothing written
+    expect(mocks.logEventStrict).not.toHaveBeenCalled();
   });
 
   it("surfaces an error if the chapter status update fails", async () => {

@@ -64,6 +64,7 @@ export async function POST(request: Request) {
       action: "score.overridden",
       entityType: "score",
       entityId: chapterId,
+      actorId: session.user.id,
       actorType: "admin",
       delta: {
         team_id: override.teamId,

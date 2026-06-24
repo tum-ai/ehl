@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
@@ -21,11 +20,9 @@ import {
 
 // ─── Helpers ──────────────────────────────────────────────
 
-async function getAdminUserId(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  return user?.id ?? null;
-}
+// Audit-event actor resolution is centralized in lib/admin-auth.ts as
+// getActingUserId(). Local alias keeps the existing call sites readable.
+const getAdminUserId = getActingUserId;
 
 /**
  * Recalculates match_number for all chapters based on date order.
@@ -736,6 +733,11 @@ export async function publishScores(chapterId: string) {
   if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
+  // Resolve the acting admin BEFORE publishing, so logEventStrict can never throw
+  // a "no actor" error after the scores/chapter have already been mutated.
+  const actorId = await getAdminUserId();
+  if (!actorId) return { error: "Could not identify admin user." };
+
   // Mark all scores for this chapter as published
   const { error: scoreError } = await adminClient
     .from("scores")
@@ -752,7 +754,6 @@ export async function publishScores(chapterId: string) {
 
   if (chapterError) return { error: chapterError.message };
 
-  const actorId = await getAdminUserId();
   await logEventStrict({
     action: "score.published",
     entityType: "chapter",

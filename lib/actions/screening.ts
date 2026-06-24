@@ -61,6 +61,7 @@ export async function submitScore(
     action: "screening.score_submitted",
     entityType: "screening_score",
     entityId: applicationId,
+    actorId: user.id,
     actorType: "admin",
     delta: { created: { score } },
   });

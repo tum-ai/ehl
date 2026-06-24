@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
+  getSession: vi.fn(),
   isAdminEmail: vi.fn(),
   logEvent: vi.fn(),
   sendEmail: vi.fn(),
@@ -28,6 +29,7 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: mocks.createAdminClient,
 }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
+vi.mock("@/lib/actions/auth", () => ({ getSession: mocks.getSession }));
 vi.mock("@/lib/admin-allowlist", () => ({ isAdminEmail: mocks.isAdminEmail }));
 vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
 vi.mock("@/lib/email", () => ({ sendEmail: mocks.sendEmail }));
@@ -80,6 +82,12 @@ beforeEach(() => {
   mocks.requireChapterAdminAction.mockResolvedValue(null);
   mocks.requireAdminAction.mockResolvedValue(null);
   mocks.isAdminEmail.mockResolvedValue(false);
+  // Audit actor: bulkUpdateApplicationStatus resolves the acting admin via
+  // getSession() so its audit row records who did it.
+  mocks.getSession.mockResolvedValue({
+    user: { id: "admin-a" },
+    profile: { id: "admin-a", role: "admin" },
+  });
 });
 
 // ─── bulkUpdateApplicationStatus ─────────────────────────────────────────────
@@ -129,6 +137,13 @@ describe("bulkUpdateApplicationStatus", () => {
 
     expect(result.error).toBeUndefined();
     expect(result.success).toBe(true);
+
+    // Audit integrity: the bulk status change must record WHICH admin did it.
+    expect(mocks.logEvent).toHaveBeenCalledTimes(1);
+    const ev = mocks.logEvent.mock.calls[0][0];
+    expect(ev.action).toBe("application.bulk_status_changed");
+    expect(ev.actorType).toBe("admin");
+    expect(ev.actorId).toBe("admin-a");
   });
 });
 

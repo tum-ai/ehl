@@ -198,6 +198,7 @@ export async function verifyAndRegisterSolo(
     action: "registration.solo_completed",
     entityType: "profile",
     entityId: userId,
+    actorId: userId,
     actorType: "participant",
     delta: { created: { email: rawMeta.email, name: rawMeta.name } },
   });
@@ -512,6 +513,7 @@ export async function verifyAndRegister(verificationId: string, code: string, re
     action: "registration.team_completed",
     entityType: "team",
     entityId: team.id as string,
+    actorId: userId,
     actorType: "participant",
     delta: { created: { team_name: teamName, president_email: presidentEmail } },
   });

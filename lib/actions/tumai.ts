@@ -49,6 +49,7 @@ export async function uploadTumaiMembers(
     action: "tumai.members_uploaded",
     entityType: "tumai_members",
     entityId: "batch",
+    actorId: auth.userId,
     actorType: "admin",
     delta: { created: { count: rows.length } },
   });
