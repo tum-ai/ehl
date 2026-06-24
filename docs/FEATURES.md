@@ -303,7 +303,7 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 ### Team Oversight (`/admin/teams`)
 - View all teams with member lists
 - Change team status
-- Remove individual members
+- Remove individual members (never the captain; blocked if the team would drop below `MIN_TEAM_SIZE`, default 2)
 - Delete teams
 
 ### Submissions (`/admin/submissions`)

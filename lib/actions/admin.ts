@@ -8,7 +8,7 @@ import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
 import { logEvent, logEventStrict } from "@/lib/event-log";
-import { MAX_TEAM_SIZE } from "@/lib/config/limits";
+import { MAX_TEAM_SIZE, MIN_TEAM_SIZE } from "@/lib/config/limits";
 import type { ChapterStatus } from "@/lib/types";
 import {
   isBackwardTransition,
@@ -869,6 +869,22 @@ export async function adminRemoveMember(teamId: string, userId: string) {
     return { error: "Cannot remove the team president." };
   }
 
+  // The member must actually be on this team, and the removal must leave the
+  // team with at least MIN_TEAM_SIZE members. Both checks read the live roster.
+  const { data: members } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", teamId);
+  const roster = members ?? [];
+  if (!roster.some((m) => m.user_id === userId)) {
+    return { error: "That user is not a member of this team." };
+  }
+  if (roster.length - 1 < MIN_TEAM_SIZE) {
+    return {
+      error: `Removing this member would leave fewer than ${MIN_TEAM_SIZE} members on the team.`,
+    };
+  }
+
   const { error: delError } = await adminClient
     .from("team_members")
     .delete()
@@ -1049,9 +1065,10 @@ export async function adminAddMemberByEmail(teamId: string, email: string) {
 }
 
 /**
- * Move a member from one team to another. Enforces the destination team size and
- * forbids moving a president (change the captain first, so no team is left
- * without one).
+ * Move a member from one team to another. Enforces the destination team size,
+ * keeps the source team at or above MIN_TEAM_SIZE (a move empties a seat on the
+ * source), and forbids moving a president (change the captain first, so no team
+ * is left without one).
  */
 export async function adminMoveMember(userId: string, fromTeamId: string, toTeamId: string) {
   const adminErr = await requireAdminAction();
@@ -1079,6 +1096,18 @@ export async function adminMoveMember(userId: string, fromTeamId: string, toTeam
 
   if (fromTeam.president_user_id === userId) {
     return { error: "Cannot move the team captain. Assign a new captain first." };
+  }
+
+  // Moving a member out is a removal for the source team, so it must keep at
+  // least MIN_TEAM_SIZE members (mirrors adminRemoveMember).
+  const { data: fromMembers } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", fromTeamId);
+  if ((fromMembers?.length ?? 0) - 1 < MIN_TEAM_SIZE) {
+    return {
+      error: `Moving this member would leave fewer than ${MIN_TEAM_SIZE} members on the source team.`,
+    };
   }
 
   // Already on destination?
