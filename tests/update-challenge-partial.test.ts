@@ -19,6 +19,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
+  getActingUserId: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
   logEvent: vi.fn(),
@@ -27,6 +28,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: mocks.requireAdminAction,
+  getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
@@ -55,6 +57,7 @@ function makeAdminClient(captured: { update?: Record<string, unknown>; eqId?: st
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireAdminAction.mockResolvedValue(null);
+  mocks.getActingUserId.mockResolvedValue("admin-1");
   mocks.createClient.mockResolvedValue({
     auth: { getUser: async () => ({ data: { user: { id: "admin-1" } } }) },
   });
