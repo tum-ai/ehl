@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { DEV_PERSONAS, isDevLoginEnabled } from "@/lib/dev-login";
+import { getDevPersonas, isDevLoginAdminOnly, isDevLoginEnabled } from "@/lib/dev-login";
 import { devLoginAction } from "@/lib/actions/dev-login";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +19,9 @@ export default function DevLoginPage() {
     notFound();
   }
 
+  const personas = getDevPersonas();
+  const adminOnly = isDevLoginAdminOnly();
+
   return (
     <div className="flex min-h-screen items-center justify-center p-6">
       <Card className="w-full max-w-md">
@@ -26,13 +29,13 @@ export default function DevLoginPage() {
           Hackathon simulation — dev login
         </h1>
         <p className="mb-6 text-sm text-text-secondary">
-          No Google auth. Pick a persona to sign in against the shared test
-          database. Open this page in separate browsers/profiles to act as
-          different people at the same time.
+          {adminOnly
+            ? "No Google auth. Sign in as the admin persona against the shared test database. Participants and jury use the normal login flows."
+            : "No Google auth. Pick a persona to sign in against the shared test database. Open this page in separate browsers/profiles to act as different people at the same time."}
         </p>
 
         <div className="flex flex-col gap-3">
-          {DEV_PERSONAS.map((persona) => (
+          {personas.map((persona) => (
             <form key={persona.email} action={devLoginAction}>
               <input type="hidden" name="email" value={persona.email} />
               <Button

@@ -29,6 +29,23 @@ export const DEV_PERSONAS: DevPersona[] = [
   { email: "david@example.com", label: "David — Beta Hackers", role: "participant", next: "/dashboard" },
 ];
 
+// Admin-only mode for public-facing sim deployments (e.g. the Paris staging
+// preview, where SSO is off and anyone can reach the URL). When set, dev login
+// offers ONLY the admin persona — participants/jury must use the real flows, so
+// a random visitor can't mint a non-admin session. Enforced both in the page UI
+// and server-side in devLoginAction (UI filtering alone is not a control).
+export function isDevLoginAdminOnly(): boolean {
+  return process.env.DEV_LOGIN_ADMIN_ONLY === "true";
+}
+
+// Personas offered for the current deployment. In admin-only mode this is just
+// the admin persona(s); otherwise the full set.
+export function getDevPersonas(): DevPersona[] {
+  return isDevLoginAdminOnly()
+    ? DEV_PERSONAS.filter((p) => p.role === "admin")
+    : DEV_PERSONAS;
+}
+
 export function isDevLoginEnabled(): boolean {
   const enabled = process.env.DEV_LOGIN_ENABLED === "true";
   // Hard tripwire: dev login grants admin/jury/participant sessions with NO

@@ -20,7 +20,12 @@ vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("next/navigation", () => ({ redirect: mocks.redirect, notFound: mocks.notFound }));
 
 import { devLoginAction } from "@/lib/actions/dev-login";
-import { isDevLoginEnabled, DEV_PERSONAS } from "@/lib/dev-login";
+import {
+  isDevLoginEnabled,
+  isDevLoginAdminOnly,
+  getDevPersonas,
+  DEV_PERSONAS,
+} from "@/lib/dev-login";
 import DevLoginPage from "@/app/dev-login/page";
 
 const ORIGINAL_ENV = { ...process.env };
@@ -146,5 +151,73 @@ describe("/dev-login page gate", () => {
 
     expect(() => DevLoginPage()).toThrow("NEXT_NOT_FOUND");
     expect(mocks.notFound).toHaveBeenCalled();
+  });
+});
+
+describe("admin-only mode (DEV_LOGIN_ADMIN_ONLY)", () => {
+  it("isDevLoginAdminOnly is true only when the flag is exactly 'true'", () => {
+    process.env.DEV_LOGIN_ADMIN_ONLY = "true";
+    expect(isDevLoginAdminOnly()).toBe(true);
+
+    process.env.DEV_LOGIN_ADMIN_ONLY = "false";
+    expect(isDevLoginAdminOnly()).toBe(false);
+
+    delete process.env.DEV_LOGIN_ADMIN_ONLY;
+    expect(isDevLoginAdminOnly()).toBe(false);
+  });
+
+  it("getDevPersonas returns only admin personas in admin-only mode", () => {
+    process.env.DEV_LOGIN_ADMIN_ONLY = "true";
+    const personas = getDevPersonas();
+    expect(personas.length).toBeGreaterThan(0);
+    expect(personas.every((p) => p.role === "admin")).toBe(true);
+    // No jury/participant/chapter_admin leaks through.
+    expect(personas.some((p) => p.role !== "admin")).toBe(false);
+  });
+
+  it("getDevPersonas returns the full set when admin-only is off", () => {
+    delete process.env.DEV_LOGIN_ADMIN_ONLY;
+    expect(getDevPersonas()).toEqual(DEV_PERSONAS);
+  });
+
+  it("devLoginAction refuses a non-admin persona when admin-only is set, without minting a session", async () => {
+    process.env.DEV_LOGIN_ENABLED = "true";
+    process.env.DEV_LOGIN_ADMIN_ONLY = "true";
+    delete process.env.VERCEL_ENV;
+
+    // A crafted POST targeting a jury persona (not shown in the UI) must be
+    // rejected server-side before any token is minted.
+    await expect(devLoginAction(formDataFor("jury1@example.com"))).rejects.toThrow(
+      "Dev login is restricted to the admin persona."
+    );
+    expect(mocks.createAdminClient).not.toHaveBeenCalled();
+    expect(mocks.redirect).not.toHaveBeenCalled();
+  });
+
+  it("devLoginAction still allows the admin persona in admin-only mode", async () => {
+    process.env.DEV_LOGIN_ENABLED = "true";
+    process.env.DEV_LOGIN_ADMIN_ONLY = "true";
+    delete process.env.VERCEL_ENV;
+
+    // generateLink succeeds -> the action proceeds past the admin-only guard.
+    // redirect() is mocked, so we only assert the guard did not block admin and
+    // a token mint was attempted.
+    mocks.createAdminClient.mockReturnValue({
+      auth: {
+        admin: {
+          generateLink: vi.fn().mockResolvedValue({
+            data: { properties: { hashed_token: "tok_123" } },
+            error: null,
+          }),
+        },
+      },
+    });
+    mocks.createClient.mockReturnValue({
+      auth: { verifyOtp: vi.fn().mockResolvedValue({ error: null }) },
+    });
+
+    // The action ends in redirect() (mocked no-op), so it resolves without throwing.
+    await devLoginAction(formDataFor("admin@example.com"));
+    expect(mocks.createAdminClient).toHaveBeenCalled();
   });
 });

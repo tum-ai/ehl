@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { DEV_PERSONAS, isDevLoginEnabled } from "@/lib/dev-login";
+import { DEV_PERSONAS, isDevLoginAdminOnly, isDevLoginEnabled } from "@/lib/dev-login";
 
 /**
  * DEV-ONLY one-click login for the local hackathon simulation.
@@ -41,6 +41,14 @@ export async function devLoginAction(formData: FormData) {
   const persona = DEV_PERSONAS.find((p) => p.email === email);
   if (!persona) {
     throw new Error("Unknown dev persona.");
+  }
+
+  // Server-side enforcement of admin-only mode: on a public sim deployment the
+  // UI only shows the admin persona, but a crafted POST could still target a
+  // jury/participant persona. Reject anything but admin here so dev login can
+  // never mint a non-admin session when DEV_LOGIN_ADMIN_ONLY is set.
+  if (isDevLoginAdminOnly() && persona.role !== "admin") {
+    throw new Error("Dev login is restricted to the admin persona.");
   }
 
   // 1. Mint a single-use magic-link token (service role).
