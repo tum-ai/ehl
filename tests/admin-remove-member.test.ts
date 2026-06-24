@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // the delete issued.
 const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
+  getActingUserId: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
   logEvent: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: mocks.requireAdminAction,
+  getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: mocks.createAdminClient,
@@ -94,6 +96,7 @@ function teamResponder(rosterUserIds: string[]) {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireAdminAction.mockResolvedValue(null); // global admin by default
+  mocks.getActingUserId.mockResolvedValue(ADMIN);
   mocks.createClient.mockResolvedValue({
     auth: { getUser: async () => ({ data: { user: { id: ADMIN } } }) },
   });
