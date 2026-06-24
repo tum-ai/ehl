@@ -124,6 +124,8 @@ export interface Challenge {
   briefFileId: string | null;
   codeReviewInstructions: string | null;
   codeReviewConfig: CodeReviewConfig | null;
+  /** Set when an admin finalizes jury votes into scores; null while still open. */
+  juryFinalizedAt: string | null;
 }
 
 export interface ChapterUnlock {

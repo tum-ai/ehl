@@ -5,7 +5,12 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { PLACEMENT_POINTS, PARTICIPATION_POINTS } from "@/lib/scoring";
+import {
+  PLACEMENT_POINTS,
+  PARTICIPATION_POINTS,
+  getPublishReadiness,
+  getPendingJuryTeamIds,
+} from "@/lib/scoring";
 import { publishScores, sendCertificateEmails } from "@/lib/actions/admin";
 
 interface Team {
@@ -17,6 +22,8 @@ interface Challenge {
   id: string;
   title: string;
   sponsorName: string | null;
+  isScored: boolean;
+  juryFinalizedAt: string | null;
 }
 
 interface JuryVote {
@@ -112,6 +119,16 @@ export default function AdminScoresPage({
     return scores.find((s) => s.teamId === teamId);
   }
 
+  // Teams whose jury results are displayed but not yet materialized into `scores`
+  // (scored + not finalized). Extracted to lib/scoring for unit testing.
+  function pendingJuryTeamIds(): string[] {
+    const aggregated: Record<string, Record<string, number>> = {};
+    for (const [challengeId, data] of Object.entries(juryData)) {
+      aggregated[challengeId] = data.aggregated;
+    }
+    return getPendingJuryTeamIds(challenges, aggregated);
+  }
+
   function handleOverride(teamId: string, placement: string) {
     const placeNum = placement === "" ? null : parseInt(placement);
     const points = placeNum ? (PLACEMENT_POINTS[placeNum] ?? 0) : PARTICIPATION_POINTS;
@@ -158,12 +175,27 @@ export default function AdminScoresPage({
     // Publishing is what advances a chapter to "completed". It must always be
     // reachable, even with no scores (e.g. a chapter with no jury-scored
     // challenge, or where finalization produced none) — otherwise the chapter can
-    // never be completed. But completing with no scores means an empty
-    // leaderboard, so make that an explicit, louder confirmation.
-    const message =
-      scores.length === 0
-        ? "This chapter has NO scores yet. Publishing will mark it as completed with an empty leaderboard. If you expected scores, finalize the jury rankings first. Continue anyway?"
-        : "Publish scores and mark this chapter as completed? This will make results visible on the public leaderboard.";
+    // never be completed. The confirm dialog reflects what publish will ACTUALLY
+    // surface: only rows in the `scores` table are published, NOT the live jury
+    // aggregation shown on this page. So warn loudly when displayed jury results
+    // have not yet been finalized into scores (they would silently vanish), and
+    // when there is genuinely nothing to publish (empty leaderboard).
+    const readiness = getPublishReadiness(
+      scores.map((s) => s.teamId),
+      pendingJuryTeamIds()
+    );
+    let message: string;
+    if (readiness.kind === "unfinalized") {
+      message =
+        `Jury results are shown for ${readiness.pendingTeamCount} team(s) that have NOT been finalized into scores. ` +
+        "Publishing now will NOT include them on the public leaderboard. Finalize the jury rankings first (Jury page) so they count. Publish anyway?";
+    } else if (readiness.kind === "empty") {
+      message =
+        "This chapter has NO scores yet. Publishing will mark it as completed with an empty leaderboard. If you expected scores, finalize the jury rankings first. Continue anyway?";
+    } else {
+      message =
+        "Publish scores and mark this chapter as completed? This will make results visible on the public leaderboard.";
+    }
     if (!confirm(message)) {
       return;
     }
@@ -208,6 +240,12 @@ export default function AdminScoresPage({
 
   const isPublished = chapter?.status === "completed";
   const hasJuryRankings = Object.keys(juryData).length > 0;
+  // Reconcile the two reads (persisted `scores` vs displayed jury aggregation) so
+  // the publish UI reflects what will actually surface publicly.
+  const publishReadiness = getPublishReadiness(
+    scores.map((s) => s.teamId),
+    pendingJuryTeamIds()
+  );
 
   return (
     <div>
@@ -470,7 +508,19 @@ export default function AdminScoresPage({
                 Publishing will make scores visible on the public leaderboard and set the chapter
                 status to completed.
               </p>
-              {scores.length === 0 && (
+              {publishReadiness.kind === "unfinalized" && (
+                <p className="mt-2 text-sm ad-text-warning">
+                  Jury results are shown for {publishReadiness.pendingTeamCount}{" "}
+                  team(s) that have not been finalized into scores. They will NOT
+                  appear on the public leaderboard until you finalize the jury
+                  rankings on the{" "}
+                  <Link href="/admin/jury" className="underline ad-text-link">
+                    Jury page
+                  </Link>
+                  . Publishing now publishes only finalized scores.
+                </p>
+              )}
+              {publishReadiness.kind === "empty" && (
                 <p className="mt-2 text-sm ad-text-warning">
                   No scores yet. Finalize the jury rankings to generate scores, or
                   publish anyway to complete the chapter with an empty leaderboard.

@@ -317,6 +317,12 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 - Individual juror vote inspection
 - Manual score overrides (any placement or participation)
 - Publish results (makes scores public, sets chapter to completed)
+- Pre-publish consistency check: only finalized scores in the `scores` table are
+  published (and surfaced on the public leaderboard). The page warns when jury
+  results are displayed but not yet finalized into scores on the Jury page, so
+  unfinalized results are not silently dropped at publish time. Publishing a
+  chapter with genuinely no scores is still allowed (completes with an empty
+  leaderboard) but explicitly confirmed.
 - Send certificate emails to all teams after publishing
 
 ### Jury Management (`/admin/jury`)
