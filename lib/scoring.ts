@@ -54,9 +54,15 @@ export function getPublishReadiness(
   const scored = new Set(scoredTeamIds);
   const pendingDisplayed = new Set(pendingJuryTeamIds);
 
-  // Teams whose jury results are visible but have NOT been finalized into the
-  // `scores` table. These would silently vanish on publish.
-  const pending = [...pendingDisplayed].filter((teamId) => !scored.has(teamId));
+  // Any team here belongs to a scored challenge that is NOT yet finalized into
+  // the `scores` table (getPendingJuryTeamIds already filters to isScored &&
+  // !juryFinalizedAt challenges). Such results would silently vanish on publish,
+  // so we must NOT subtract teams that happen to have a score row: `scores` is
+  // keyed (chapter_id, team_id), so a finalized score for the team in ANOTHER
+  // challenge does not materialize THIS challenge's pending results. Treating a
+  // team as resolved because it has any score row was a false-negative that
+  // could report "ready" while a whole challenge's results were dropped.
+  const pending = [...pendingDisplayed];
 
   if (pending.length > 0) {
     return {

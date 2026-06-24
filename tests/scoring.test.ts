@@ -395,11 +395,19 @@ describe("getPublishReadiness", () => {
     }
   });
 
-  it("a pending team that already has a score is not double-counted as pending", () => {
-    // Defensive: if a team is in BOTH sets, it has been finalized -> not pending.
+  it("a team in pendingJuryTeamIds stays unfinalized even if it has a score row in another challenge", () => {
+    // `scores` is keyed (chapter_id, team_id), but getPendingJuryTeamIds only
+    // returns teams from a scored challenge that is NOT finalized. A team can
+    // have a finalized score row from challenge A AND displayed-but-unfinalized
+    // jury results in scored challenge B (the data model allows multiple scored
+    // challenges per chapter). publishScores would NOT materialize B's results,
+    // so this must warn (unfinalized), NOT report ready. (Previously this
+    // subtracted such teams and false-negatived to "ready", dropping a whole
+    // challenge's results silently.)
     const readiness = getPublishReadiness(["t1", "t2"], ["t1", "t2"]);
-    expect(readiness.kind).toBe("ready");
-    if (readiness.kind === "ready") {
+    expect(readiness.kind).toBe("unfinalized");
+    if (readiness.kind === "unfinalized") {
+      expect(readiness.pendingTeamCount).toBe(2);
       expect(readiness.scoredCount).toBe(2);
     }
   });
