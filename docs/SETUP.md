@@ -226,6 +226,25 @@ In the main repo under **Settings > Secrets and variables > Actions**, add:
 | `OPENROUTER_API_KEY` | Same as Vercel |
 | `GH_PAT` | Same PAT (GitHub forbids `GITHUB_`-prefixed secret names) |
 
+**Code-review worker (`process-code-reviews` workflow).** Queueing a review only
+writes `status=queued`; the pipeline runs in this workflow, triggered by a
+`repository_dispatch` of type `process-code-reviews`. For dispatch to work the
+**app** (Vercel) needs `GITHUB_TOKEN` + `GITHUB_REPO` set, the PAT must have
+access to the main repo, and the workflow file must exist on the repo's default
+branch with the four secrets above. If any of these is wrong the admin
+code-reviews page shows an amber "worker was NOT triggered" banner (it no longer
+fails silently). If reviews stay "Queued", verify in this order: (1) the amber
+banner's message, (2) `GITHUB_TOKEN`/`GITHUB_REPO` in Vercel, (3) the PAT scopes,
+(4) the Actions tab for a run (you can also start one manually via
+**Run workflow** / `workflow_dispatch`).
+
+The workflow runs a **matrix of parallel workers** (default 10). Each worker
+atomically claims queued rows and loops until the queue drains, so they
+self-balance and never double-process. This is sized so ~100 repos finish within
+a typical event window; increase the `matrix.worker` list in
+`.github/workflows/process-code-reviews.yml` if you need more throughput (GitHub
+standard runners allow up to ~20 concurrent jobs).
+
 ### 6.5 Entire Session History (optional, per challenge)
 
 For challenges that require AI session history, participants install [Entire](https://entire.io) and capture their coding session:
