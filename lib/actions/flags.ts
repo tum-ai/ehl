@@ -1,9 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction, getActingUserId } from "@/lib/admin-auth";
 import {
   extractLinkedInUsername,
   extractGitHubUsername,
@@ -13,13 +12,8 @@ import { logEvent } from "@/lib/event-log";
 
 // ─── Helpers ──────────────────────────────────────────────
 
-async function getAdminUserId(): Promise<string | null> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user?.id ?? null;
-}
+// Audit-event actor resolution is centralized in lib/admin-auth.ts.
+const getAdminUserId = getActingUserId;
 
 // ─── Create Flag ─────────────────────────────────────────
 
@@ -88,6 +82,7 @@ export async function resolveFlag(flagId: string, reason: string) {
 
   const adminClient = createAdminClient();
   const userId = await getAdminUserId();
+  if (!userId) return { error: "Could not identify admin user." };
 
   const { error } = await adminClient
     .from("participant_flags")

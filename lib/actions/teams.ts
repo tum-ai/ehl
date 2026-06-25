@@ -156,6 +156,7 @@ export async function acceptTeamInvite(token: string) {
     action: "team.invite_accepted",
     entityType: "team",
     entityId: invite.team_id as string,
+    actorId: user.id,
     actorType: "participant",
     delta: { created: { user_id: user.id } },
   });
@@ -381,6 +382,7 @@ export async function updateTeam(formData: FormData) {
     action: "team.updated",
     entityType: "team",
     entityId: teamId,
+    actorId: user.id,
     actorType: "participant",
     delta: { updated: { name } },
   });

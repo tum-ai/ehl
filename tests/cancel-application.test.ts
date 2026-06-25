@@ -107,7 +107,9 @@ function makeAdminClient(opts: {
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireChapterAdminAction.mockResolvedValue(null); // authorized by default
-  mocks.getSession.mockResolvedValue({ profile: ADMIN });
+  // getSession returns both user and profile; the acting admin id (used for audit
+  // attribution + cancelled_by/author_id) now comes from session.user.id.
+  mocks.getSession.mockResolvedValue({ user: { id: ADMIN.id }, profile: ADMIN });
 });
 
 describe("cancelApplication", () => {

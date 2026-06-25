@@ -16,10 +16,18 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: mocks.requireAdminAction,
+  // Audit actor resolution; reads the same (mocked) server client the action uses.
+  getActingUserId: async () => {
+    const c = await mocks.createClient();
+    const {
+      data: { user },
+    } = await c.auth.getUser();
+    return user?.id ?? null;
+  },
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
-// getAdminUserId (local to admin.ts) calls createClient().auth.getUser(); give it
-// a working stub so the audit-log actor resolves.
+// getActingUserId (centralized in admin-auth) calls createClient().auth.getUser();
+// give it a working stub so the audit-log actor resolves.
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));

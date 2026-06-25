@@ -3,7 +3,11 @@
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { requireAdminAction, requireChapterAdminAction } from "@/lib/admin-auth";
+import {
+  requireAdminAction,
+  requireChapterAdminAction,
+  getActingUserId,
+} from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { sendEmailAfterResponse } from "@/lib/email-deferred";
 import {
@@ -212,10 +216,12 @@ export async function submitApplication(formData: FormData) {
   }
 
   logEvent({
+    // Public form: the applicant has no account yet, so there is no
+    // authenticated actor. The applicant's email is captured in the delta.
     action: "application.submitted",
     entityType: "application",
     entityId: chapterId,
-    actorType: "participant",
+    actorType: "system",
     delta: { created: { email, chapter_id: chapterId } },
   });
 
@@ -366,6 +372,9 @@ export async function deleteApplication(applicationId: string) {
   const authErr = await requireChapterAdminAction(app.chapter_id as string);
   if (authErr) return { error: authErr };
 
+  const session = await getSession();
+  if (!session) return { error: "Could not identify admin user." };
+
   // Delete (screening_scores cascade, but team_members link via application doesn't exist)
   const { error } = await adminClient
     .from("applications")
@@ -380,6 +389,7 @@ export async function deleteApplication(applicationId: string) {
     action: "application.deleted",
     entityType: "application",
     entityId: applicationId,
+    actorId: session.user.id,
     actorType: "admin",
     delta: { deleted: { application_id: applicationId } },
   });
@@ -428,6 +438,9 @@ export async function updateApplicationStatus(
 
   const previousStatus = app?.status as string | undefined;
 
+  const session = await getSession();
+  if (!session) return { error: "Could not identify admin user." };
+
   const { error } = await adminClient
     .from("applications")
     .update({ status, updated_at: new Date().toISOString() })
@@ -441,6 +454,7 @@ export async function updateApplicationStatus(
     action: "application.status_changed",
     entityType: "application",
     entityId: applicationId,
+    actorId: session.user.id,
     actorType: "admin",
     delta: { status: { from: previousStatus ?? "unknown", to: status } },
   });
@@ -488,6 +502,9 @@ export async function bulkUpdateApplicationStatus(
     return { error: "All selected applications are locked (email already sent) or cancelled." };
   }
 
+  const session = await getSession();
+  if (!session) return { error: "Could not identify admin user." };
+
   const { error } = await adminClient
     .from("applications")
     .update({ status, updated_at: new Date().toISOString() })
@@ -501,6 +518,7 @@ export async function bulkUpdateApplicationStatus(
     action: "application.bulk_status_changed",
     entityType: "application",
     entityId: "bulk",
+    actorId: session.user.id,
     actorType: "admin",
     delta: { updated: { count: applicationIds.length, to_status: status } },
   });
@@ -716,8 +734,9 @@ export async function cancelApplication(
   }
 
   const session = await getSession();
-  const actorId = session?.profile?.id ?? null;
-  const actorEmail = session?.profile?.email ?? null;
+  if (!session) return { error: "Could not identify admin user." };
+  const actorId = session.user.id;
+  const actorEmail = session.profile?.email ?? null;
   const previousStatus = app.status as string;
   const now = new Date().toISOString();
 
@@ -862,8 +881,9 @@ export async function addApplicationNote(applicationId: string, body: string) {
   }
 
   const session = await getSession();
-  const actorId = session?.profile?.id ?? null;
-  const actorEmail = session?.profile?.email ?? null;
+  if (!session) return { error: "Could not identify admin user." };
+  const actorId = session.user.id;
+  const actorEmail = session.profile?.email ?? null;
 
   const { error } = await adminClient.from("application_notes").insert({
     application_id: applicationId,
@@ -953,7 +973,7 @@ export async function sendBulkEmails(chapterId: string) {
 
 // ─── Admin: QR Check-in ─────────────────────────────────────
 
-export async function checkInApplication(checkInToken: string, adminUserId: string) {
+export async function checkInApplication(checkInToken: string) {
   const adminClient = createAdminClient();
 
   const { data: application } = await adminClient
@@ -968,6 +988,12 @@ export async function checkInApplication(checkInToken: string, adminUserId: stri
 
   const authErr = await requireChapterAdminAction(application.chapter_id as string);
   if (authErr) return { error: authErr };
+
+  // Resolve the acting admin SERVER-SIDE. The check-in screen is a client
+  // component, so a client-supplied id can be forged; the audit attribution and
+  // checked_in_by must come from the authenticated session, never the request.
+  const adminUserId = await getActingUserId();
+  if (!adminUserId) return { error: "Could not identify admin user." };
 
   if (application.status === "checked_in") {
     return {
@@ -1047,10 +1073,7 @@ export async function searchApplicationsForCheckIn(
 
 // ─── Admin: Check-in by application ID (manual fallback) ───
 
-export async function checkInApplicationById(
-  applicationId: string,
-  adminUserId: string
-) {
+export async function checkInApplicationById(applicationId: string) {
   const adminClient = createAdminClient();
 
   const { data: application } = await adminClient
@@ -1065,6 +1088,11 @@ export async function checkInApplicationById(
 
   const authErr = await requireChapterAdminAction(application.chapter_id as string);
   if (authErr) return { error: authErr };
+
+  // Resolve the acting admin server-side (see checkInApplication): never trust a
+  // client-supplied id for audit attribution or checked_in_by.
+  const adminUserId = await getActingUserId();
+  if (!adminUserId) return { error: "Could not identify admin user." };
 
   if (application.status === "checked_in") {
     return {

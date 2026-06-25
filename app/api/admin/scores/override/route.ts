@@ -47,7 +47,7 @@ export async function POST(request: Request) {
   const adminClient = createAdminClient();
 
   for (const override of overrides) {
-    await adminClient.from("scores").upsert(
+    const { error: upsertError } = await adminClient.from("scores").upsert(
       {
         chapter_id: chapterId,
         team_id: override.teamId,
@@ -60,10 +60,21 @@ export async function POST(request: Request) {
       { onConflict: "chapter_id,team_id" }
     );
 
+    // Only log (and report success) after a confirmed write. Logging on an
+    // unchecked upsert would record an override that never persisted, leaving
+    // the audit trail inconsistent with the actual DB state.
+    if (upsertError) {
+      return NextResponse.json(
+        { error: `Failed to save override for team ${override.teamId}: ${upsertError.message}` },
+        { status: 500 }
+      );
+    }
+
     await logEventStrict({
       action: "score.overridden",
       entityType: "score",
       entityId: chapterId,
+      actorId: session.user.id,
       actorType: "admin",
       delta: {
         team_id: override.teamId,

@@ -252,6 +252,35 @@ All admin actions are logged to the `admin_audit_log` table:
 
 All admin state-changing operations are audit logged via a shared `auditLog()` helper in `lib/actions/admin.ts`. The audit log table has an immutability policy (migration 00025): rows cannot be updated or deleted.
 
+### Event log (`event_log`): hash-chained, actor-attributed
+
+State-changing actions across the app are also recorded in the append-only,
+hash-chained `event_log` via `lib/event-log.ts` (`logEvent()` for non-critical
+actions, `logEventStrict()` for score/jury-critical ones). Each row carries an
+`actor_type` (`admin` | `participant` | `jury` | `system`) and an `actor_id`.
+
+**Actor-integrity guarantee: every admin/participant/jury event MUST record the
+acting account.** An audit row that says "this was changed" but not "by whom" is
+worthless, so this is enforced in `lib/event-log.ts`:
+
+- `actorIntegrityError()` treats a null/empty `actor_id` on any non-`system`
+  event as a violation.
+- `logEventStrict()` THROWS on a violation, so a score/jury action with no actor
+  is never accepted (and surfaces immediately in dev/tests/CI).
+- `logEvent()` (fire-and-forget) logs a loud server error on a violation but
+  still writes the row. This is a deliberate backstop: it must never regress the
+  earlier fix that stopped dropping audit events, so losing the row entirely is
+  not an option. The real defense is that every call site resolves the acting
+  user before logging.
+- Only `system` events (cron/deadline automation, public client error reports,
+  and public application submissions where the applicant has no account yet) may
+  legitimately have no `actor_id`.
+
+Admin call sites resolve the acting account via `getActingUserId()` (centralized
+in `lib/admin-auth.ts`), which reads the same authenticated server client the
+`require*Action` guards use, so a successful admin guard always yields a usable
+id. Participant and jury actions pass their own user id.
+
 ---
 
 ## 9. Query Limits
