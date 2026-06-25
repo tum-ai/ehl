@@ -441,7 +441,24 @@ The default configuration supports ~500 concurrent users on free tiers. Here's w
 
 ## 13. E2E Test Environment
 
-The E2E tests run against a **separate Supabase instance** to avoid touching production data. This section explains how to set it up.
+The E2E tests need real Supabase Auth (magic links, `generateLink`, admin user creation),
+not just Postgres. There are two ways to provide it:
+
+- **CI: ephemeral local stack (no setup, fully isolated).** The `e2e` and `cross-browser`
+  GitHub Actions jobs boot their own throwaway Supabase per run via the CLI
+  (`supabase start`, config in `supabase/config.toml`), apply `supabase/migrations/*`, seed
+  with `pnpm test:seed-local`, and tear down with `supabase stop`. Because each run gets a
+  private DB, E2E runs go **parallel across branches/PRs** — there is no shared remote DB to
+  serialize against. The well-known local-dev anon/service keys it prints are non-secret and
+  captured dynamically into the job env, so **no `TEST_SUPABASE_*` secrets are required for
+  CI E2E**. You can run the same stack locally (Docker required): `supabase start` ->
+  `pnpm test:seed-local` -> `pnpm test:e2e:lifecycle`. See `docs/TESTING.md` section 3.
+- **A persistent remote test Supabase (sections 13.1-13.6 below).** Still used for
+  `pnpm db:check:test` (the migration-applied probe in the `checks` job, gated on the
+  `SUPABASE_ACCESS_TOKEN` + `SUPABASE_TEST_REF` secrets) and for manual runs against a hosted
+  DB. It is **no longer used by the CI E2E jobs**.
+
+This section explains how to set up the remote instance (option B).
 
 ### 13.1 Create a Test Supabase Project
 
@@ -561,10 +578,12 @@ GitHub Actions runs on every push to `main` and every PR:
 
 | Job | What | Duration |
 |-----|------|----------|
-| `Lint + Types + Unit` | Typecheck + 153 unit tests | ~1 min |
-| `E2E Lifecycle` | Build + 37 E2E tests against test Supabase | ~5 min |
+| `Lint + Types + Unit` | Typecheck + unit tests (+ optional remote migration-applied probe) | ~1 min |
+| `E2E Lifecycle` | Boots an ephemeral local Supabase (`supabase start`), seeds it, runs the lifecycle suite | ~6 min |
+| `Cross-browser smoke` | Same ephemeral stack, smoke tests on Firefox + WebKit (push to `main` only) | ~10 min |
 
-Results visible at: your repo's Actions tab on GitHub.
+E2E jobs each get a private Supabase, so they run **in parallel across branches/PRs** (no
+shared-DB serialization). Results visible at: your repo's Actions tab on GitHub.
 
 ### Before Marking Work Done
 
