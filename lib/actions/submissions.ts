@@ -8,13 +8,17 @@ import { parseGitHubRepo, snapshotRepo, fetchCheckpointBranchIntoFork } from "@/
 import { checkCheckpointBranch, entireGateErrorMessage } from "@/lib/entire";
 import type { SubmissionFieldConfig } from "@/lib/types";
 import { logEvent } from "@/lib/event-log";
+import { MIN_CHALLENGE_ROSTER, MAX_TEAM_SIZE } from "@/lib/config/limits";
 import { lockSubmissionsCore, makeSnapshotName } from "@/lib/submissions-lock";
 
 export async function registerForChallenge(
   chapterId: string,
   challengeId: string,
   teamId: string,
-  roster: string[]
+  // Deprecated: the roster is always derived server-side from the team's actual
+  // members. This parameter is ignored (kept for the existing call signature) so
+  // a crafted client roster cannot pad team size or include non-members.
+  _roster: string[] = []
 ) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -52,32 +56,41 @@ export async function registerForChallenge(
     return { error: "The challenge selection deadline has passed." };
   }
 
-  // Auto-populate roster from team members if not provided
-  let finalRoster = roster;
-  if (finalRoster.length === 0) {
-    const { data: members } = await adminClient
-      .from("team_members")
-      .select("user_id")
-      .eq("team_id", teamId);
-    finalRoster = (members ?? []).map((m) => m.user_id as string);
+  // Always derive the roster from the team's ACTUAL members. We never trust a
+  // client-supplied roster here: doing so would let a solo president pad the
+  // team to the minimum (or include non-members) by calling the action directly.
+  const { data: members } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", teamId);
+  const finalRoster = Array.from(
+    new Set((members ?? []).map((m) => m.user_id as string))
+  );
+
+  // Enforce the minimum team size: a team must have MIN_CHALLENGE_ROSTER to
+  // MAX_TEAM_SIZE members to select a challenge (a single-person team cannot
+  // register). This is the same domain invariant the event-hub registerChallenge
+  // action enforces, and it is load-bearing for this path.
+  if (finalRoster.length < MIN_CHALLENGE_ROSTER || finalRoster.length > MAX_TEAM_SIZE) {
+    return {
+      error: `Your team must have ${MIN_CHALLENGE_ROSTER} to ${MAX_TEAM_SIZE} members to register for a challenge.`,
+    };
   }
 
   // Verify all roster members are checked in for this chapter
-  if (finalRoster.length > 0) {
-    const checkinStatus = await getCheckinStatusForUsers(finalRoster, chapterId);
-    const notCheckedIn = finalRoster.filter((id) => !checkinStatus.get(id));
-    if (notCheckedIn.length > 0) {
-      const { data: notCheckedInProfiles } = await adminClient
-        .from("profiles")
-        .select("id, name")
-        .in("id", notCheckedIn);
-      const names = (notCheckedInProfiles ?? [])
-        .map((p) => (p.name as string) || "Unknown")
-        .join(", ");
-      return {
-        error: `All roster members must be checked in. Not checked in: ${names}`,
-      };
-    }
+  const checkinStatus = await getCheckinStatusForUsers(finalRoster, chapterId);
+  const notCheckedIn = finalRoster.filter((id) => !checkinStatus.get(id));
+  if (notCheckedIn.length > 0) {
+    const { data: notCheckedInProfiles } = await adminClient
+      .from("profiles")
+      .select("id, name")
+      .in("id", notCheckedIn);
+    const names = (notCheckedInProfiles ?? [])
+      .map((p) => (p.name as string) || "Unknown")
+      .join(", ");
+    return {
+      error: `All roster members must be checked in. Not checked in: ${names}`,
+    };
   }
 
   // Check if already registered for this chapter

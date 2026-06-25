@@ -182,6 +182,68 @@ export async function makeFileLinkReadable(fileId: string): Promise<void> {
 }
 
 /**
+ * Ensure a Drive file is "anyone with the link" readable, idempotently.
+ *
+ * Unlike makeFileLinkReadable (which always POSTs a new permission and throws on
+ * failure), this first checks whether the anyone-reader permission already
+ * exists and only grants it if missing — then returns whether the file is now
+ * link-readable. It never throws: it is called at VIEW time on the submission
+ * detail pages as a self-heal for files whose best-effort upload-time grant
+ * failed (which is what made pitch-deck previews show "you need access" until a
+ * later reload). A view must never 500 because Drive is briefly unreachable, so
+ * a transient failure returns false and the caller still renders the iframe
+ * (with an "Open in new tab" fallback) instead of erroring the whole page.
+ */
+export async function ensureFileLinkReadable(fileId: string): Promise<boolean> {
+  try {
+    // getDrive() can throw on missing/bad credentials; keep it inside the try so
+    // a misconfigured service account degrades to `false` (the caller shows an
+    // "open in new tab" fallback) instead of 500-ing the page.
+    const drive = getDrive();
+
+    // Only ever grant link access to files THIS service account owns. Submission
+    // `fields` are client-supplied, so a tampered file field could otherwise
+    // point at another team's submission file id; without the ownership gate the
+    // first jury/admin view would make that file "anyone with the link" readable
+    // (a narrow IDOR within our Drive). We fetch the file's owners + existing
+    // permissions in one call and refuse to grant on files we don't own.
+    const meta = await drive.files.get(
+      { fileId, fields: "ownedByMe", supportsAllDrives: true },
+      { timeout: DRIVE_TIMEOUT_MS }
+    );
+    if (meta.data.ownedByMe === false) {
+      console.warn(
+        `ensureFileLinkReadable: refusing to grant link access to ${fileId} — not owned by the service account.`
+      );
+      return false;
+    }
+
+    const existing = await drive.permissions.list(
+      {
+        fileId,
+        fields: "permissions(type,role)",
+        supportsAllDrives: true,
+      },
+      { timeout: DRIVE_TIMEOUT_MS }
+    );
+    const alreadyReadable = (existing.data.permissions ?? []).some(
+      (p) => p.type === "anyone" && (p.role === "reader" || p.role === "writer")
+    );
+    if (alreadyReadable) return true;
+
+    await makeFileLinkReadable(fileId);
+    return true;
+  } catch (err) {
+    console.error(
+      `ensureFileLinkReadable: could not confirm/grant link access for ${fileId}; ` +
+        "preview may show an access error until Drive recovers.",
+      err
+    );
+    return false;
+  }
+}
+
+/**
  * Download a file's content as a Buffer via the service account.
  * Used for proxying files through our own API (no public access needed).
  */
