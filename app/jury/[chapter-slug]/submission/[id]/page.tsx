@@ -12,32 +12,11 @@ import {
   getCodeReviewForSubmissionAuthenticated,
 } from "@/lib/queries";
 import { ReportCard } from "@/components/code-review/report-card";
+import { extractDriveFileId, getDriveEmbedUrl } from "@/lib/drive-embed";
+import { ensureFileLinkReadable } from "@/lib/gdrive";
 
 interface PageProps {
   params: Promise<{ "chapter-slug": string; id: string }>;
-}
-
-/**
- * Extract a Google Drive file ID from various URL formats.
- * Returns null if the URL is not a recognizable Drive link.
- */
-function extractDriveFileId(url: string): string | null {
-  // Format: /file/d/{id}/...
-  const fileMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
-  if (fileMatch) return fileMatch[1];
-  // Format: ?id={id}
-  const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-  if (idMatch) return idMatch[1];
-  // Format: /open?id={id}
-  const openMatch = url.match(/\/open\?id=([a-zA-Z0-9_-]+)/);
-  if (openMatch) return openMatch[1];
-  return null;
-}
-
-function getDriveEmbedUrl(url: string): string | null {
-  const fileId = extractDriveFileId(url);
-  if (!fileId) return null;
-  return `https://drive.google.com/file/d/${fileId}/preview`;
 }
 
 export default async function JurySubmissionDetailPage({ params }: PageProps) {
@@ -97,6 +76,18 @@ export default async function JurySubmissionDetailPage({ params }: PageProps) {
       textFields.push({ label: fieldConfig.label, value: displayUrl });
     }
   }
+
+  // Self-heal Drive access at view time so the embedded pitch-deck preview works
+  // on first load. Submission files get "anyone with the link" access best-effort
+  // at upload time; when that grant failed, the Drive /preview iframe showed
+  // "you need access" until a later reload. ensureFileLinkReadable never throws,
+  // so a Drive hiccup leaves the "Open in new tab" link as the fallback.
+  await Promise.all(
+    embeddableFields.map((f) => {
+      const fileId = extractDriveFileId(f.originalUrl);
+      return fileId ? ensureFileLinkReadable(fileId) : Promise.resolve(false);
+    })
+  );
 
   return (
     <div>

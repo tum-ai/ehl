@@ -8,7 +8,24 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { updateChallenge } from "@/lib/actions/admin";
 import { ReportCard } from "@/components/code-review/report-card";
-import type { CodeReviewContent, CodeReviewConfig, RepoMetadata } from "@/lib/types";
+import { LimitBanner } from "@/components/admin/limit-banner";
+import { shouldKeepPolling } from "@/lib/code-review/status-summary";
+import type { CodeReviewContent, CodeReviewConfig, RepoMetadata, CodeReviewStatus } from "@/lib/types";
+
+interface DispatchResult {
+  attempted: boolean;
+  ok: boolean;
+  reason?: string;
+  status?: number;
+  message?: string;
+}
+
+interface ReviewStatusRow {
+  submissionId: string;
+  status: CodeReviewStatus;
+  progress: string | null;
+  costUsd: number | null;
+}
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -292,6 +309,12 @@ export default function AdminCodeReviewsPage({
   const [generating, setGenerating] = useState<string | null>(null);
   const [generatingAll, setGeneratingAll] = useState(false);
   const [queueError, setQueueError] = useState<string | null>(null);
+  const [dispatchResult, setDispatchResult] = useState<DispatchResult | null>(null);
+  // Lightweight per-submission status overview (source of truth for status,
+  // progress, cost). Polled cheaply via one chapter-wide endpoint.
+  const [statusRows, setStatusRows] = useState<Record<string, ReviewStatusRow>>({});
+  const [truncated, setTruncated] = useState(false);
+  const [listLimit, setListLimit] = useState(0);
 
   // Model list (loaded once)
   const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
@@ -323,9 +346,12 @@ export default function AdminCodeReviewsPage({
       setChallenges(challengesRes);
       setTeams(teamsRes);
 
-      // Load submissions for each challenge
+      // Load submissions for each challenge. Status/progress/cost come from the
+      // lightweight chapter-wide overview (refreshStatus); we deliberately do NOT
+      // fetch the full review record per submission here (that was an N+1 that
+      // made the page crawl at ~100 submissions). Completed reviews' full content
+      // is fetched lazily, only when needed to render the report (effect below).
       const allSubs: Submission[] = [];
-      const allReviews: Record<string, CodeReview> = {};
 
       for (const challenge of challengesRes) {
         const subs = await fetch(
@@ -335,51 +361,77 @@ export default function AdminCodeReviewsPage({
           .catch(() => []);
 
         allSubs.push(...subs);
-
-        // Load code reviews for each submission
-        for (const sub of subs) {
-          const review = await fetch(
-            `/api/admin/code-reviews/${sub.id}`
-          )
-            .then((r) => r.json())
-            .catch(() => null);
-
-          if (review) {
-            allReviews[sub.id] = review;
-          }
-        }
       }
 
       setSubmissions(allSubs);
-      setReviews(allReviews);
       setLoading(false);
     });
   }, [params]);
 
-  // Auto-poll review statuses when there are queued/processing reviews
-  const hasActive = Object.values(reviews).some(
-    (r) => r.status === "queued" || r.status === "processing"
-  );
-  useEffect(() => {
-    if (!hasActive || !chapterId) return;
+  // Lightweight chapter-wide status fetch (single request, no review_content
+  // blobs). Drives the summary, per-row status/progress/cost, and the LimitBanner.
+  async function refreshStatus(id: string) {
+    try {
+      const res = await fetch(`/api/admin/chapters/${id}/code-reviews`);
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        reviews: ReviewStatusRow[];
+        truncated: boolean;
+        limit: number;
+      };
+      const byId: Record<string, ReviewStatusRow> = {};
+      for (const r of data.reviews) byId[r.submissionId] = r;
+      setStatusRows(byId);
+      setTruncated(Boolean(data.truncated));
+      setListLimit(data.limit);
+    } catch {
+      // keep existing status on transient failure
+    }
+  }
 
-    const interval = setInterval(async () => {
-      const updatedReviews: Record<string, CodeReview> = {};
-      for (const sub of submissions) {
+  // Initial status load once the chapter id is known.
+  useEffect(() => {
+    if (chapterId) refreshStatus(chapterId);
+  }, [chapterId]);
+
+  // When a completed review newly appears in the lightweight overview but we
+  // don't yet have its full content, fetch the heavy record once so the report
+  // can render. Failed/processing/queued rows don't need the blob.
+  useEffect(() => {
+    const missingCompleted = Object.values(statusRows).filter(
+      (r) => r.status === "completed" && !reviews[r.submissionId]?.reviewContent
+    );
+    if (missingCompleted.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const fetched: Record<string, CodeReview> = {};
+      for (const r of missingCompleted) {
         try {
-          const review = await fetch(`/api/admin/code-reviews/${sub.id}`).then((r) => r.json());
-          if (review) updatedReviews[sub.id] = review;
+          const full = await fetch(`/api/admin/code-reviews/${r.submissionId}`).then((res) => res.json());
+          if (full) fetched[r.submissionId] = full;
         } catch {
-          // keep existing
+          /* skip */
         }
       }
-      if (Object.keys(updatedReviews).length > 0) {
-        setReviews(updatedReviews);
+      if (!cancelled && Object.keys(fetched).length > 0) {
+        setReviews((prev) => ({ ...prev, ...fetched }));
       }
-    }, 10_000);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [statusRows]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Auto-poll the lightweight status overview while any review is in flight.
+  // Stops polling once nothing is queued/processing (shouldKeepPolling).
+  const keepPolling = shouldKeepPolling(
+    Object.values(statusRows).map((r) => r.status)
+  );
+  useEffect(() => {
+    if (!keepPolling || !chapterId) return;
+    const interval = setInterval(() => refreshStatus(chapterId), 5_000);
     return () => clearInterval(interval);
-  }, [hasActive, chapterId, submissions]);
+  }, [keepPolling, chapterId]);
 
   function getTeamName(teamId: string): string {
     return teams.find((t) => t.id === teamId)?.name || "Unknown";
@@ -392,9 +444,25 @@ export default function AdminCodeReviewsPage({
     );
   }
 
+  function applyQueued(ids: string[]) {
+    setStatusRows((prev) => {
+      const next = { ...prev };
+      for (const id of ids) {
+        next[id] = {
+          submissionId: id,
+          status: "queued",
+          progress: null,
+          costUsd: prev[id]?.costUsd ?? null,
+        };
+      }
+      return next;
+    });
+  }
+
   async function queueReview(submissionId: string) {
     setGenerating(submissionId);
     setQueueError(null);
+    setDispatchResult(null);
     try {
       const res = await fetch("/api/admin/code-reviews/queue", {
         method: "POST",
@@ -404,14 +472,8 @@ export default function AdminCodeReviewsPage({
       const data = await res.json();
 
       if (data.success) {
-        setReviews((prev) => ({
-          ...prev,
-          [submissionId]: {
-            ...(prev[submissionId] || { id: submissionId, submissionId, reviewContent: null, repoMetadata: null, costUsd: null, reviewVersion: 2, progress: null }),
-            status: "queued",
-            progress: null,
-          },
-        }));
+        applyQueued([submissionId]);
+        if (data.dispatch) setDispatchResult(data.dispatch as DispatchResult);
       } else if (data.error) {
         setQueueError(data.error);
       }
@@ -424,12 +486,12 @@ export default function AdminCodeReviewsPage({
   async function queueAllReviews() {
     setGeneratingAll(true);
     setQueueError(null);
+    setDispatchResult(null);
 
-    const eligibleSubs = submissions.filter(
-      (sub) =>
-        hasRepoUrl(sub) &&
-        (!reviews[sub.id] || reviews[sub.id].status === "failed")
-    );
+    const eligibleSubs = submissions.filter((sub) => {
+      const st = statusRows[sub.id]?.status;
+      return hasRepoUrl(sub) && (!st || st === "pending" || st === "failed");
+    });
 
     const ids = eligibleSubs.map((s) => s.id);
     if (ids.length > 0) {
@@ -442,17 +504,8 @@ export default function AdminCodeReviewsPage({
         const data = await res.json();
 
         if (data.success) {
-          setReviews((prev) => {
-            const next = { ...prev };
-            for (const id of ids) {
-              next[id] = {
-                ...(prev[id] || { id, submissionId: id, reviewContent: null, repoMetadata: null, costUsd: null, reviewVersion: 2, progress: null }),
-                status: "queued",
-                progress: null,
-              };
-            }
-            return next;
-          });
+          applyQueued(ids);
+          if (data.dispatch) setDispatchResult(data.dispatch as DispatchResult);
         } else if (data.error) {
           setQueueError(data.error);
         }
@@ -504,22 +557,14 @@ export default function AdminCodeReviewsPage({
 
   const totalSubs = submissions.length;
   const withRepo = submissions.filter(hasRepoUrl).length;
-  const queued = Object.values(reviews).filter(
-    (r) => r.status === "queued"
-  ).length;
-  const processing = Object.values(reviews).filter(
-    (r) => r.status === "processing"
-  ).length;
-  const completed = Object.values(reviews).filter(
-    (r) => r.status === "completed"
-  ).length;
-  const failed = Object.values(reviews).filter(
-    (r) => r.status === "failed"
-  ).length;
-  const totalCost = Object.values(reviews).reduce(
-    (sum, r) => sum + (r.costUsd ?? 0),
-    0
-  );
+  // Status counts come from the lightweight overview (statusRows), the single
+  // source of truth that the poller keeps fresh.
+  const rows = Object.values(statusRows);
+  const queued = rows.filter((r) => r.status === "queued").length;
+  const processing = rows.filter((r) => r.status === "processing").length;
+  const completed = rows.filter((r) => r.status === "completed").length;
+  const failed = rows.filter((r) => r.status === "failed").length;
+  const totalCost = rows.reduce((sum, r) => sum + (r.costUsd ?? 0), 0);
 
 
   return (
@@ -591,6 +636,34 @@ export default function AdminCodeReviewsPage({
         <div className="mt-6 flex items-center justify-between rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-800">
           <span>{queueError}</span>
           <button onClick={() => setQueueError(null)} className="ml-4 font-medium underline">Dismiss</button>
+        </div>
+      )}
+
+      {/* Dispatch result banner: tells the admin whether the GitHub Actions
+          worker was actually triggered. Without this, a misconfigured
+          token/repo leaves reviews "Queued" forever with no visible reason. */}
+      {dispatchResult && (
+        dispatchResult.ok ? (
+          <div className="mt-6 flex items-center justify-between rounded-lg border border-green-300 bg-green-50 px-4 py-3 text-sm text-green-800">
+            <span>Worker triggered. Reviews are being processed by GitHub Actions.</span>
+            <button onClick={() => setDispatchResult(null)} className="ml-4 font-medium underline">Dismiss</button>
+          </div>
+        ) : (
+          <div className="mt-6 flex items-center justify-between rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <span>
+              Reviews queued, but the worker was NOT triggered:{" "}
+              {dispatchResult.message ?? "GitHub dispatch failed."}{" "}
+              Check GITHUB_TOKEN / GITHUB_REPO and the process-code-reviews workflow, or run it manually from the GitHub Actions tab.
+            </span>
+            <button onClick={() => setDispatchResult(null)} className="ml-4 font-medium underline shrink-0">Dismiss</button>
+          </div>
+        )
+      )}
+
+      {/* Truncation warning if the submission list exceeded the query limit. */}
+      {truncated && (
+        <div className="mt-6">
+          <LimitBanner count={listLimit} limit={listLimit} label="submissions" />
         </div>
       )}
 
@@ -668,6 +741,10 @@ export default function AdminCodeReviewsPage({
                 <div className="mt-4 space-y-3">
                   {challengeSubs.map((sub) => {
                     const review = reviews[sub.id];
+                    const st = statusRows[sub.id];
+                    const status = st?.status;
+                    const progress = st?.progress ?? null;
+                    const cost = st?.costUsd ?? review?.costUsd ?? null;
                     const hasRepo = hasRepoUrl(sub);
                     const isGenerating = generating === sub.id;
 
@@ -678,26 +755,29 @@ export default function AdminCodeReviewsPage({
                             <p className="font-medium">{sub.projectName}</p>
                             <p className="text-sm ad-text-muted">
                               {getTeamName(sub.teamId)}
+                              {cost != null && cost > 0 && (
+                                <span className="ml-2 font-mono ad-text-gold">${cost.toFixed(2)}</span>
+                              )}
                             </p>
                           </div>
                           <div className="flex items-center gap-3">
-                            {review && getStatusBadge(review.status)}
+                            {status && getStatusBadge(status)}
                             {hasRepo ? (
                               <Button
                                 size="sm"
-                                variant={review?.status === "completed" ? "ghost" : "primary"}
+                                variant={status === "completed" ? "ghost" : "primary"}
                                 onClick={() => queueReview(sub.id)}
-                                disabled={isGenerating || generatingAll || review?.status === "queued" || review?.status === "processing"}
+                                disabled={isGenerating || generatingAll || status === "queued" || status === "processing"}
                               >
                                 {isGenerating
                                   ? "Queuing..."
-                                  : review?.status === "queued"
+                                  : status === "queued"
                                     ? "Queued"
-                                    : review?.status === "processing"
+                                    : status === "processing"
                                       ? "Processing..."
-                                      : review?.status === "completed"
+                                      : status === "completed"
                                         ? "Regenerate"
-                                        : review?.status === "failed"
+                                        : status === "failed"
                                           ? "Retry"
                                           : "Queue Review"}
                               </Button>
@@ -708,23 +788,23 @@ export default function AdminCodeReviewsPage({
                         </div>
 
                         {/* Progress indicator */}
-                        {review?.progress && (review.status === "processing" || review.status === "queued") && (
+                        {progress && (status === "processing" || status === "queued") && (
                           <div className="mt-2 flex items-center gap-2 text-sm ad-text-muted">
                             <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
                               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                             </svg>
-                            {review.progress}
+                            {progress}
                           </div>
                         )}
 
                         {/* Error message for failed reviews */}
-                        {review?.status === "failed" && review.progress && (
-                          <p className="mt-2 text-xs ad-text-error">{review.progress}</p>
+                        {status === "failed" && progress && (
+                          <p className="mt-2 text-xs ad-text-error">{progress}</p>
                         )}
 
                         {/* Show review if completed */}
-                        {review?.status === "completed" && review.reviewContent && (
+                        {status === "completed" && review?.reviewContent && (
                           <details className="mt-3 border-t ad-border pt-3">
                             <summary className="cursor-pointer text-sm font-medium ad-text-link">
                               View Review

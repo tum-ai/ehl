@@ -5,10 +5,25 @@ on:
     types: [process-code-reviews]
   workflow_dispatch: {} # Manual trigger from GitHub UI
 
+# Allow many workers to run at once (one repository_dispatch fans out into a
+# matrix of parallel jobs below). Do NOT use a single-slot concurrency group
+# here, or the parallel matrix legs would cancel each other.
+
 jobs:
   process:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    # Throughput: the real event needs ~100 repos reviewed in ~30 min. A single
+    # serial worker (each review = clone + 5 LLM calls, ~30-90s) cannot hit that.
+    # We fan out into PARALLEL workers. This is safe because the worker script
+    # atomically claims each queued row (UPDATE ... WHERE status='queued'), so
+    # every worker only picks up rows no other worker has taken — no duplicate
+    # processing, no coordination needed. Raise the matrix size to add throughput
+    # (GitHub free/standard runners allow up to 20 concurrent jobs).
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     steps:
       - uses: actions/checkout@v4
 
@@ -26,6 +41,7 @@ jobs:
       - name: Process queued code reviews
         run: pnpm tsx scripts/process-code-reviews.ts
         env:
+          WORKER_ID: ${{ matrix.worker }}
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
