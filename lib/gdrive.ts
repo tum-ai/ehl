@@ -195,8 +195,29 @@ export async function makeFileLinkReadable(fileId: string): Promise<void> {
  * (with an "Open in new tab" fallback) instead of erroring the whole page.
  */
 export async function ensureFileLinkReadable(fileId: string): Promise<boolean> {
-  const drive = getDrive();
   try {
+    // getDrive() can throw on missing/bad credentials; keep it inside the try so
+    // a misconfigured service account degrades to `false` (the caller shows an
+    // "open in new tab" fallback) instead of 500-ing the page.
+    const drive = getDrive();
+
+    // Only ever grant link access to files THIS service account owns. Submission
+    // `fields` are client-supplied, so a tampered file field could otherwise
+    // point at another team's submission file id; without the ownership gate the
+    // first jury/admin view would make that file "anyone with the link" readable
+    // (a narrow IDOR within our Drive). We fetch the file's owners + existing
+    // permissions in one call and refuse to grant on files we don't own.
+    const meta = await drive.files.get(
+      { fileId, fields: "ownedByMe", supportsAllDrives: true },
+      { timeout: DRIVE_TIMEOUT_MS }
+    );
+    if (meta.data.ownedByMe === false) {
+      console.warn(
+        `ensureFileLinkReadable: refusing to grant link access to ${fileId} — not owned by the service account.`
+      );
+      return false;
+    }
+
     const existing = await drive.permissions.list(
       {
         fileId,

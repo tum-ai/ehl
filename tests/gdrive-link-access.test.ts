@@ -6,12 +6,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // permission requested, and that it targets the given fileId on a shared drive.
 const permissionsCreate = vi.fn().mockResolvedValue({ data: { id: "perm-1" } });
 const permissionsList = vi.fn().mockResolvedValue({ data: { permissions: [] } });
+const filesGet = vi.fn().mockResolvedValue({ data: { ownedByMe: true } });
 
 vi.mock("googleapis", () => ({
   google: {
     auth: { GoogleAuth: class { constructor() {} } },
     drive: () => ({
       permissions: { create: permissionsCreate, list: permissionsList },
+      files: { get: filesGet },
     }),
   },
   drive_v3: {},
@@ -22,6 +24,7 @@ import { makeFileLinkReadable, ensureFileLinkReadable } from "@/lib/gdrive";
 beforeEach(() => {
   vi.clearAllMocks();
   permissionsList.mockResolvedValue({ data: { permissions: [] } });
+  filesGet.mockResolvedValue({ data: { ownedByMe: true } });
   // getCredentials() needs this to be set (base64 of any JSON).
   process.env.GOOGLE_DRIVE_CREDENTIALS = Buffer.from('{"client_email":"x","private_key":"y"}').toString("base64");
 });
@@ -103,5 +106,26 @@ describe("ensureFileLinkReadable", () => {
     const ok = await ensureFileLinkReadable("file-6");
 
     expect(ok).toBe(false);
+  });
+
+  it("refuses to grant on a file the service account does NOT own (no anyone-link)", async () => {
+    // A tampered submission field could point at another team's file id. We must
+    // never make a file we don't own publicly readable.
+    filesGet.mockResolvedValueOnce({ data: { ownedByMe: false } });
+
+    const ok = await ensureFileLinkReadable("someone-elses-file");
+
+    expect(ok).toBe(false);
+    expect(permissionsCreate).not.toHaveBeenCalled();
+    expect(permissionsList).not.toHaveBeenCalled();
+  });
+
+  it("never throws even if the ownership lookup itself fails", async () => {
+    filesGet.mockRejectedValueOnce(new Error("drive down"));
+
+    const ok = await ensureFileLinkReadable("file-7");
+
+    expect(ok).toBe(false);
+    expect(permissionsCreate).not.toHaveBeenCalled();
   });
 });

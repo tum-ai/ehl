@@ -13,8 +13,28 @@
  *   - https://drive.google.com/uc?export=download&id={id}
  *   - https://drive.google.com/open?id={id}
  * Returns null if the URL is not a recognizable Drive link.
+ *
+ * The host MUST be a real Google Drive/Docs host. Submission `fields` are
+ * client-supplied JSON, so without this check a tampered value like
+ * `https://evil.example.com/?id=ID` or `/file/d/ID` on any host would be treated
+ * as a Drive file and flow into the embed iframe and the link-readable
+ * self-heal. Restricting the host keeps both paths to genuine Drive URLs.
  */
+const DRIVE_HOSTS = new Set([
+  "drive.google.com",
+  "docs.google.com",
+  "drive.usercontent.google.com",
+]);
+
 export function extractDriveFileId(url: string): string | null {
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return null; // not an absolute URL -> not a Drive link
+  }
+  if (!DRIVE_HOSTS.has(host)) return null;
+
   const fileMatch = url.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
   if (fileMatch) return fileMatch[1];
   const idMatch = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);

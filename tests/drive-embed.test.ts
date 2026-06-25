@@ -23,6 +23,23 @@ describe("extractDriveFileId", () => {
   it("returns null for a non-Drive URL", () => {
     expect(extractDriveFileId("https://example.com/deck.pdf")).toBeNull();
   });
+
+  it("returns null for a foreign host that mimics a Drive path or id param", () => {
+    // A tampered submission field could try to smuggle an id via a non-Drive
+    // host; the host check must reject these so they never reach the embed/grant.
+    expect(extractDriveFileId("https://evil.example.com/?id=ABC123")).toBeNull();
+    expect(extractDriveFileId("https://evil.example.com/file/d/ABC123/view")).toBeNull();
+    expect(extractDriveFileId("https://drive.google.com.evil.com/?id=ABC123")).toBeNull();
+  });
+
+  it("returns null for a non-absolute / malformed URL", () => {
+    expect(extractDriveFileId("/file/d/ABC123/view")).toBeNull();
+    expect(extractDriveFileId("not a url")).toBeNull();
+  });
+
+  it("accepts docs.google.com as a Drive host", () => {
+    expect(extractDriveFileId("https://docs.google.com/open?id=DOC123")).toBe("DOC123");
+  });
 });
 
 describe("getDriveEmbedUrl", () => {
