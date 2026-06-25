@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { QUERY_LIMITS } from "@/lib/config/limits";
+import { dispatchCodeReviewWorker, type DispatchResult } from "@/lib/code-review/dispatch";
 
 const MAX_QUEUED_REVIEWS = QUERY_LIMITS.codeReviewQueueDepth;
 
@@ -53,31 +54,17 @@ export async function POST(request: Request) {
     if (!error) queued++;
   }
 
-  // Dispatch GitHub Actions workflow to process queued reviews
+  // Dispatch GitHub Actions workflow to process queued reviews.
+  // The dispatch result is surfaced to the admin (NOT swallowed) so a
+  // misconfigured token/repo/workflow is visible instead of leaving reviews
+  // "Queued" forever with no worker running.
+  let dispatchResult: DispatchResult | null = null;
   if (dispatch !== false && queued > 0) {
-    const githubToken = process.env.GITHUB_TOKEN;
-    const githubRepo = process.env.GITHUB_REPO;
-
-    if (githubToken && githubRepo) {
-      try {
-        await fetch(
-          `https://api.github.com/repos/${githubRepo}/dispatches`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${githubToken}`,
-              Accept: "application/vnd.github.v3+json",
-            },
-            body: JSON.stringify({
-              event_type: "process-code-reviews",
-            }),
-          }
-        );
-      } catch {
-        // Dispatch failure is non-fatal, reviews can be processed manually
-      }
+    dispatchResult = await dispatchCodeReviewWorker();
+    if (!dispatchResult.ok) {
+      console.error(`[code-review queue] ${dispatchResult.message}`);
     }
   }
 
-  return NextResponse.json({ success: true, queued });
+  return NextResponse.json({ success: true, queued, dispatch: dispatchResult });
 }

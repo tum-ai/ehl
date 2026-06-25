@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { formatDateFull, formatDeadline } from "@/lib/utils";
 import { registerForChallenge } from "@/lib/actions/submissions";
 import { DeadlineCountdown } from "@/components/submission/deadline-countdown";
+import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
 import type { Chapter, Challenge } from "@/lib/types";
 
 interface CheckinInfo {
@@ -14,6 +15,25 @@ interface CheckinInfo {
   members: { name: string; checkedIn: boolean }[];
 }
 
+/**
+ * Message shown in the "no checked-in team" panel during challenge selection.
+ * Distinguishes a logged-in participant without a team (must join/create one)
+ * from a logged-out visitor (must log in). `userRole` truthy means the user is
+ * already on a team and the team-check-in branch handles the messaging instead.
+ */
+export function noTeamRegistrationMessage(
+  userRole: "president" | "member" | null,
+  isLoggedIn: boolean,
+): string {
+  if (userRole) {
+    return "Your team needs to check in to participate. Check in at the event to get started.";
+  }
+  if (isLoggedIn) {
+    return "You're not on a team yet. Join an existing team or create one, then check in at the event. A team needs at least two members to register for a challenge.";
+  }
+  return "Log in to see your team status and register for a challenge.";
+}
+
 interface ChapterRegistrationOpenProps {
   chapter: Chapter;
   challenges: Challenge[];
@@ -21,6 +41,7 @@ interface ChapterRegistrationOpenProps {
   registeredChallengeId: string | null;
   userRole: "president" | "member" | null;
   teamId: string | null;
+  isLoggedIn: boolean;
 }
 
 export function ChapterRegistrationOpen({
@@ -30,19 +51,25 @@ export function ChapterRegistrationOpen({
   registeredChallengeId: initialRegisteredId,
   userRole,
   teamId,
+  isLoggedIn,
 }: ChapterRegistrationOpenProps) {
   const [registeredChallengeId, setRegisteredChallengeId] = useState(initialRegisteredId);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const canRegister = checkinInfo?.allCheckedIn && userRole === "president";
+  // A team must have at least MIN_CHALLENGE_ROSTER members to register for a
+  // challenge (mirrors the server guard in registerForChallenge). A solo team
+  // cannot select a challenge even if its one member is checked in.
+  const teamTooSmall = checkinInfo !== null && checkinInfo.total < MIN_CHALLENGE_ROSTER;
+  const canRegister = checkinInfo?.allCheckedIn && userRole === "president" && !teamTooSmall;
 
   async function handleRegister(challengeId: string) {
     if (!teamId) return;
     setLoading(challengeId);
     setError(null);
 
-    const result = await registerForChallenge(chapter.id, challengeId, teamId, []);
+    // The roster is derived server-side from the team's actual members.
+    const result = await registerForChallenge(chapter.id, challengeId, teamId);
 
     setLoading(null);
     if (result.error) {
@@ -81,7 +108,27 @@ export function ChapterRegistrationOpen({
       )}
 
       {/* Team check-in status */}
-      {checkinInfo && checkinInfo.allCheckedIn ? (
+      {teamTooSmall ? (
+        <div className="mt-8 rounded-2xl border border-yellow-500/20 bg-yellow-500/[0.03] p-6">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-500/10">
+              <svg className="h-5 w-5 text-yellow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 2a10 10 0 100 20 10 10 0 000-20z" />
+              </svg>
+            </div>
+            <div>
+              <p className="font-bold text-yellow-400">
+                Team too small: {checkinInfo?.total} of {MIN_CHALLENGE_ROSTER} members
+              </p>
+              <p className="text-sm text-text-secondary">
+                {userRole === "president"
+                  ? `Your team needs at least ${MIN_CHALLENGE_ROSTER} members to register for a challenge. Invite teammates before challenge selection closes.`
+                  : `Your team needs at least ${MIN_CHALLENGE_ROSTER} members before it can register for a challenge.`}
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : checkinInfo && checkinInfo.allCheckedIn ? (
         <div className="mt-8 rounded-2xl border border-gold/20 bg-gold/[0.03] p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gold/10">
@@ -142,9 +189,7 @@ export function ChapterRegistrationOpen({
       ) : (
         <div className="mt-8 rounded-2xl border border-white/[0.06] bg-surface-card/40 p-6">
           <p className="text-text-muted">
-            {userRole
-              ? "Your team needs to check in to participate. Check in at the event to get started."
-              : "Log in to see your team status and register for a challenge."}
+            {noTeamRegistrationMessage(userRole, isLoggedIn)}
           </p>
         </div>
       )}

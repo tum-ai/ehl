@@ -203,6 +203,22 @@ describe("toChallenge", () => {
     expect(challenge.prizeDescription).toBeNull();
     expect(challenge.judgingCriteria).toBeNull();
   });
+
+  it("defaults juryFinalizedAt to null when absent", () => {
+    // The publish-readiness gate depends on this field to know whether a scored
+    // challenge's jury results have been materialized into scores. Absent -> null
+    // (not finalized).
+    const challenge = toChallenge({ id: "ch1", chapter_id: "c1", title: "T" });
+    expect(challenge.juryFinalizedAt).toBeNull();
+  });
+
+  it("maps jury_finalized_at when set", () => {
+    const ts = "2026-06-24T10:00:00.000Z";
+    const challenge = toChallenge({
+      id: "ch1", chapter_id: "c1", title: "T", jury_finalized_at: ts,
+    });
+    expect(challenge.juryFinalizedAt).toBe(ts);
+  });
 });
 
 // ─── toSubmission ───────────────────────────────────────────

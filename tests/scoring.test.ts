@@ -4,6 +4,8 @@ import {
   PARTICIPATION_POINTS,
   getPoints,
   calculateLeaderboard,
+  getPublishReadiness,
+  getPendingJuryTeamIds,
 } from "@/lib/scoring";
 import type { Team, Score, Chapter } from "@/lib/types";
 
@@ -331,5 +333,158 @@ describe("calculateLeaderboard", () => {
     // t2 and t1 both have bestFinish=1, but t2 has more points -> different rank
     expect(result[0].rank).toBe(1);
     expect(result[1].rank).toBe(2);
+  });
+});
+
+// ─── getPublishReadiness() ──────────────────────────────────
+//
+// Symptom B regression: the admin scores page DISPLAYS jury results (live
+// aggregation) but the publish gate counts persisted `scores` rows. The two
+// reads diverge. getPublishReadiness reconciles them. Args:
+//   1. scoredTeamIds       — teams with a row in the `scores` table (publishable)
+//   2. pendingJuryTeamIds  — teams whose jury results are displayed but expected
+//                            to become scores and have NOT been finalized yet.
+
+describe("getPublishReadiness", () => {
+  it("REGRESSION (Symptom B): scores exist and are displayed => NOT reported missing", () => {
+    // Finalized scored challenge: the same teams appear BOTH in `scores` and in
+    // the live jury aggregation. The caller passes the pending set as empty
+    // (finalized challenges are excluded). The gate must NOT warn — these scores
+    // are real and publishable.
+    const scoredTeamIds = ["t1", "t2", "t3"];
+    const pendingJuryTeamIds: string[] = [];
+
+    const readiness = getPublishReadiness(scoredTeamIds, pendingJuryTeamIds);
+
+    // The old gate (`scores.length === 0`) would have been false here too, but
+    // the historical failure was the inverse: see the "unfinalized" case below,
+    // where results are displayed yet scores is empty. This pins that a fully
+    // finalized chapter reports "ready", never a false "missing/empty".
+    expect(readiness.kind).toBe("ready");
+    if (readiness.kind === "ready") {
+      expect(readiness.scoredCount).toBe(3);
+    }
+  });
+
+  it("REGRESSION (Symptom B core): jury results displayed but NOT finalized => unfinalized, not empty", () => {
+    // The exact bug: a scored challenge's jury aggregation is visible on the page
+    // (pending teams present) but nothing was materialized into `scores`. The old
+    // logic said "no scores yet" (empty). It must instead flag the inconsistency
+    // so the operator finalizes before publishing, otherwise results vanish.
+    const scoredTeamIds: string[] = [];
+    const pendingJuryTeamIds = ["t1", "t2"];
+
+    const readiness = getPublishReadiness(scoredTeamIds, pendingJuryTeamIds);
+
+    expect(readiness.kind).toBe("unfinalized");
+    if (readiness.kind === "unfinalized") {
+      expect(readiness.pendingTeamCount).toBe(2);
+      expect(readiness.scoredCount).toBe(0);
+    }
+  });
+
+  it("flags unfinalized even when SOME scores already exist (partial finalization)", () => {
+    // One scored challenge finalized (t1 in scores), another scored challenge's
+    // jury results displayed but not finalized (t2 pending). Publishing now would
+    // omit t2, so warn.
+    const readiness = getPublishReadiness(["t1"], ["t2"]);
+    expect(readiness.kind).toBe("unfinalized");
+    if (readiness.kind === "unfinalized") {
+      expect(readiness.pendingTeamCount).toBe(1);
+      expect(readiness.scoredCount).toBe(1);
+    }
+  });
+
+  it("a team in pendingJuryTeamIds stays unfinalized even if it has a score row in another challenge", () => {
+    // `scores` is keyed (chapter_id, team_id), but getPendingJuryTeamIds only
+    // returns teams from a scored challenge that is NOT finalized. A team can
+    // have a finalized score row from challenge A AND displayed-but-unfinalized
+    // jury results in scored challenge B (the data model allows multiple scored
+    // challenges per chapter). publishScores would NOT materialize B's results,
+    // so this must warn (unfinalized), NOT report ready. (Previously this
+    // subtracted such teams and false-negatived to "ready", dropping a whole
+    // challenge's results silently.)
+    const readiness = getPublishReadiness(["t1", "t2"], ["t1", "t2"]);
+    expect(readiness.kind).toBe("unfinalized");
+    if (readiness.kind === "unfinalized") {
+      expect(readiness.pendingTeamCount).toBe(2);
+      expect(readiness.scoredCount).toBe(2);
+    }
+  });
+
+  it("genuinely empty chapter (no scores, no pending jury) => empty", () => {
+    // e.g. a community-only chapter: nothing to publish, but publishing must
+    // still be allowed (it just completes with an empty leaderboard).
+    const readiness = getPublishReadiness([], []);
+    expect(readiness.kind).toBe("empty");
+  });
+
+  it("accepts Sets and other iterables, not just arrays", () => {
+    const readiness = getPublishReadiness(new Set(["t1"]), new Set<string>());
+    expect(readiness.kind).toBe("ready");
+  });
+});
+
+// ─── getPendingJuryTeamIds() ────────────────────────────────
+//
+// The per-challenge filter that produces the "pending" set fed into
+// getPublishReadiness. A team is pending only if its challenge is scored AND not
+// yet finalized. This avoids false positives (community/non-scored challenges,
+// already-finalized challenges) and false negatives.
+
+describe("getPendingJuryTeamIds", () => {
+  it("includes teams from a scored, NOT-finalized challenge (the Symptom B case)", () => {
+    const challenges = [{ id: "ch1", isScored: true, juryFinalizedAt: null }];
+    const aggregated = { ch1: { t1: 8, t2: 7 } };
+    expect(getPendingJuryTeamIds(challenges, aggregated).sort()).toEqual(["t1", "t2"]);
+  });
+
+  it("EXCLUDES teams from a non-scored (community) challenge (no false positive)", () => {
+    // Community challenges are judged but never produce league scores, so their
+    // displayed jury results must NOT trigger the unfinalized warning.
+    const challenges = [{ id: "ch1", isScored: false, juryFinalizedAt: null }];
+    const aggregated = { ch1: { t1: 8, t2: 7 } };
+    expect(getPendingJuryTeamIds(challenges, aggregated)).toEqual([]);
+  });
+
+  it("EXCLUDES teams from an already-finalized scored challenge (no false positive)", () => {
+    // Finalized scored challenges already wrote their scores; they are not pending.
+    const challenges = [
+      { id: "ch1", isScored: true, juryFinalizedAt: "2026-06-24T00:00:00Z" },
+    ];
+    const aggregated = { ch1: { t1: 8, t2: 7 } };
+    expect(getPendingJuryTeamIds(challenges, aggregated)).toEqual([]);
+  });
+
+  it("includes only the unfinalized scored challenge in a mixed chapter", () => {
+    const challenges = [
+      { id: "ch1", isScored: true, juryFinalizedAt: "2026-06-24T00:00:00Z" }, // finalized
+      { id: "ch2", isScored: true, juryFinalizedAt: null },                   // pending
+      { id: "ch3", isScored: false, juryFinalizedAt: null },                  // community
+    ];
+    const aggregated = {
+      ch1: { t1: 8 },
+      ch2: { t2: 8, t3: 7 },
+      ch3: { t4: 8 },
+    };
+    expect(getPendingJuryTeamIds(challenges, aggregated).sort()).toEqual(["t2", "t3"]);
+  });
+
+  it("dedupes a team that appears as pending across multiple challenges", () => {
+    const challenges = [
+      { id: "ch1", isScored: true, juryFinalizedAt: null },
+      { id: "ch2", isScored: true, juryFinalizedAt: null },
+    ];
+    const aggregated = { ch1: { t1: 8 }, ch2: { t1: 7 } };
+    expect(getPendingJuryTeamIds(challenges, aggregated)).toEqual(["t1"]);
+  });
+
+  it("ignores a challenge with no jury aggregation entry", () => {
+    const challenges = [{ id: "ch1", isScored: true, juryFinalizedAt: null }];
+    expect(getPendingJuryTeamIds(challenges, {})).toEqual([]);
+  });
+
+  it("returns empty for no challenges", () => {
+    expect(getPendingJuryTeamIds([], {})).toEqual([]);
   });
 });

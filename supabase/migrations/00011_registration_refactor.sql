@@ -62,9 +62,21 @@ ALTER TABLE profiles ADD COLUMN IF NOT EXISTS looking_for_team BOOLEAN DEFAULT f
 ALTER TABLE teams ADD COLUMN IF NOT EXISTS looking_for_members BOOLEAN DEFAULT false;
 
 -- ─── Allow solo_registration type in verification_codes ───
-ALTER TABLE verification_codes DROP CONSTRAINT IF EXISTS verification_codes_type_check;
-ALTER TABLE verification_codes ADD CONSTRAINT verification_codes_type_check
-  CHECK (type = ANY (ARRAY['registration'::text, 'member_confirm'::text, 'solo_registration'::text]));
+-- Guarded for clean-room ordering: verification_codes was originally created
+-- ad-hoc (outside migration history) and only backfilled by 00021's
+-- CREATE TABLE IF NOT EXISTS, which lands AFTER this file. On a fresh
+-- `supabase start` / `db reset` the table does not exist yet here, so this
+-- block is skipped; 00021 creates the table with the identical 3-value
+-- type check already in place. On the existing remote DBs (table present) it
+-- runs as before.
+do $$
+begin
+  if to_regclass('public.verification_codes') is not null then
+    alter table verification_codes drop constraint if exists verification_codes_type_check;
+    alter table verification_codes add constraint verification_codes_type_check
+      check (type = any (array['registration'::text, 'member_confirm'::text, 'solo_registration'::text]));
+  end if;
+end $$;
 
 -- ─── Add screening status and deadline columns ───────────
 ALTER TYPE chapter_status ADD VALUE IF NOT EXISTS 'screening' AFTER 'applications_open';
