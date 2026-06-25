@@ -860,48 +860,27 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await page.locator('input[name="password"]').fill(TEST_PASSWORD);
     await page.locator('input[name="confirmPassword"]').fill(TEST_PASSWORD);
 
-    // Application fields (same UI as the public apply form).
+    // Application fields (same UI as the public apply form). Select radio options
+    // by name+value via .check({ force: true }) — the inputs are sr-only and the
+    // value selector is unambiguous (label hasText collides on substrings like
+    // "Men's" within "Women's" and "No" within other labels). Mirrors test 3.1b.
     await page.getByPlaceholder("Your first name").fill("Walkin");
     await page.getByPlaceholder("Your last name").fill("Tester");
     await page.locator('input[name="dateOfBirth"]').fill("2000-01-01");
-    await page.getByText("Male", { exact: true }).click();
-    await page.getByPlaceholder("e.g. Munich").fill("Paris");
-    await page.getByPlaceholder("e.g. Germany").fill("France");
-    await page.getByPlaceholder("e.g. German").fill("French");
-    // Currently studying -> No (skips the university sub-fields).
-    await page
-      .locator('label', { hasText: "No" })
-      .filter({ has: page.locator('input[name="currentlyStudying"]') })
-      .click();
-    await page
-      .locator('label', { hasText: "Yes" })
-      .filter({ has: page.locator('input[name="hasProgrammingSkills"]') })
-      .click();
-    await page
-      .locator('label', { hasText: "No" })
-      .filter({ has: page.locator('input[name="isTumaiMember"]') })
-      .click();
+    await page.locator('input[name="gender"][value="Male"]').check({ force: true });
+    await page.locator('input[name="locationCity"]').fill("Paris");
+    await page.locator('input[name="locationCountry"]').fill("France");
+    await page.locator('input[name="nationality"]').fill("French");
+    await page.locator('input[name="currentlyStudying"][value="false"]').check({ force: true });
+    await page.locator('input[name="hasProgrammingSkills"][value="true"]').check({ force: true });
+    await page.locator('input[name="isTumaiMember"][value="false"]').check({ force: true });
     await page
       .locator('textarea[name="hackathonExperience"]')
       .fill("First hackathon, excited to walk in.");
-    // Team: No.
-    await page
-      .locator('label', { hasText: "No" })
-      .filter({ has: page.locator('input[name="hasTeam"]') })
-      .click();
-    // Logistics.
-    await page
-      .locator('label', { hasText: "None" })
-      .filter({ has: page.locator('input[name="dietaryRestrictions"]') })
-      .click();
-    await page
-      .locator('label', { hasText: "Men's" })
-      .filter({ has: page.locator('input[name="tshirtCut"]') })
-      .click();
-    await page
-      .locator('label')
-      .filter({ has: page.locator('input[name="tshirtSize"][value="M"]') })
-      .click();
+    await page.locator('input[name="hasTeam"][value="false"]').check({ force: true });
+    await page.locator('input[name="dietaryRestrictions"][value="None"]').check({ force: true });
+    await page.locator('input[name="tshirtCut"][value="men\'s"]').check({ force: true });
+    await page.locator('input[name="tshirtSize"][value="M"]').check({ force: true });
     await page.getByText("LinkedIn", { exact: true }).click(); // a discovery source
 
     await page.getByRole("button", { name: "Register & Create Account" }).click();
@@ -938,7 +917,13 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await loginAsAdmin(page);
     await page.goto(`/admin/check-in`);
     await page.waitForLoadState("networkidle");
-    // Chapter is in challenge_selection (a check-in status).
+    // The chapter <select> is populated by a client-side fetch, so wait until the
+    // chapter's own option is attached before selecting it (it's in
+    // challenge_selection, a check-in status, set in test 4.2). Without this the
+    // selectOption races the fetch and times out with "did not find some options".
+    await expect(
+      page.locator(`select option[value="${chapterId}"]`)
+    ).toBeAttached({ timeout: 15000 });
     await page.locator("select").selectOption(chapterId);
     await page.getByPlaceholder("Enter check-in token (UUID)...").fill(checkInToken);
     await page.getByRole("button", { name: "Check In", exact: true }).click();
