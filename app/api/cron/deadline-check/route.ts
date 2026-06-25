@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { lockSubmissionsCore } from "@/lib/submissions-lock";
 import { logEvent } from "@/lib/event-log";
 import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
+import { dispatchCodeReviewWorker } from "@/lib/code-review/dispatch";
 
 // The cron runs every minute (vercel.json), but the submissions->pitching branch
 // forks GitHub repos and can run long. Give the function room and serialize runs
@@ -188,31 +189,15 @@ async function runDeadlineCheck(): Promise<NextResponse> {
     });
   }
 
-  // Dispatch GitHub Actions workflow if reviews were queued
+  // Dispatch GitHub Actions workflow if reviews were queued. Surface the outcome
+  // (success OR failure) in the transitions log instead of swallowing it.
   if (reviewsQueued > 0) {
-    const githubToken = process.env.GITHUB_TOKEN;
-    const githubRepo = process.env.GITHUB_REPO;
-
-    if (githubToken && githubRepo) {
-      try {
-        await fetch(
-          `https://api.github.com/repos/${githubRepo}/dispatches`,
-          {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${githubToken}`,
-              Accept: "application/vnd.github.v3+json",
-            },
-            body: JSON.stringify({
-              event_type: "process-code-reviews",
-            }),
-          }
-        );
-        transitions.push(`Dispatched code review processing (${reviewsQueued} queued)`);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        transitions.push(`Failed to dispatch code review processing: ${msg}`);
-      }
+    const dispatchResult = await dispatchCodeReviewWorker();
+    if (dispatchResult.ok) {
+      transitions.push(`Dispatched code review processing (${reviewsQueued} queued)`);
+    } else {
+      console.error(`[deadline-check] ${dispatchResult.message}`);
+      transitions.push(`Failed to dispatch code review processing: ${dispatchResult.message}`);
     }
   }
 

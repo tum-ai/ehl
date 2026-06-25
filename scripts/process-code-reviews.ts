@@ -28,34 +28,43 @@ const adminClient = createClient(supabaseUrl, serviceRoleKey, {
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
+const WORKER_ID = process.env.WORKER_ID ?? "1";
+
 async function main() {
-  // Find all queued reviews
-  const { data: queued, error: fetchError } = await adminClient
-    .from("code_reviews")
-    .select("id, submission_id")
-    .eq("status", "queued")
-    .order("generated_at", { ascending: true });
-
-  if (fetchError) {
-    console.error("Failed to fetch queued reviews:", fetchError.message);
-    process.exit(1);
-  }
-
-  if (!queued || queued.length === 0) {
-    console.log("No queued code reviews found.");
-    return;
-  }
-
-  console.log(`Found ${queued.length} queued code review(s).`);
+  // This script is designed to run as ONE OF MANY parallel workers (see the
+  // matrix in .github/workflows/process-code-reviews.yml). Each iteration claims
+  // the next queued review atomically and keeps going until the queue is drained,
+  // so the workers self-balance: a fast worker keeps pulling more work instead of
+  // sitting idle while others churn. The atomic claim
+  // (UPDATE ... WHERE status='queued') guarantees each row is processed once.
 
   let completed = 0;
   let failed = 0;
 
-  for (const review of queued) {
-    const submissionId = review.submission_id as string;
-    console.log(`\nProcessing review for submission ${submissionId}...`);
+  for (;;) {
+    // Fetch the oldest still-queued review.
+    const { data: candidate, error: fetchError } = await adminClient
+      .from("code_reviews")
+      .select("id, submission_id")
+      .eq("status", "queued")
+      .order("generated_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
 
-    // Atomically claim this review (prevents race conditions)
+    if (fetchError) {
+      console.error(`[worker ${WORKER_ID}] Failed to fetch queued reviews:`, fetchError.message);
+      process.exit(1);
+    }
+
+    if (!candidate) {
+      console.log(`[worker ${WORKER_ID}] No more queued code reviews. Done.`);
+      break;
+    }
+
+    const review = candidate;
+    const submissionId = review.submission_id as string;
+
+    // Atomically claim this review (prevents race conditions between workers).
     const { data: claimed } = await adminClient
       .from("code_reviews")
       .update({ status: "processing" })
@@ -65,9 +74,11 @@ async function main() {
       .single();
 
     if (!claimed) {
-      console.log("  Skipped (already claimed by another worker).");
+      // Another worker grabbed it between our SELECT and UPDATE. Try the next.
       continue;
     }
+
+    console.log(`\n[worker ${WORKER_ID}] Processing review for submission ${submissionId}...`);
 
     try {
       // Get submission

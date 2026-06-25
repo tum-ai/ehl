@@ -216,8 +216,16 @@ Automated code quality assessment using multiple LLM agents.
 
 ### Execution
 - Triggered manually by admin or automatically after submission deadline
-- Runs in GitHub Actions (avoids Vercel function timeout)
+- Queueing only WRITES `status=queued` rows. The actual pipeline runs in GitHub Actions (avoids the Vercel function timeout), triggered by a `repository_dispatch` event of type `process-code-reviews` (requires `GITHUB_TOKEN` + `GITHUB_REPO` on the app, and the `process-code-reviews` workflow with `GH_PAT` + Supabase + OpenRouter secrets).
+- **Dispatch visibility:** the queue endpoint no longer swallows dispatch errors. It checks the GitHub response and returns a structured result; the admin page shows a green "Worker triggered" banner on success, or an amber banner naming the misconfiguration (e.g. missing `GITHUB_TOKEN`/`GITHUB_REPO`, HTTP 404 wrong repo / bad token) on failure, so a stuck "Queued" state is never silent. The same surfacing applies to the deadline cron's auto-dispatch (logged in its transitions).
+- **Throughput (parallel workers):** the worker workflow fans out a single dispatch into a matrix of parallel jobs. Each worker atomically claims queued rows (`UPDATE ... WHERE status='queued'`) and loops until the queue drains, so workers self-balance and never double-process. This is what lets ~100 repos finish within the event window; a single serial worker could not. Raise the matrix size in `.github/workflows/process-code-reviews.yml` to add throughput.
 - Queue depth limited to 200 concurrent reviews (configurable via `LIMIT_CODE_REVIEW_QUEUE_DEPTH`)
+
+### Live Status Overview (admin)
+The admin code-reviews page (`/admin/chapters/<id>/code-reviews`) shows a live view of pipeline progress:
+- **Summary counts by status:** pending / queued / processing / completed / failed, plus total cost, aggregated across the chapter's submissions.
+- **Per submission:** current status badge, the pipeline `progress` string (e.g. "Running coordinator..."), cost, and the failure error message when failed.
+- **Auto-refresh:** while any review is queued or processing, the page polls a single lightweight chapter-scoped endpoint (`/api/admin/chapters/<id>/code-reviews`, chapter-admin scoped) every few seconds and STOPS once nothing is in flight. Truncation beyond the query limit shows a `LimitBanner`.
 
 ### Report Cards
 - Visual score display per submission
