@@ -94,4 +94,30 @@ describe("publishScores", () => {
     const res = await publishScores(CHAPTER);
     expect(res).toEqual({ error: "boom" });
   });
+
+  it("marks scores published in the exact shape the public read filter requires", async () => {
+    // The public leaderboard VIEW and getPublishedScoresForTeam both select only
+    // rows where `published` is true. publishScores must therefore flip published
+    // to TRUE (not just touch published_at). This is what makes materialized
+    // scores actually surface publicly after the Symptom B fix finalizes them.
+    const calls: Array<{ table: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ calls }));
+
+    const res = await publishScores(CHAPTER);
+    expect(res).toEqual({ success: true });
+
+    const scoreUpdate = calls.find((c) => c.table === "scores");
+    expect(scoreUpdate).toBeDefined();
+    const payload = scoreUpdate!.payload as { published: unknown; published_at: unknown };
+    // Strictly true so the `.eq("published", true)` / `FILTER (WHERE s.published)`
+    // public reads include the row.
+    expect(payload.published).toBe(true);
+    // And a publish timestamp is recorded.
+    expect(typeof payload.published_at).toBe("string");
+
+    // Simulate the public read filter against a now-published row: it must pass.
+    const publishedRow = { published: payload.published };
+    const passesPublicFilter = publishedRow.published === true;
+    expect(passesPublicFilter).toBe(true);
+  });
 });
