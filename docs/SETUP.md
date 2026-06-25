@@ -226,6 +226,25 @@ In the main repo under **Settings > Secrets and variables > Actions**, add:
 | `OPENROUTER_API_KEY` | Same as Vercel |
 | `GH_PAT` | Same PAT (GitHub forbids `GITHUB_`-prefixed secret names) |
 
+**Code-review worker (`process-code-reviews` workflow).** Queueing a review only
+writes `status=queued`; the pipeline runs in this workflow, triggered by a
+`repository_dispatch` of type `process-code-reviews`. For dispatch to work the
+**app** (Vercel) needs `GITHUB_TOKEN` + `GITHUB_REPO` set, the PAT must have
+access to the main repo, and the workflow file must exist on the repo's default
+branch with the four secrets above. If any of these is wrong the admin
+code-reviews page shows an amber "worker was NOT triggered" banner (it no longer
+fails silently). If reviews stay "Queued", verify in this order: (1) the amber
+banner's message, (2) `GITHUB_TOKEN`/`GITHUB_REPO` in Vercel, (3) the PAT scopes,
+(4) the Actions tab for a run (you can also start one manually via
+**Run workflow** / `workflow_dispatch`).
+
+The workflow runs a **matrix of parallel workers** (default 10). Each worker
+atomically claims queued rows and loops until the queue drains, so they
+self-balance and never double-process. This is sized so ~100 repos finish within
+a typical event window; increase the `matrix.worker` list in
+`.github/workflows/process-code-reviews.yml` if you need more throughput (GitHub
+standard runners allow up to ~20 concurrent jobs).
+
 ### 6.5 Entire Session History (optional, per challenge)
 
 For challenges that require AI session history, participants install [Entire](https://entire.io) and capture their coding session:
@@ -368,6 +387,7 @@ Complete list of every environment variable. Set all "Required" vars before firs
 | `CRON_SECRET` | _(none)_ | Bearer token for `/api/cron/` endpoints |
 | `ADMIN_FALLBACK_EMAILS` | _(none)_ | Comma-separated admin emails (fallback if DB empty) |
 | `VERIFICATION_ENCRYPTION_KEY` | _(falls back to service role key)_ | AES-256-GCM key for verification codes |
+| `CERTIFICATE_LINK_SECRET` | _(falls back to `VERIFICATION_ENCRYPTION_KEY`)_ | HMAC secret for signing public certificate-link capability tokens. Rotating it invalidates already-emailed certificate links (logged-in users are unaffected). |
 
 ### Query Limits (optional overrides)
 
@@ -441,7 +461,24 @@ The default configuration supports ~500 concurrent users on free tiers. Here's w
 
 ## 13. E2E Test Environment
 
-The E2E tests run against a **separate Supabase instance** to avoid touching production data. This section explains how to set it up.
+The E2E tests need real Supabase Auth (magic links, `generateLink`, admin user creation),
+not just Postgres. There are two ways to provide it:
+
+- **CI: ephemeral local stack (no setup, fully isolated).** The `e2e` and `cross-browser`
+  GitHub Actions jobs boot their own throwaway Supabase per run via the CLI
+  (`supabase start`, config in `supabase/config.toml`), apply `supabase/migrations/*`, seed
+  with `pnpm test:seed-local`, and tear down with `supabase stop`. Because each run gets a
+  private DB, E2E runs go **parallel across branches/PRs** — there is no shared remote DB to
+  serialize against. The well-known local-dev anon/service keys it prints are non-secret and
+  captured dynamically into the job env, so **no `TEST_SUPABASE_*` secrets are required for
+  CI E2E**. You can run the same stack locally (Docker required): `supabase start` ->
+  `pnpm test:seed-local` -> `pnpm test:e2e:lifecycle`. See `docs/TESTING.md` section 3.
+- **A persistent remote test Supabase (sections 13.1-13.6 below).** Still used for
+  `pnpm db:check:test` (the migration-applied probe in the `checks` job, gated on the
+  `SUPABASE_ACCESS_TOKEN` + `SUPABASE_TEST_REF` secrets) and for manual runs against a hosted
+  DB. It is **no longer used by the CI E2E jobs**.
+
+This section explains how to set up the remote instance (option B).
 
 ### 13.1 Create a Test Supabase Project
 
@@ -561,10 +598,12 @@ GitHub Actions runs on every push to `main` and every PR:
 
 | Job | What | Duration |
 |-----|------|----------|
-| `Lint + Types + Unit` | Typecheck + 153 unit tests | ~1 min |
-| `E2E Lifecycle` | Build + 37 E2E tests against test Supabase | ~5 min |
+| `Lint + Types + Unit` | Typecheck + unit tests (+ optional remote migration-applied probe) | ~1 min |
+| `E2E Lifecycle` | Boots an ephemeral local Supabase (`supabase start`), seeds it, runs the lifecycle suite | ~6 min |
+| `Cross-browser smoke` | Same ephemeral stack, smoke tests on Firefox + WebKit (push to `main` only) | ~10 min |
 
-Results visible at: your repo's Actions tab on GitHub.
+E2E jobs each get a private Supabase, so they run **in parallel across branches/PRs** (no
+shared-DB serialization). Results visible at: your repo's Actions tab on GitHub.
 
 ### Before Marking Work Done
 

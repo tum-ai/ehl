@@ -18,6 +18,7 @@
     "test:setup-supabase": "tsx scripts/setup-test-supabase.ts",
     "test:migrate-api": "dotenv -e .env.test -- tsx scripts/apply-migrations-via-api.ts",
     "test:seed-api": "dotenv -e .env.test -- tsx scripts/seed-test-via-api.ts",
+    "test:seed-local": "tsx scripts/seed-local.ts",
     "db:check": "tsx scripts/check-migrations-applied.ts",
     "db:check:test": "tsx scripts/check-migrations-applied.ts --test",
     "typecheck": "tsc --noEmit",

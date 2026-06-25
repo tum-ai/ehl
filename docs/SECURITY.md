@@ -43,6 +43,8 @@ Local admins (role `chapter_admin`) are bounded by three independent layers, so 
 2. **Page guards** — global pages use `requireGlobalAdminPage()` (bounces local admins to their chapter); chapter pages use `requireChapterAdminPage(id)` (only their chapter). Write-heavy controls (edit/status/scores/jury/partners/challenges/local-admin management) are rendered only for global admins.
 3. **Action/API guards** — the two writes a local admin may perform (`submitScore`, the check-in actions) and the per-chapter read APIs they use call `requireChapterAdminAction(chapterId)` / `requireChapterAdminApi(chapterId)`, which authorize a global admin OR the local admin of that exact chapter. Every other admin action/route keeps the global-only `requireAdmin*` guards.
 
+The CV proxy (`GET /api/admin/cv/[fileId]`) is a special case: the request carries only a Drive `fileId`, not a chapter. The route therefore resolves the owning chapter server-side (looking up the `applications` row whose `cv_url` equals the `fileId`) and then calls `requireChapterAdminApi(<owning chapter>)`. A local admin can read CVs only for applicants in their own chapter; a global admin reads any. A `fileId` not owned by any application is rejected (404) before the guard or Drive are touched, so the proxy cannot be used to pull arbitrary Drive files by id. The chapter is never taken from caller input, so it cannot be spoofed.
+
 ---
 
 ## 2. Authorization and Data Access
@@ -79,7 +81,7 @@ Every server action follows this pattern:
 
 - Admin API routes check the session and email allowlist (`requireAdmin()`); per-chapter routes a local admin may read use `requireChapterAdminApi(chapterId)`
 - Cron routes use Bearer token auth (`CRON_SECRET`)
-- Certificate routes require session auth (team member or admin) and only serve published scores
+- Certificate routes accept EITHER session auth (team member or admin) OR an unguessable capability token bound to the exact `(chapterId, teamId)` pair (see Cryptography below); they only ever serve published scores. The token path lets emailed certificate links open without login while preventing enumeration of other teams' certificates.
 - Jury API routes check both session and role (jury or admin)
 
 ---
@@ -147,6 +149,20 @@ During registration, users receive a verification code by email. The temporary p
 - **Key**: `VERIFICATION_ENCRYPTION_KEY` env var (falls back to `SUPABASE_SERVICE_ROLE_KEY`)
 - **Implementation**: `lib/crypto.ts`
 - **Plaintext passwords are NEVER stored**, not even temporarily
+
+### Certificate Link Capability Tokens
+
+Certificate PDFs are emailed to participants who may not be logged in. The route
+`/api/certificates/[chapterId]/[teamId]` is therefore reachable without a session,
+but only with a valid capability token:
+
+- **Algorithm**: HMAC-SHA256 over `${chapterId}:${teamId}`, base64url-encoded
+- **Key**: `CERTIFICATE_LINK_SECRET` env var (falls back to `VERIFICATION_ENCRYPTION_KEY`); SHA-256-derived and label-namespaced so it never collides with the AES key above
+- **Implementation**: `lib/certificate-token.ts`
+- **Verification**: the route recomputes the expected token and compares with `crypto.timingSafeEqual` (length-checked first to avoid an exception oracle)
+- **Scope**: a token authorizes ONLY its own certificate. It is bound to both ids, so team A's link cannot reveal team B (the HMAC for a different pair differs and cannot be forged without the secret). chapterId/teamId remain effectively unguessable to outsiders.
+- **No DB/migration**: stateless. Rotating the secret invalidates all previously emailed links at once; logged-in admins/members are unaffected (their session path is unchanged). There is no token expiry by design; the link's only sensitive content is the team's own already-published certificate.
+- The session path (admin or team member) is preserved unchanged, and the existing `certLimiter` rate limit now runs on every request before any auth branch, so the token path is rate-limited too.
 
 ### Supabase Auth
 

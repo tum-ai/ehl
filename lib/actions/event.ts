@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getCheckinStatusForUsers } from "@/lib/queries/checkin";
 import { slugify } from "@/lib/utils";
 import { logEvent } from "@/lib/event-log";
-import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
+import { MIN_CHALLENGE_ROSTER, MAX_TEAM_SIZE } from "@/lib/config/limits";
 
 // ─── Get event status for a checked-in participant ──────────
 
@@ -511,12 +511,16 @@ export async function registerChallenge(
     return { error: "Invalid challenge for this chapter." };
   }
 
+  // Dedupe first: a roster of duplicate ids (e.g. [president, president]) must
+  // not be able to pad a too-small team past the minimum.
+  const uniqueRoster = Array.from(new Set(roster));
+
   // Verify roster size (2-5, president must be included)
-  if (roster.length < MIN_CHALLENGE_ROSTER || roster.length > 5) {
-    return { error: "Roster must have 2 to 5 members." };
+  if (uniqueRoster.length < MIN_CHALLENGE_ROSTER || uniqueRoster.length > MAX_TEAM_SIZE) {
+    return { error: `Roster must have ${MIN_CHALLENGE_ROSTER} to ${MAX_TEAM_SIZE} members.` };
   }
 
-  if (!roster.includes(user.id)) {
+  if (!uniqueRoster.includes(user.id)) {
     return { error: "The president must be included in the roster." };
   }
 
@@ -527,15 +531,15 @@ export async function registerChallenge(
     .eq("team_id", teamId);
 
   const memberIds = new Set((members ?? []).map((m) => m.user_id as string));
-  for (const userId of roster) {
+  for (const userId of uniqueRoster) {
     if (!memberIds.has(userId)) {
       return { error: "All roster members must be on the team." };
     }
   }
 
   // Verify all roster members are checked in for this chapter
-  const checkinStatus = await getCheckinStatusForUsers(roster, chapterId);
-  const notCheckedIn = roster.filter((id) => !checkinStatus.get(id));
+  const checkinStatus = await getCheckinStatusForUsers(uniqueRoster, chapterId);
+  const notCheckedIn = uniqueRoster.filter((id) => !checkinStatus.get(id));
   if (notCheckedIn.length > 0) {
     // Get names for the error message
     const { data: notCheckedInProfiles } = await adminClient
@@ -567,7 +571,7 @@ export async function registerChallenge(
     chapter_id: chapterId,
     challenge_id: challengeId,
     team_id: teamId,
-    roster,
+    roster: uniqueRoster,
   });
 
   if (error) {

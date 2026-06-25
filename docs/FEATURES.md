@@ -126,6 +126,8 @@ Available to participants who are checked in at an event.
 - After check-in, teams browse available challenges
 - Each challenge shows: sponsor, description, prize, judging criteria, brief PDF
 - Team registers for exactly one challenge per match
+- A team must have 2 to 5 members to register for a challenge (single-person teams cannot select a challenge); enforced server-side and reflected in the UI
+- All team members must be checked in before the team can register
 - Challenge registration can be opened/closed by admin via deadline
 
 ### Team Formation (Event Day)
@@ -214,8 +216,16 @@ Automated code quality assessment using multiple LLM agents.
 
 ### Execution
 - Triggered manually by admin or automatically after submission deadline
-- Runs in GitHub Actions (avoids Vercel function timeout)
+- Queueing only WRITES `status=queued` rows. The actual pipeline runs in GitHub Actions (avoids the Vercel function timeout), triggered by a `repository_dispatch` event of type `process-code-reviews` (requires `GITHUB_TOKEN` + `GITHUB_REPO` on the app, and the `process-code-reviews` workflow with `GH_PAT` + Supabase + OpenRouter secrets).
+- **Dispatch visibility:** the queue endpoint no longer swallows dispatch errors. It checks the GitHub response and returns a structured result; the admin page shows a green "Worker triggered" banner on success, or an amber banner naming the misconfiguration (e.g. missing `GITHUB_TOKEN`/`GITHUB_REPO`, HTTP 404 wrong repo / bad token) on failure, so a stuck "Queued" state is never silent. The same surfacing applies to the deadline cron's auto-dispatch (logged in its transitions).
+- **Throughput (parallel workers):** the worker workflow fans out a single dispatch into a matrix of parallel jobs. Each worker atomically claims queued rows (`UPDATE ... WHERE status='queued'`) and loops until the queue drains, so workers self-balance and never double-process. This is what lets ~100 repos finish within the event window; a single serial worker could not. Raise the matrix size in `.github/workflows/process-code-reviews.yml` to add throughput.
 - Queue depth limited to 200 concurrent reviews (configurable via `LIMIT_CODE_REVIEW_QUEUE_DEPTH`)
+
+### Live Status Overview (admin)
+The admin code-reviews page (`/admin/chapters/<id>/code-reviews`) shows a live view of pipeline progress:
+- **Summary counts by status:** pending / queued / processing / completed / failed, plus total cost, aggregated across the chapter's submissions.
+- **Per submission:** current status badge, the pipeline `progress` string (e.g. "Running coordinator..."), cost, and the failure error message when failed.
+- **Auto-refresh:** while any review is queued or processing, the page polls a single lightweight chapter-scoped endpoint (`/api/admin/chapters/<id>/code-reviews`, chapter-admin scoped) every few seconds and STOPS once nothing is in flight. Truncation beyond the query limit shows a `LimitBanner`.
 
 ### Report Cards
 - Visual score display per submission
@@ -245,7 +255,8 @@ There are two kinds of admin:
 - A local admin sees a reduced sidebar (Chapter, Screening, Teams, Check-in) and is
   confined to that one chapter: application screening, the chapter's teams &
   participants, submissions, and check-in.
-- They **can**: score applications (screening) and check participants in.
+- They **can**: score applications (screening), view the CVs of applicants in their
+  own chapter, and check participants in.
 - They **cannot**: see other chapters or any global admin view, edit chapter
   settings, change status, manage challenges/jury/partners, publish scores, or delete
   anything. Inviting/removing local admins is a global-admin action.
@@ -264,7 +275,14 @@ There are two kinds of admin:
 - Screener scoring per application
 - Bulk accept/reject/waitlist
 - Send branded acceptance/rejection emails
-- View CVs (downloaded from Google Drive)
+- View CVs (proxied from Google Drive via the service account; chapter-scoped, so a
+  local admin sees only CVs of applicants in their own chapter)
+- Cross-chapter screening signals per applicant: prior screening scores from other
+  chapters, past participations (checked in elsewhere), and a No-Show warning (checked
+  in at a previous event but their team submitted nothing). No-shows are only counted
+  for chapters where check-in actually ran: events that predate the check-in feature
+  (e.g. the first hackathon) never produce No-Show flags, since attendance there was
+  never recorded.
 - Cancel an accepted applicant (e.g. they can no longer attend): keeps the record
   with a visible "cancelled" status, requires a reason, and can optionally send a
   branded cancellation email. Allowed even after the acceptance email was sent.
@@ -303,8 +321,18 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 ### Team Oversight (`/admin/teams`)
 - View all teams with member lists
 - Change team status
-- Remove individual members
+- Remove individual members (never the captain; blocked if the team would drop below `MIN_TEAM_SIZE`, default 2)
 - Delete teams
+- Admin overrides (audit-logged): change captain, add a member by email, move a member to another team
+- Override a team's challenge selection (global admins): assign a challenge to a team that
+  forgot to pick one, or change a team's existing pick to a different challenge. The control
+  appears in the team row only while submissions are still open for the active chapter
+  (status `challenge_selection`/`hacking`/`submissions_open` and the submission deadline not
+  yet passed); the server action re-checks this gate, so the override is rejected once
+  submissions close. Validates that the team belongs to the chapter and the challenge belongs
+  to the chapter, and blocks a change when the team already submitted a project to its current
+  challenge (delete that submission first to avoid orphaning it). Audit-logged with from/to
+  challenge.
 
 ### Submissions (`/admin/submissions`)
 - List every submission across all chapters (match, challenge, team, project, updated)
@@ -317,6 +345,12 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 - Individual juror vote inspection
 - Manual score overrides (any placement or participation)
 - Publish results (makes scores public, sets chapter to completed)
+- Pre-publish consistency check: only finalized scores in the `scores` table are
+  published (and surfaced on the public leaderboard). The page warns when jury
+  results are displayed but not yet finalized into scores on the Jury page, so
+  unfinalized results are not silently dropped at publish time. Publishing a
+  chapter with genuinely no scores is still allowed (completes with an empty
+  leaderboard) but explicitly confirmed.
 - Send certificate emails to all teams after publishing
 
 ### Jury Management (`/admin/jury`)

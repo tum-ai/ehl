@@ -7,6 +7,7 @@ import {
   adminAddMemberByEmail,
   adminMoveMember,
 } from "@/lib/actions/admin";
+import { MIN_TEAM_SIZE } from "@/lib/config/limits";
 
 interface Member {
   userId: string;
@@ -52,6 +53,9 @@ export function TeamAdminControls({
   const captain = members.find((m) => m.role === "president");
   const nonCaptains = members.filter((m) => m.role !== "president");
   const otherTeams = allTeams.filter((t) => t.id !== teamId);
+  // A move empties a seat on this team, so it is only allowed while the team
+  // stays at or above MIN_TEAM_SIZE (matches the server guard in adminMoveMember).
+  const canMoveOut = members.length > MIN_TEAM_SIZE;
 
   if (!open) {
     return (
@@ -130,7 +134,12 @@ export function TeamAdminControls({
       </div>
 
       {/* Move a member to another team */}
-      {nonCaptains.length > 0 && otherTeams.length > 0 && (
+      {nonCaptains.length > 0 && otherTeams.length > 0 && !canMoveOut && (
+        <p className="ad-text-muted">
+          Cannot move members out: the team must keep at least {MIN_TEAM_SIZE} members.
+        </p>
+      )}
+      {nonCaptains.length > 0 && otherTeams.length > 0 && canMoveOut && (
         <div>
           <label className="ad-text-muted block">Move member to team</label>
           {nonCaptains.map((m) => (

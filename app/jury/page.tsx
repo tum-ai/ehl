@@ -50,7 +50,7 @@ export default async function JuryDashboard() {
           </div>
         </Card>
       ) : (
-        <div className="mt-8 space-y-4">
+        <div className="mt-8 space-y-6">
           <h2 className="text-sm font-bold uppercase tracking-wider text-text-muted">
             Your Challenges
           </h2>
@@ -63,7 +63,8 @@ export default async function JuryDashboard() {
             return (
               <Link
                 key={assignment.challengeId}
-                href={`/jury/${chapter.slug}`}
+                href={`/jury/${chapter.slug}?challenge=${assignment.challengeId}`}
+                className="block"
               >
                 <Card className="transition-colors duration-200 hover:border-gold/20">
                   <div className="flex items-center justify-between">

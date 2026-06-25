@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { getSession } from "@/lib/actions/auth";
 import {
   getChapterBySlug,
-  getJuryAssignmentsForUser,
+  resolveJuryAssignment,
   getChallengeById,
   getSubmissionsForChallengeAuthenticated,
   getPitchOrder,
@@ -16,19 +16,25 @@ import { ReportCard } from "@/components/code-review/report-card";
 
 interface PageProps {
   params: Promise<{ "chapter-slug": string }>;
+  searchParams: Promise<{ challenge?: string }>;
 }
 
-export default async function JuryChapterPage({ params }: PageProps) {
+export default async function JuryChapterPage({ params, searchParams }: PageProps) {
   const { "chapter-slug": slug } = await params;
+  const { challenge: challengeIdParam } = await searchParams;
   const session = await getSession();
   if (!session) redirect("/jury/login");
 
   const chapter = await getChapterBySlug(slug);
   if (!chapter) notFound();
 
-  // Get jury's assignment for this chapter
-  const assignments = await getJuryAssignmentsForUser(session.user.id);
-  const chapterAssignment = assignments.find((a) => a.chapterId === chapter.id);
+  // Get jury's assignment for this chapter. A juror may be assigned to multiple
+  // challenges in the same chapter, so resolve by the clicked challenge id.
+  const chapterAssignment = await resolveJuryAssignment(
+    session.user.id,
+    chapter.id,
+    challengeIdParam
+  );
 
   if (!chapterAssignment) {
     return (
@@ -66,6 +72,10 @@ export default async function JuryChapterPage({ params }: PageProps) {
 
   const hasVoted = chapterAssignment.status === "voted";
   const hasSkipped = chapterAssignment.status === "skipped";
+
+  // Carry the resolved challenge id through to sub-pages so they resolve the
+  // same assignment (important when the juror has >1 challenge in this chapter).
+  const challengeQuery = `?challenge=${chapterAssignment.challengeId}`;
 
   return (
     <div>
@@ -129,7 +139,7 @@ export default async function JuryChapterPage({ params }: PageProps) {
             Pitch Order ({orderedTeamIds.length} teams)
           </h2>
           <Link
-            href={`/jury/${slug}/rank`}
+            href={`/jury/${slug}/rank${challengeQuery}`}
             className="rounded-lg bg-gold px-4 py-2 text-sm font-bold text-surface-deep transition-opacity hover:opacity-90"
           >
             {hasVoted ? "Update Vote" : hasSkipped ? "Vote Instead" : "Enter Ranking"}
@@ -240,7 +250,7 @@ export default async function JuryChapterPage({ params }: PageProps) {
                     {/* Detail View Link */}
                     <div className="pt-2">
                       <Link
-                        href={`/jury/${slug}/submission/${sub.id}`}
+                        href={`/jury/${slug}/submission/${sub.id}${challengeQuery}`}
                         className="text-sm text-gold hover:underline"
                       >
                         View Full Submission &rarr;
