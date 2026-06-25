@@ -604,6 +604,32 @@ export async function getProfileByEmail(email: string) {
 }
 
 /**
+ * Get (or lazily create) a chapter's walk-in token. The token lives in the
+ * admin-only chapter_walk_in table (no anon read), so this reads it via the
+ * service-role admin client. Mirrors getOrCreateWalkInToken() in
+ * lib/actions/walk-in.ts, but as a test helper (no auth guard).
+ */
+export async function getWalkInToken(chapterId: string): Promise<string> {
+  const admin = getAdminClient();
+  const { data: existing } = await admin
+    .from("chapter_walk_in")
+    .select("walk_in_token")
+    .eq("chapter_id", chapterId)
+    .maybeSingle();
+  if (existing?.walk_in_token) return existing.walk_in_token as string;
+
+  const { data: created, error } = await admin
+    .from("chapter_walk_in")
+    .insert({ chapter_id: chapterId })
+    .select("walk_in_token")
+    .single();
+  if (error || !created) {
+    throw new Error(`Failed to create walk-in token: ${error?.message}`);
+  }
+  return created.walk_in_token as string;
+}
+
+/**
  * Get a team by name.
  */
 export async function getTeamByName(name: string) {

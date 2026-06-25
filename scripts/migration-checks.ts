@@ -260,6 +260,7 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        "and the partners table is empty on a fresh DB, so this UPDATE leaves no schema artifact " +
        "and is a no-op except on DBs that still hold pre-migration partner rows. Nothing to probe.",
    } },
+  { prefix: "00054", label: "walk_in_token", sql: table("chapter_walk_in") },
 ];
 
 /**

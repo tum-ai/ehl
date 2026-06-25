@@ -241,6 +241,7 @@ test.describe.serial("Hackathon Lifecycle")
   4.1  Admin sees applications in screening view
   4.2  Accept applications and advance status
   4.3  Admin sees unlocked teams
+  4.4  Walk-in: scans QR, registers + creates account in one step, then is checked in
   5.1  Admin sees challenge in list
   6.1  Register teams for challenge via API
   6.2  President sees challenge on event hub
@@ -274,6 +275,16 @@ let teamAlphaId: string;    // Set in 2.1, used throughout
 ```
 
 **Critical**: Tests run sequentially. Test 7.1 depends on `chapterId` from 2.2 and `challengeId` from 4.2. If you insert a test between existing ones, verify the required variables are set.
+
+**Walk-in step (4.4)**: drives the real `/walk-in/<token>` form. It reads the per-chapter
+walk-in token via the `getWalkInToken(chapterId)` data-factory helper (reads/lazily creates
+the admin-only `chapter_walk_in` row through the service-role client), fills the form +
+password, and asserts the resulting application is `accepted` and a participant profile/auth
+user exists for the RUN_ID-unique `e2e-walkin-${RUN_ID}@test-ehl.com`. It then runs the
+existing admin check-in (`/admin/check-in`, manual token entry) on the walk-in's
+`check_in_token` and asserts the row flips to `checked_in`. It runs at the end of Block 4 while
+the chapter is in a check-in status (`challenge_selection`); the chapter cascade-deletes the
+`chapter_walk_in` row at teardown.
 
 ---
 
