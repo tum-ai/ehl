@@ -9,22 +9,41 @@ import { DeleteTeamButton } from "./delete-team-button";
 import { DeleteParticipantButton } from "./delete-participant-button";
 import { RemoveMemberButton } from "./remove-member-button";
 import { TeamAdminControls } from "./team-admin-controls";
+import { TeamChallengeControl } from "./team-challenge-control";
 import { ChangeEmailButton } from "./change-email-button";
 import type { Team, TeamMember, Profile, Chapter } from "@/lib/types";
 import type { ParticipantWithTeam } from "@/lib/queries/teams";
 
 type View = "teams" | "participants";
 
+interface ChallengeOption {
+  id: string;
+  title: string;
+}
+
 interface Props {
   teams: Team[];
   allMembers: (TeamMember & { profile?: Profile })[];
   participants: ParticipantWithTeam[];
   activeChapter: Chapter | null;
+  challengeOverrideOpen: boolean;
+  challenges: ChallengeOption[];
+  registrationsByTeam: [string, string][];
 }
 
-export function TeamsAndParticipantsView({ teams, allMembers, participants, activeChapter }: Props) {
+export function TeamsAndParticipantsView({
+  teams,
+  allMembers,
+  participants,
+  activeChapter,
+  challengeOverrideOpen,
+  challenges,
+  registrationsByTeam,
+}: Props) {
   const [view, setView] = useState<View>("teams");
   const [search, setSearch] = useState("");
+
+  const registrationMap = new Map<string, string>(registrationsByTeam);
 
   const membersByTeam = new Map<string, (TeamMember & { profile?: Profile })[]>();
   for (const member of allMembers) {
@@ -99,6 +118,9 @@ export function TeamsAndParticipantsView({ teams, allMembers, participants, acti
           membersByTeam={membersByTeam}
           teamCheckinMap={teamCheckinMap}
           activeChapter={activeChapter}
+          challengeOverrideOpen={challengeOverrideOpen}
+          challenges={challenges}
+          registrationMap={registrationMap}
         />
       ) : (
         <ParticipantsTable
@@ -118,12 +140,19 @@ function TeamsTable({
   membersByTeam,
   teamCheckinMap,
   activeChapter,
+  challengeOverrideOpen,
+  challenges,
+  registrationMap,
 }: {
   teams: Team[];
   membersByTeam: Map<string, (TeamMember & { profile?: Profile })[]>;
   teamCheckinMap: Map<string, { total: number; checkedIn: number }>;
   activeChapter: Chapter | null;
+  challengeOverrideOpen: boolean;
+  challenges: ChallengeOption[];
+  registrationMap: Map<string, string>;
 }) {
+  const showChallenge = challengeOverrideOpen && !!activeChapter;
   return (
     <div className="mt-8 overflow-x-auto rounded-2xl ad-border ad-bg-card ui-card-subtle">
       <table className="w-full">
@@ -132,6 +161,7 @@ function TeamsTable({
             <th className="px-6 py-4">Team</th>
             <th className="px-6 py-4">Members</th>
             {activeChapter && <th className="px-6 py-4 text-center">Check-In</th>}
+            {showChallenge && <th className="px-6 py-4">Challenge</th>}
             <th className="px-6 py-4">University</th>
             <th className="px-6 py-4 text-center">Status</th>
             <th className="px-6 py-4 text-right">Actions</th>
@@ -203,6 +233,16 @@ function TeamsTable({
                     ) : (
                       <span className="text-sm ad-text-muted">-</span>
                     )}
+                  </td>
+                )}
+                {showChallenge && (
+                  <td className="px-6 py-4">
+                    <TeamChallengeControl
+                      teamId={team.id}
+                      chapterId={activeChapter!.id}
+                      currentChallengeId={registrationMap.get(team.id) ?? null}
+                      challenges={challenges}
+                    />
                   </td>
                 )}
                 <td className="px-6 py-4 text-sm ad-text-muted">

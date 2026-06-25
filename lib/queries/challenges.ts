@@ -82,6 +82,28 @@ export async function getAllChallengeRegistrations(): Promise<{
   return { registrations, limit, limited: registrations.length >= limit };
 }
 
+/**
+ * Team→challenge registrations for a single chapter, as a teamId→challengeId
+ * map, for the admin teams view (so each team row can show and override its
+ * current challenge). Authenticated server client so RLS applies (global admin).
+ */
+export async function getChapterRegistrationsByTeam(
+  chapterId: string
+): Promise<Map<string, string>> {
+  const { createClient: createServerClient } = await import("@/lib/supabase/server");
+  const supabase = await createServerClient();
+  const { data } = await supabase
+    .from("challenge_registrations")
+    .select("team_id, challenge_id")
+    .eq("chapter_id", chapterId)
+    .limit(QUERY_LIMITS.challengeRegistrations);
+  const map = new Map<string, string>();
+  for (const row of data ?? []) {
+    map.set(row.team_id as string, row.challenge_id as string);
+  }
+  return map;
+}
+
 // ─── Pitch Order Queries ──────────────────────────────────
 
 export async function getPitchOrder(

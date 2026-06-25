@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction, requireChapterAdminAction } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
@@ -1274,6 +1274,213 @@ export async function adminChangeUserEmail(userId: string, newEmail: string) {
   });
 
   revalidatePath("/admin/teams");
+  return { success: true };
+}
+
+// ─── Admin: override a team's challenge selection ─────────
+//
+// Lets an admin fix a team's challenge for a chapter: ASSIGN one to a team that
+// forgot to pick before the deadline, or CHANGE an existing pick to a different
+// challenge. Allowed ONLY while submissions are still open for the chapter —
+// once the chapter has moved on (pitching/completed) or the submission deadline
+// has passed, the override is rejected. The constraint is enforced SERVER-SIDE.
+//
+// The team→challenge link lives in challenge_registrations, UNIQUE on
+// (chapter_id, team_id), so a team has at most one challenge per chapter. We
+// UPSERT on that pair: assign inserts a new row, change updates the existing one
+// (never a duplicate). Data integrity on a CHANGE: submissions are keyed by
+// (challenge_id, team_id), so moving the team to a different challenge would
+// orphan any existing submission under the old challenge. Rather than silently
+// corrupt that linkage, we BLOCK the change when such a submission exists and
+// tell the admin to delete it first.
+
+/** Chapter statuses during which the challenge override is still permitted. */
+const CHALLENGE_OVERRIDE_OPEN_STATUSES: ReadonlySet<ChapterStatus> = new Set([
+  "challenge_selection",
+  "hacking",
+  "submissions_open",
+]);
+
+export async function adminSetTeamChallenge(
+  teamId: string,
+  challengeId: string,
+  chapterId: string
+) {
+  if (!teamId || !challengeId || !chapterId) {
+    return { error: "Team, challenge, and chapter are required." };
+  }
+  // Chapter-scoped guard: a local (chapter) admin may only override teams in
+  // their OWN chapter; a global admin passes for any chapter. requireAdminAction
+  // would let a chapter admin act on another chapter's teams.
+  const adminErr = await requireChapterAdminAction(chapterId);
+  if (adminErr) return { error: adminErr };
+  const adminClient = createAdminClient();
+
+  // 1. Chapter must exist and still allow the override (submissions open).
+  const { data: chapter } = await adminClient
+    .from("chapters")
+    .select("status, submission_deadline")
+    .eq("id", chapterId)
+    .single();
+  if (!chapter) return { error: "Chapter not found." };
+
+  if (!CHALLENGE_OVERRIDE_OPEN_STATUSES.has(chapter.status as ChapterStatus)) {
+    return {
+      error:
+        "Submissions are closed for this chapter. The challenge can no longer be changed.",
+    };
+  }
+  if (
+    chapter.submission_deadline &&
+    new Date(chapter.submission_deadline as string) <= new Date()
+  ) {
+    return {
+      error:
+        "The submission deadline has passed. The challenge can no longer be changed.",
+    };
+  }
+
+  // 2. Team must belong to this chapter's event. There is no direct team↔chapter
+  //    link, so "belongs to the chapter" means the team has at least one member
+  //    who is an applicant (any status) for this chapter. This keeps an admin
+  //    from attaching an unrelated team to the chapter by mistake.
+  const { data: team } = await adminClient
+    .from("teams")
+    .select("id, name")
+    .eq("id", teamId)
+    .single();
+  if (!team) return { error: "Team not found." };
+
+  const { data: members } = await adminClient
+    .from("team_members")
+    .select("user_id")
+    .eq("team_id", teamId);
+  const memberIds = (members ?? []).map((m) => m.user_id as string);
+  if (memberIds.length === 0) {
+    return { error: "That team has no members." };
+  }
+
+  const { data: memberProfiles } = await adminClient
+    .from("profiles")
+    .select("email")
+    .in("id", memberIds);
+  const memberEmails = (memberProfiles ?? [])
+    .map((p) => p.email as string | null)
+    .filter((e): e is string => !!e);
+
+  let teamInChapter = false;
+  if (memberEmails.length > 0) {
+    // Require an ACCEPTED/checked-in applicant, not just any application: a
+    // rejected/waitlisted/cancelled row must not make a team "part of" the
+    // chapter (consistent with the registration paths, which key off checked-in
+    // roster members).
+    const { data: app } = await adminClient
+      .from("applications")
+      .select("id")
+      .eq("chapter_id", chapterId)
+      .in("email", memberEmails)
+      .in("status", ["accepted", "checked_in"])
+      .limit(1)
+      .maybeSingle();
+    teamInChapter = !!app;
+  }
+  if (!teamInChapter) {
+    return { error: "That team is not part of this chapter's event." };
+  }
+
+  // 3. Challenge must belong to this chapter.
+  const { data: challenge } = await adminClient
+    .from("challenges")
+    .select("id, title")
+    .eq("id", challengeId)
+    .eq("chapter_id", chapterId)
+    .maybeSingle();
+  if (!challenge) {
+    return { error: "That challenge does not belong to this chapter." };
+  }
+
+  // 4. Look at the current registration (if any) to decide assign vs. change.
+  const { data: existing } = await adminClient
+    .from("challenge_registrations")
+    .select("id, challenge_id, roster")
+    .eq("chapter_id", chapterId)
+    .eq("team_id", teamId)
+    .maybeSingle();
+
+  const fromChallengeId = (existing?.challenge_id as string | null) ?? null;
+  if (existing && fromChallengeId === challengeId) {
+    return { error: "The team is already registered for that challenge." };
+  }
+
+  // 5. Data integrity on a CHANGE: a submission under the OLD challenge would be
+  //    orphaned. Block and ask the admin to remove it first rather than corrupt
+  //    the submission↔challenge linkage.
+  if (existing && fromChallengeId && fromChallengeId !== challengeId) {
+    const { data: oldSubmission } = await adminClient
+      .from("submissions")
+      .select("id")
+      .eq("challenge_id", fromChallengeId)
+      .eq("team_id", teamId)
+      .maybeSingle();
+    if (oldSubmission) {
+      return {
+        error:
+          "This team already submitted a project to its current challenge. " +
+          "Delete that submission before changing the challenge.",
+      };
+    }
+  }
+
+  // 6. Upsert the registration on (chapter_id, team_id): assign or change.
+  if (existing) {
+    // Conditional update: only change the row if its challenge is STILL the one
+    // we validated against above. If a concurrent override (or registration)
+    // changed it in the meantime, this updates 0 rows and we abort instead of
+    // applying a stale change that could orphan a submission. (The submission
+    // block in step 5 is otherwise check-then-act.)
+    const { data: updated, error } = await adminClient
+      .from("challenge_registrations")
+      .update({ challenge_id: challengeId })
+      .eq("id", existing.id as string)
+      .eq("challenge_id", fromChallengeId as string)
+      .select("id");
+    if (error) return { error: error.message };
+    if (!updated || updated.length === 0) {
+      return {
+        error:
+          "This team's challenge changed while you were editing. Reload and try again.",
+      };
+    }
+  } else {
+    // Seed the roster from the team's members so downstream flows (pitch order,
+    // submission gating) see a populated roster, mirroring registerForChallenge.
+    const { error } = await adminClient.from("challenge_registrations").insert({
+      chapter_id: chapterId,
+      challenge_id: challengeId,
+      team_id: teamId,
+      roster: memberIds,
+    });
+    if (error) return { error: error.message };
+  }
+
+  // 7. Audit log (strict: an override of a participant choice must not be lost).
+  const actorId = await getAdminUserId();
+  await logEventStrict({
+    action: "challenge_registration.admin_override",
+    entityType: "challenge_registration",
+    entityId: teamId,
+    actorId,
+    actorType: "admin",
+    delta: {
+      chapter_id: chapterId,
+      team: team.name ?? teamId,
+      challenge: { from: fromChallengeId, to: challengeId },
+    },
+  });
+
+  revalidatePath("/admin/teams");
+  revalidatePath(`/admin/chapters/${chapterId}`);
+  revalidatePath("/matches");
   return { success: true };
 }
 

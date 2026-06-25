@@ -323,6 +323,16 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 - Change team status
 - Remove individual members (never the captain; blocked if the team would drop below `MIN_TEAM_SIZE`, default 2)
 - Delete teams
+- Admin overrides (audit-logged): change captain, add a member by email, move a member to another team
+- Override a team's challenge selection (global admins): assign a challenge to a team that
+  forgot to pick one, or change a team's existing pick to a different challenge. The control
+  appears in the team row only while submissions are still open for the active chapter
+  (status `challenge_selection`/`hacking`/`submissions_open` and the submission deadline not
+  yet passed); the server action re-checks this gate, so the override is rejected once
+  submissions close. Validates that the team belongs to the chapter and the challenge belongs
+  to the chapter, and blocks a change when the team already submitted a project to its current
+  challenge (delete that submission first to avoid orphaning it). Audit-logged with from/to
+  challenge.
 
 ### Submissions (`/admin/submissions`)
 - List every submission across all chapters (match, challenge, team, project, updated)
