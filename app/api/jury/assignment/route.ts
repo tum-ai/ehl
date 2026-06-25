@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSession } from "@/lib/actions/auth";
 import {
   getChapterBySlug,
-  getJuryAssignmentsForUser,
+  resolveJuryAssignment,
 } from "@/lib/queries";
 
 export async function GET(request: Request) {
@@ -27,8 +27,14 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Chapter not found" }, { status: 404 });
   }
 
-  const assignments = await getJuryAssignmentsForUser(session.user.id);
-  const assignment = assignments.find((a) => a.chapterId === chapter.id);
+  // A juror may be assigned to multiple challenges in the same chapter, so
+  // resolve by the specific challenge id when provided.
+  const challengeId = searchParams.get("challengeId");
+  const assignment = await resolveJuryAssignment(
+    session.user.id,
+    chapter.id,
+    challengeId
+  );
 
   if (!assignment) {
     return NextResponse.json({ error: "No assignment" }, { status: 404 });

@@ -84,6 +84,7 @@ export {
 
 export {
   getJuryAssignmentsForUser,
+  resolveJuryAssignment,
   getMyJuryRanking,
 } from "./jury";
 
