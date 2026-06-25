@@ -142,6 +142,30 @@ most distinctive artifact it introduces (table, column, constraint, enum value, 
 index, function, or view fragment). A unit test (`tests/migration-checks.test.ts`) fails if
 a migration file has no manifest entry, so this cannot be silently skipped.
 
+### E2E runs on an EPHEMERAL local Supabase (clean-room migration ordering)
+The CI E2E + cross-browser jobs (`.github/workflows/test.yml`) boot their OWN per-job
+Supabase via the CLI (`supabase start`, config in `supabase/config.toml`), apply
+`supabase/migrations/*` to a fresh DB, then seed with `pnpm test:seed-local`
+(`scripts/seed-local.ts`). This gives every CI run a fully isolated database, so E2E runs
+go PARALLEL across branches/PRs (there is no shared remote test DB to corrupt, so no
+cross-branch serialization). The remote test Supabase is now used only for the optional
+`check-migrations-applied.ts` step and manual runs — NOT for E2E.
+
+Consequence for migrations: `supabase start` applies each migration file in its OWN
+transaction and in strict filename order, which is stricter than the ad-hoc Management-API
+path. Two rules follow:
+- **A newly `ALTER TYPE ... ADD VALUE`'d enum value cannot be USED in the same migration
+  file** (Postgres 55P04). Add the value in one file; use it (UPDATE/insert literals) in a
+  later file. (This is why 00008's data UPDATE was split into 00053.)
+- **No migration may reference an object created by a LATER migration.** Strict ordering
+  means a forward reference fails on a clean apply even if it happened to work against a DB
+  that had the object created ad-hoc earlier. Guard such statements with
+  `do $$ begin if to_regclass('public.<table>') is not null then ... end if; end $$;` (see
+  00011 / 00020 for `verification_codes`).
+
+To run the stack locally: `supabase start` then `pnpm test:seed-local`, point your dev
+server at the printed local URL/keys, and run `pnpm test:e2e:lifecycle`. See `docs/TESTING.md`.
+
 ## Project Structure
 ```
 lib/

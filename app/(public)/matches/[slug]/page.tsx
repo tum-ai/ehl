@@ -120,6 +120,7 @@ export default async function ChapterDetailPage({ params }: PageProps) {
           registeredChallengeId={registeredChallengeId}
           userRole={userRole}
           teamId={teamId}
+          isLoggedIn={session !== null}
         />
       ) : chapter.status === "hacking" || chapter.status === "submissions_open" ? (
         <ChapterSubmissionsOpen

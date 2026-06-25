@@ -12,10 +12,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Test Supabase instance (never production)
-  NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.TEST_SUPABASE_ANON_KEY }}
-  SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+  # NOTE: Supabase env (URL + anon + service-role keys) is NOT set here.
+  # The E2E / cross-browser jobs boot their OWN ephemeral local Supabase stack
+  # (`supabase start`) per job and export its URL + keys into $GITHUB_ENV, which
+  # gives every CI run a fully isolated database so runs can go parallel across
+  # branches/PRs (no shared remote test DB). The `checks` job does not need a
+  # Supabase connection except for the optional remote migration-applied probe,
+  # which sets its own Management-API secrets locally in that job.
   NEXT_PUBLIC_SITE_URL: http://localhost:3001
   NEXT_PUBLIC_TURNSTILE_SITE_KEY: 1x00000000000000000000AA
   TURNSTILE_SECRET_KEY: 1x0000000000000000000000000000000AA
@@ -77,11 +80,18 @@ jobs:
   e2e:
     name: E2E Lifecycle
     runs-on: ubuntu-latest
-    # 15 min headroom for install + Playwright browser + the full lifecycle suite.
-    # Email goes through a fake transport (EMAIL_FAKE_TRANSPORT below), so there is
-    # no real-SMTP latency; the suite runs in ~3 min locally.
-    timeout-minutes: 15
+    # 20 min headroom for install + `supabase start` (Docker pull/boot) +
+    # Playwright browser + the full lifecycle suite. Email goes through a fake
+    # transport (EMAIL_FAKE_TRANSPORT below), so there is no real-SMTP latency.
+    timeout-minutes: 20
     needs: checks  # Only run E2E if fast checks pass
+    # NO job-level concurrency group. Each run boots its OWN ephemeral local
+    # Supabase stack (the "Start ephemeral Supabase" step below), so two runs can
+    # never corrupt each other's data. That isolation is what lets E2E go fully
+    # PARALLEL across branches/PRs again. (The previous `e2e-shared-test-db`
+    # serialization existed only because all runs shared ONE remote test DB.)
+    # The top-level `concurrency: tests-${{ github.ref }}` still supersedes
+    # earlier runs of the SAME branch; cross-branch runs now overlap freely.
     steps:
       - uses: actions/checkout@v4
 
@@ -95,6 +105,33 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+
+      # Boot a private Postgres + GoTrue + PostgREST + Storage stack in Docker
+      # (preinstalled on ubuntu-latest). `supabase start` applies every
+      # supabase/migrations/*.sql to this fresh DB; seed.sql is disabled in
+      # config.toml (it needs auth.users + role triggers handled — see the seed
+      # step). Keys printed by `supabase start` are the well-known, non-secret
+      # local-dev keys; we capture them dynamically so they can never go stale.
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.90.0
+
+      - name: Start ephemeral Supabase (migrations applied)
+        run: supabase start -x studio,realtime,imgproxy,edge-runtime,logflare,vector
+
+      - name: Export local Supabase env (override remote test DB for this job)
+        run: |
+          # supabase status -o env prints API_URL / ANON_KEY / SERVICE_ROLE_KEY.
+          eval "$(supabase status -o env 2>/dev/null)"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=${API_URL}"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}"
+            echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
+          } >> "$GITHUB_ENV"
+
+      - name: Seed local stack
+        run: pnpm test:seed-local
 
       - name: Install Playwright browsers
         run: pnpm exec playwright install chromium --with-deps
@@ -117,6 +154,10 @@ jobs:
           CI: true
           BASE_URL: http://localhost:3001
           EMAIL_FAKE_TRANSPORT: "true"
+
+      - name: Stop ephemeral Supabase
+        if: always()
+        run: supabase stop --no-backup || true
 
       - name: Upload test results
         if: always()
@@ -162,6 +203,30 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Same ephemeral local stack as the e2e job: the smoke projects depend on
+      # the `setup` project (global-setup creates auth users), which needs a real
+      # Supabase. Boot a private one rather than pointing at the (now E2E-unused)
+      # remote test DB.
+      - name: Install Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: 2.90.0
+
+      - name: Start ephemeral Supabase (migrations applied)
+        run: supabase start -x studio,realtime,imgproxy,edge-runtime,logflare,vector
+
+      - name: Export local Supabase env
+        run: |
+          eval "$(supabase status -o env 2>/dev/null)"
+          {
+            echo "NEXT_PUBLIC_SUPABASE_URL=${API_URL}"
+            echo "NEXT_PUBLIC_SUPABASE_ANON_KEY=${ANON_KEY}"
+            echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
+          } >> "$GITHUB_ENV"
+
+      - name: Seed local stack
+        run: pnpm test:seed-local
+
       - name: Install Playwright browsers (Firefox + WebKit)
         run: pnpm exec playwright install firefox webkit chromium --with-deps
 
@@ -169,6 +234,7 @@ jobs:
         run: pnpm dev --port 3001 &
         env:
           NODE_ENV: development
+          EMAIL_FAKE_TRANSPORT: "true"
 
       - name: Wait for server
         run: npx wait-on http://localhost:3001 --timeout 60000
@@ -178,6 +244,11 @@ jobs:
         env:
           CI: true
           BASE_URL: http://localhost:3001
+          EMAIL_FAKE_TRANSPORT: "true"
+
+      - name: Stop ephemeral Supabase
+        if: always()
+        run: supabase stop --no-backup || true
 
       - name: Upload cross-browser report
         if: always()

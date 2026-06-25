@@ -100,16 +100,64 @@ cleanup deletes:
 
 ## 3. Test Environment
 
-Tests run against a **dedicated test Supabase instance** - never production.
+Tests run against Supabase - **never production**. There are two ways to provide that
+Supabase, and CI now uses the first:
 
-| Component | Production | Test |
-|-----------|-----------|------|
-| Supabase | `your-prod-ref` | `your-test-ref` |
-| Port | 3000 | 3001 |
-| Env file | `.env.local` | `.env.test` |
-| Data | Real users | e2e-* prefixed, auto-cleaned |
+**A. Ephemeral local stack (CI, and recommended locally).** Each CI job (`e2e` and
+`cross-browser` in `.github/workflows/test.yml`) boots its OWN throwaway Supabase via the
+CLI (`supabase start`), so every run has a fully isolated database. This is what removed
+the old cross-branch serialization: with no shared DB, E2E runs go PARALLEL across
+branches/PRs. The stack is Postgres + GoTrue (Auth) + PostgREST + Storage in Docker; the
+E2E suite needs real Auth (magic links, `generateLink`, `auth.admin.createUser`), which a
+bare Postgres can't provide.
 
-### Initial Setup (one-time)
+**B. Remote test Supabase.** A dedicated remote instance, configured via `.env.test`. Still
+used for `pnpm db:check:test` (the migration-applied probe) and manual/local runs against a
+hosted DB, but NO LONGER for the CI E2E jobs.
+
+| Component | Production | Ephemeral (CI) | Remote test |
+|-----------|-----------|----------------|-------------|
+| Supabase | `your-prod-ref` | `supabase start` (127.0.0.1:54321) | `your-test-ref` |
+| Port (app) | 3000 | 3001 | 3001 |
+| Env source | `.env.local` | `supabase status` -> `$GITHUB_ENV` | `.env.test` |
+| Keys | real secrets | well-known local dev keys (non-secret) | test secrets |
+| Data | Real users | seed + e2e-* (fresh each run) | seed + e2e-*, auto-cleaned |
+
+### Running the ephemeral stack locally
+
+```bash
+# 1. Docker must be running (Docker Desktop / colima).
+supabase start                 # boots the stack + applies supabase/migrations/*
+                               # (config in supabase/config.toml; seed.sql is disabled there)
+supabase status                # shows API URL + anon/service_role keys
+
+# 2. Seed it (creates fixed-UUID auth.users, then runs supabase/seed.sql with the
+#    profiles role triggers disabled — mirrors the remote seed-test-via-api.ts):
+NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321 pnpm test:seed-local
+
+# 3. Point a dev server + the tests at the local keys and run the suite:
+NEXT_PUBLIC_SUPABASE_URL=... NEXT_PUBLIC_SUPABASE_ANON_KEY=... \
+SUPABASE_SERVICE_ROLE_KEY=... NEXT_PUBLIC_SITE_URL=http://localhost:3001 \
+  pnpm dev --port 3001 &
+pnpm exec playwright test --project=lifecycle
+
+supabase stop --no-backup      # tear down
+```
+
+How CI wires this (same flow, automated): `supabase/setup-cli` installs the CLI ->
+`supabase start` (excludes studio/realtime/etc. for speed) -> `supabase status -o env`
+captures `API_URL` / `ANON_KEY` / `SERVICE_ROLE_KEY` into `$GITHUB_ENV` as
+`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY`
+(overriding the remote test secrets for that job) -> `pnpm test:seed-local` -> dev server ->
+Playwright -> `supabase stop`.
+
+> **Migration ordering note:** `supabase start` applies each migration file in its own
+> transaction and in strict filename order. So (1) a freshly `ALTER TYPE ... ADD VALUE`'d
+> enum value cannot be USED in the same file, and (2) no migration may forward-reference an
+> object a later migration creates. See `CLAUDE.md` -> "E2E runs on an EPHEMERAL local
+> Supabase" for the guard patterns.
+
+### Remote test Supabase setup (one-time, for option B)
 
 ```bash
 # 1. Get .env.test from a teammate (or create from template in docs/SETUP.md section 13)
@@ -121,10 +169,11 @@ This configures auth, storage, migrations, seed data - everything.
 
 ### How the Dev Server Works
 
-Playwright starts a separate Next.js dev server on port 3001 with test env vars:
+Locally, Playwright starts a separate Next.js dev server on port 3001 with test env vars:
 ```
 command: "dotenv -e .env.test -- pnpm dev --port 3001"
 ```
+(In CI the workflow starts the dev server itself, against the ephemeral-stack env.)
 
 Your normal `pnpm dev` on port 3000 keeps running undisturbed.
 

@@ -253,6 +253,13 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
      select 1 from information_schema.tables
      where table_schema = 'public' and table_name = 'chapter_broadcasts'
    ) as present` },
+  { prefix: "00053", label: "partner_tier_data_migration", unverifiable: {
+     reason: "pure data UPDATE (re-tagging legacy partner tiers) split out of 00008 so a " +
+       "newly-added enum value is not USED in the same transaction it was added in. The enum " +
+       "values are introduced (and probed) by 00008; the legacy values still exist on the type " +
+       "and the partners table is empty on a fresh DB, so this UPDATE leaves no schema artifact " +
+       "and is a no-op except on DBs that still hold pre-migration partner rows. Nothing to probe.",
+   } },
   { prefix: "00054", label: "walk_in_token", sql: table("chapter_walk_in") },
 ];
 
