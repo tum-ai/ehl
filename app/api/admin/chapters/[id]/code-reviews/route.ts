@@ -59,6 +59,7 @@ export async function GET(
 
   const submissionIds = (subRows ?? []).map((r) => r.id as string);
 
+  // Per-row detail for the DISPLAYED (limited) list only.
   let reviewRows: Array<Record<string, unknown>> = [];
   if (submissionIds.length > 0) {
     const { data } = await adminClient
@@ -76,7 +77,33 @@ export async function GET(
   }));
 
   const totalSubmissions = submissionCount ?? submissionIds.length;
-  const summary = summarizeReviewStatuses(reviews, totalSubmissions);
+
+  // The SUMMARY (counts + "anything in flight?") must reflect ALL reviews in the
+  // chapter, not just the displayed subset. Building it from the limited list
+  // would hide queued/processing rows beyond the limit, so polling could stop
+  // early and "Queue All" could requeue still-running reviews. code_reviews has
+  // no challenge_id, so resolve EVERY submission id for the chapter's challenges
+  // (ids only) and aggregate all their reviews — intentionally unbounded by the
+  // display limit. The displayed `reviews` list stays limited (LimitBanner).
+  let allReviews = reviews;
+  if ((submissionCount ?? 0) > submissionIds.length) {
+    const { data: allSubRows } = await adminClient
+      .from("submissions")
+      .select("id")
+      .in("challenge_id", challengeIds);
+    const allSubmissionIds = (allSubRows ?? []).map((r) => r.id as string);
+    const { data: allReviewRows } = await adminClient
+      .from("code_reviews")
+      .select("submission_id, status, progress, cost_usd")
+      .in("submission_id", allSubmissionIds);
+    allReviews = (allReviewRows ?? []).map((row) => ({
+      submissionId: row.submission_id as string,
+      status: row.status as CodeReviewStatus,
+      progress: (row.progress as string) ?? null,
+      costUsd: (row.cost_usd as number) ?? null,
+    }));
+  }
+  const summary = summarizeReviewStatuses(allReviews, totalSubmissions);
 
   return NextResponse.json({
     reviews,
