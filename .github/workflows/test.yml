@@ -82,6 +82,22 @@ jobs:
     # no real-SMTP latency; the suite runs in ~3 min locally.
     timeout-minutes: 15
     needs: checks  # Only run E2E if fast checks pass
+    # Serialize ALL E2E runs across every branch/PR. The lifecycle suite shares a
+    # single test Supabase and rewrites the same auth users / teams / chapters in
+    # global-setup, so two runs overlapping corrupt each other's data (e.g.
+    # teams_president_user_id_fkey / auth_failed when a parallel run deletes the
+    # user mid-suite). A fixed (non-ref-keyed) group serializes across branches.
+    # queue: max keeps up to 100 runs PENDING (FIFO) instead of the default
+    # queue: single, which keeps only one pending run and cancels the rest — so
+    # when many PRs trigger E2E at once, every one eventually runs against a clean
+    # DB rather than all-but-the-last being dropped. cancel-in-progress: false so
+    # an in-flight suite is never killed mid-run.
+    # NOTE: the top-level concurrency above still cancels superseded runs of the
+    # SAME branch; this job-level guard adds cross-branch serialization on top.
+    concurrency:
+      group: e2e-shared-test-db
+      queue: max
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
