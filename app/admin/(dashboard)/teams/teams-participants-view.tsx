@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { QUERY_LIMITS } from "@/lib/config/limits";
+import { QUERY_LIMITS, MIN_TEAM_SIZE } from "@/lib/config/limits";
 import { LimitBanner } from "@/components/admin/limit-banner";
 import { DeleteTeamButton } from "./delete-team-button";
 import { DeleteParticipantButton } from "./delete-participant-button";
@@ -167,12 +167,19 @@ function TeamsTable({
                             <span className="text-[10px] font-bold uppercase ad-text-gold">
                               Capt
                             </span>
-                          ) : (
+                          ) : members.length > MIN_TEAM_SIZE ? (
                             <RemoveMemberButton
                               teamId={team.id}
                               userId={m.userId}
                               memberName={m.profile?.name || m.profile?.email || "member"}
                             />
+                          ) : (
+                            <span
+                              className="cursor-help text-[10px] ad-text-muted"
+                              title={`Cannot remove: a team must keep at least ${MIN_TEAM_SIZE} members`}
+                            >
+                              (min {MIN_TEAM_SIZE})
+                            </span>
                           )}
                         </p>
                       ))}
