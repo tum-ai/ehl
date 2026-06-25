@@ -144,6 +144,7 @@ export function toChallenge(row: Record<string, unknown>): Challenge {
     briefFileId: (row.brief_file_id as string) ?? null,
     codeReviewInstructions: (row.code_review_instructions as string) ?? null,
     codeReviewConfig: (row.code_review_config as Challenge["codeReviewConfig"]) ?? null,
+    juryFinalizedAt: (row.jury_finalized_at as string) ?? null,
   };
 }
 
