@@ -125,6 +125,7 @@ export async function registerForChallenge(
     action: "registration.created",
     entityType: "challenge_registration",
     entityId: challengeId,
+    actorId: user.id,
     actorType: "participant",
     delta: { created: { chapter_id: chapterId } },
   });
@@ -299,6 +300,7 @@ export async function submitProject(formData: FormData) {
     action: "submission.created",
     entityType: "submission",
     entityId: challengeId,
+    actorId: user.id,
     actorType: "participant",
     delta: { created: { project_name: projectName } },
   });

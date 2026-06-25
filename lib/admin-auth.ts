@@ -1,7 +1,26 @@
 import { NextResponse } from "next/server";
 import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import { getSession } from "@/lib/actions/auth";
 import { getAdminChapterId } from "@/lib/chapter-admin";
+
+/**
+ * Resolve the currently authenticated user's id for audit attribution.
+ *
+ * Reads the same auth-aware server client the require*Action guards use, so when
+ * called immediately after a successful requireAdminAction()/requireChapterAdminAction()
+ * (or any logged-in path) it reliably returns the acting account's id. It returns
+ * null only when there is genuinely no session — which, on an admin-guarded path,
+ * should never happen, and the event-log integrity check exists to scream if it
+ * somehow does. Use this to populate `actorId` on admin-initiated audit events.
+ */
+export async function getActingUserId(): Promise<string | null> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? null;
+}
 
 /**
  * Verify the request comes from an authenticated admin.

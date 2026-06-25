@@ -118,6 +118,7 @@ export async function addAdminEmail(email: string) {
     action: "admin.email_added",
     entityType: "admin_emails",
     entityId: normalized,
+    actorId: user.id,
     actorType: "admin",
     delta: { created: { email: normalized } },
   });
@@ -189,6 +190,7 @@ export async function removeAdminEmail(email: string) {
     action: "admin.email_removed",
     entityType: "admin_emails",
     entityId: normalized,
+    actorId: user.id,
     actorType: "admin",
     delta: { deleted: { email: normalized } },
   });

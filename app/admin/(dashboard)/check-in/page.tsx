@@ -100,7 +100,9 @@ export default function AdminCheckInPage() {
       // Stop scanner after successful scan to prevent repeated calls
       setScanning(false);
 
-      const res = await checkInApplication(token.trim(), adminUserId);
+      // The acting admin is resolved server-side from the session; we keep the
+      // adminUserId gate above only to wait until the session has loaded.
+      const res = await checkInApplication(token.trim());
 
       if (res.success) {
         setResult({
@@ -264,7 +266,7 @@ export default function AdminCheckInPage() {
     setProcessing(true);
     setResult(null);
 
-    const res = await checkInApplicationById(applicationId, adminUserId);
+    const res = await checkInApplicationById(applicationId);
 
     if (res.success) {
       setResult({ type: "success", message: "Checked in successfully!", name: res.name });

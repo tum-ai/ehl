@@ -57,6 +57,7 @@ export async function upsertSetting(
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "Could not identify admin user." };
 
   const adminClient = createAdminClient();
   const { error } = await adminClient.from("app_settings").upsert(
@@ -65,7 +66,7 @@ export async function upsertSetting(
       value,
       expires_at: expiresAt || null,
       updated_at: new Date().toISOString(),
-      updated_by: user?.id ?? null,
+      updated_by: user.id,
     },
     { onConflict: "key" }
   );
@@ -76,6 +77,7 @@ export async function upsertSetting(
     action: "setting.updated",
     entityType: "app_setting",
     entityId: key,
+    actorId: user.id,
     actorType: "admin",
     delta: { updated: { key } },
   });

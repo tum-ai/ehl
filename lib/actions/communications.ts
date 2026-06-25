@@ -60,6 +60,7 @@ export async function updateChapterEmailSettings(
   if (Object.keys(update).length === 0) return { success: true };
 
   const session = await getSession();
+  if (!session) return { error: "Could not identify admin user." };
   const adminClient = createAdminClient();
   // Upsert: the chapter_communications row is created on first save and only the
   // provided keys are written, so a partial save never clobbers the other fields.
@@ -70,7 +71,7 @@ export async function updateChapterEmailSettings(
         chapter_id: chapterId,
         ...update,
         updated_at: new Date().toISOString(),
-        updated_by: session?.user.id ?? null,
+        updated_by: session.user.id,
       },
       { onConflict: "chapter_id" }
     );
@@ -80,7 +81,7 @@ export async function updateChapterEmailSettings(
     action: "chapter.email_settings_updated",
     entityType: "chapter",
     entityId: chapterId,
-    actorId: session?.user.id ?? null,
+    actorId: session.user.id,
     actorType: "admin",
     delta: { fields: Object.keys(update) },
   });
@@ -120,6 +121,11 @@ export async function sendChapterBroadcast(
 ) {
   const authErr = await requireChapterAdminAction(chapterId);
   if (authErr) return { error: authErr };
+
+  // Resolve the acting admin up front (before any email is sent), so the
+  // broadcast's audit row always records who sent it. Abort if we cannot.
+  const session = await getSession();
+  if (!session) return { error: "Could not identify admin user." };
 
   const cleanSubject = subject?.trim();
   const cleanBody = body?.trim();
@@ -204,13 +210,12 @@ export async function sendChapterBroadcast(
     }
   }
 
-  const session = await getSession();
   const { error: auditError } = await adminClient.from("chapter_broadcasts").insert({
     chapter_id: chapterId,
     subject: cleanSubject,
     body: cleanBody,
     status_filter: statuses,
-    sent_by: session?.user.id ?? null,
+    sent_by: session.user.id,
     recipient_count: sent,
   });
   // The "audit row per send" guarantee must hold: if emails went out but the
@@ -227,7 +232,7 @@ export async function sendChapterBroadcast(
     action: "chapter.broadcast_sent",
     entityType: "chapter",
     entityId: chapterId,
-    actorId: session?.user.id ?? null,
+    actorId: session.user.id,
     actorType: "admin",
     delta: { sent, failed: failed.length, remaining, statuses },
   });
