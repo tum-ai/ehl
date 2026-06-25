@@ -9,7 +9,7 @@ import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, applicationLimiter, walkInTokenLimiter } from "@/lib/ratelimit";
 import { uploadFile } from "@/lib/gdrive";
 import { logEvent } from "@/lib/event-log";
-import { buildApplicationInsert } from "@/lib/actions/applications";
+import { buildApplicationInsert } from "@/lib/applications-shared";
 
 export interface WalkInChapter {
   id: string;
