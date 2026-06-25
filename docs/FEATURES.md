@@ -122,6 +122,24 @@ Available to participants who are checked in at an event.
 - QR code is embedded in the acceptance email
 - Marks participant as checked in
 
+### Walk-In Registration (`/walk-in/<token>`)
+- Fills no-show spots at the event: a walk-in scans a per-chapter walk-in QR, fills the
+  normal application form on their phone AND creates an EHL account in one step, and
+  becomes an auto-accepted full league participant (application status `accepted`).
+- Admin/chapter-admin side: `/admin/chapters/<id>/walk-in` shows a large printable QR and
+  copyable link, plus a "Rotate token" action that invalidates previously printed QRs.
+- The walk-in token is an unguessable per-chapter UUID stored in the admin-only
+  `chapter_walk_in` table (never on the public `chapters` row). The walk-in page resolves
+  the chapter from the token via a service-role server action; a rotated/invalid token 404s.
+- The token (not the chapter status) gates the form, so walk-ins work during hacking /
+  submissions_open. Only `draft`/`completed` chapters are refused.
+- If the email already has an account, registration is refused ("sign in first, then use
+  the walk-in link") — no second account is created and the existing password is untouched.
+- After registering, the walk-in sees their personal check-in QR and is checked in via the
+  existing `/admin/check-in` flow (unchanged). They form or join a team later in the event hub.
+- Roles: anyone with the link can register a walk-in; the admin page is available to global
+  and chapter admins of that chapter.
+
 ### Challenge Selection
 - After check-in, teams browse available challenges
 - Each challenge shows: sponsor, description, prize, judging criteria, brief PDF

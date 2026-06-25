@@ -36,6 +36,7 @@ import {
   getVerificationCode,
   getProfileByEmail,
   getTeamByName,
+  getWalkInToken,
 } from "../helpers/data-factory";
 import { getAdminClient } from "../fixtures/supabase-admin";
 import { resolve } from "path";
@@ -67,6 +68,7 @@ const REGISTER_SOLO_EMAIL = `e2e-register-solo-${RUN_ID}@test-ehl.com`;
 const REGISTER_PRES_EMAIL = `e2e-register-pres-${RUN_ID}@test-ehl.com`;
 const REGISTER_MEM_EMAIL = `e2e-register-mem-${RUN_ID}@test-ehl.com`;
 const REGISTER_TEAM_NAME = `E2E Register Team ${RUN_ID}`;
+const WALKIN_EMAIL = `e2e-walkin-${RUN_ID}@test-ehl.com`;
 
 // ─── Shared state across serial tests ───────────────────────
 
@@ -834,6 +836,124 @@ test.describe.serial("Hackathon Lifecycle", () => {
       // threw, so it does not affect later counts.
       await admin.from("applications").delete().eq("id", appId);
     }
+  });
+
+  test("4.4 Walk-in: scans QR, registers + creates account in one step, then is checked in", async ({ page }) => {
+    const admin = getAdminClient();
+
+    // Clean any leftover from a prior run sharing the test DB.
+    await admin.from("applications").delete().eq("email", WALKIN_EMAIL);
+    const existingProfile = await getProfileByEmail(WALKIN_EMAIL);
+    if (existingProfile?.id) {
+      await admin.auth.admin.deleteUser(existingProfile.id as string);
+    }
+
+    // The unguessable per-chapter walk-in token (admin-only table).
+    const token = await getWalkInToken(chapterId);
+
+    await page.goto(`/walk-in/${token}`);
+    await page.waitForLoadState("networkidle");
+    await expect(page.getByRole("heading", { name: "Walk-In Registration" })).toBeVisible();
+
+    // Account credentials (target by name attribute, unambiguous).
+    await page.locator('input[name="email"]').fill(WALKIN_EMAIL);
+    await page.locator('input[name="password"]').fill(TEST_PASSWORD);
+    await page.locator('input[name="confirmPassword"]').fill(TEST_PASSWORD);
+
+    // Application fields (same UI as the public apply form).
+    await page.getByPlaceholder("Your first name").fill("Walkin");
+    await page.getByPlaceholder("Your last name").fill("Tester");
+    await page.locator('input[name="dateOfBirth"]').fill("2000-01-01");
+    await page.getByText("Male", { exact: true }).click();
+    await page.getByPlaceholder("e.g. Munich").fill("Paris");
+    await page.getByPlaceholder("e.g. Germany").fill("France");
+    await page.getByPlaceholder("e.g. German").fill("French");
+    // Currently studying -> No (skips the university sub-fields).
+    await page
+      .locator('label', { hasText: "No" })
+      .filter({ has: page.locator('input[name="currentlyStudying"]') })
+      .click();
+    await page
+      .locator('label', { hasText: "Yes" })
+      .filter({ has: page.locator('input[name="hasProgrammingSkills"]') })
+      .click();
+    await page
+      .locator('label', { hasText: "No" })
+      .filter({ has: page.locator('input[name="isTumaiMember"]') })
+      .click();
+    await page
+      .locator('textarea[name="hackathonExperience"]')
+      .fill("First hackathon, excited to walk in.");
+    // Team: No.
+    await page
+      .locator('label', { hasText: "No" })
+      .filter({ has: page.locator('input[name="hasTeam"]') })
+      .click();
+    // Logistics.
+    await page
+      .locator('label', { hasText: "None" })
+      .filter({ has: page.locator('input[name="dietaryRestrictions"]') })
+      .click();
+    await page
+      .locator('label', { hasText: "Men's" })
+      .filter({ has: page.locator('input[name="tshirtCut"]') })
+      .click();
+    await page
+      .locator('label')
+      .filter({ has: page.locator('input[name="tshirtSize"][value="M"]') })
+      .click();
+    await page.getByText("LinkedIn", { exact: true }).click(); // a discovery source
+
+    await page.getByRole("button", { name: "Register & Create Account" }).click();
+
+    // Success screen: the check-in QR / token + dashboard link.
+    await expect(page.getByText("You're registered!")).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText("Show this to a volunteer to check in.")).toBeVisible();
+
+    // DB: the application exists, is auto-accepted, and an account was created.
+    const { data: appRow } = await admin
+      .from("applications")
+      .select("id, status, check_in_token")
+      .eq("chapter_id", chapterId)
+      .eq("email", WALKIN_EMAIL)
+      .single();
+    expect(appRow?.status).toBe("accepted");
+    expect(appRow?.check_in_token).toBeTruthy();
+
+    const walkinProfile = await getProfileByEmail(WALKIN_EMAIL);
+    expect(walkinProfile?.id).toBeTruthy();
+    expect(walkinProfile?.role).toBe("participant");
+
+    // The walk-in_registered event was logged.
+    const { data: events } = await admin
+      .from("event_log")
+      .select("action")
+      .eq("entity_id", appRow!.id as string)
+      .eq("action", "application.walk_in_registered");
+    expect(events?.length).toBeGreaterThanOrEqual(1);
+
+    // Now run the EXISTING admin check-in flow on the walk-in's check_in_token
+    // (the personal check-in QR is unchanged by this feature).
+    const checkInToken = appRow!.check_in_token as string;
+    await loginAsAdmin(page);
+    await page.goto(`/admin/check-in`);
+    await page.waitForLoadState("networkidle");
+    // Chapter is in challenge_selection (a check-in status).
+    await page.locator("select").selectOption(chapterId);
+    await page.getByPlaceholder("Enter check-in token (UUID)...").fill(checkInToken);
+    await page.getByRole("button", { name: "Check In", exact: true }).click();
+
+    // The walk-in is now checked in.
+    await expect
+      .poll(async () => {
+        const { data } = await admin
+          .from("applications")
+          .select("status")
+          .eq("id", appRow!.id as string)
+          .single();
+        return data?.status;
+      }, { timeout: 10000 })
+      .toBe("checked_in");
   });
 
   // ── BLOCK 5: CHALLENGE SETUP ────────────────────────────

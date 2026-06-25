@@ -253,6 +253,7 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
      select 1 from information_schema.tables
      where table_schema = 'public' and table_name = 'chapter_broadcasts'
    ) as present` },
+  { prefix: "00053", label: "walk_in_token", sql: table("chapter_walk_in") },
 ];
 
 /**

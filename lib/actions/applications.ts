@@ -25,6 +25,78 @@ import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, applicationLimiter, apiLimiter } from "@/lib/ratelimit";
 import { logEvent } from "@/lib/event-log";
 
+// ─── Shared application-insert builder ───────────────────────
+//
+// Builds the `applications` row payload from the submitted form. Extracted so the
+// normal apply flow (submitApplication) and the walk-in flow
+// (submitWalkInApplication in lib/actions/walk-in.ts) construct the row from a
+// single source of truth and can never drift (form_data shape, team-member
+// parsing, consent columns). The caller supplies the already-validated chapter,
+// names, and email; status / existing_team_id / cv_url remain the caller's to
+// set, since those differ between the two flows.
+export function buildApplicationInsert(
+  formData: FormData,
+  opts: { chapterId: string; firstName: string; lastName: string; email: string }
+) {
+  const formDataJson = {
+    dateOfBirth: formData.get("dateOfBirth") || null,
+    gender: formData.get("gender") || null,
+    nationality: formData.get("nationality") || null,
+    city: formData.get("locationCity") || null,
+    country: formData.get("locationCountry") || null,
+    currentlyStudying: formData.get("currentlyStudying") === "true",
+    university: formData.get("university") || null,
+    degree: formData.get("degree") || null,
+    fieldOfStudy: formData.get("fieldOfStudy") || null,
+    graduationDate: formData.get("graduationDate") || null,
+    hasProgrammingSkills: formData.get("hasProgrammingSkills") === "true",
+    isTumaiMember: formData.get("isTumaiMember") === "true",
+    hackathonExperience: formData.get("hackathonExperience") || "",
+    linkedIn: formData.get("linkedIn") || null,
+    github: formData.get("github") || null,
+    website: formData.get("website") || null,
+    hasTeam: formData.get("hasTeam") === "true",
+    dietaryRestrictions: formData.get("dietaryRestrictions") || "None",
+    dietaryRestrictionsOther: formData.get("dietaryRestrictionsOther") || null,
+    tshirtCut: formData.get("tshirtCut") || "men's",
+    tshirtSize: formData.get("tshirtSize") || "M",
+    discoverySource: JSON.parse((formData.get("discoverySource") as string) || "[]"),
+    discoverySourceOther: formData.get("discoverySourceOther") || null,
+    additionalNotes: formData.get("additionalNotes") || null,
+  };
+
+  const teamMembers: ApplicationTeamMember[] = [];
+  for (let i = 0; i < 4; i++) {
+    const memberFirst = formData.get(`teamMemberFirstName${i}`) as string;
+    const memberLast = formData.get(`teamMemberLastName${i}`) as string;
+    const memberEmail = formData.get(`teamMemberEmail${i}`) as string;
+    if (memberFirst && memberLast && memberEmail) {
+      teamMembers.push({
+        firstName: memberFirst.trim(),
+        lastName: memberLast.trim(),
+        email: memberEmail.trim().toLowerCase(),
+      });
+    }
+  }
+
+  return {
+    chapter_id: opts.chapterId,
+    email: opts.email,
+    first_name: opts.firstName,
+    last_name: opts.lastName,
+    form_data: formDataJson,
+    cv_url: null as string | null,
+    team_members: teamMembers,
+    consent_attendance: formData.get("consentAttendance") === "true",
+    consent_privacy: formData.get("consentPrivacy") === "true",
+    consent_newsletter: formData.get("consentNewsletter") === "true",
+    consent_recruiting: formData.get("consentRecruiting") === "true",
+    consent_media: formData.get("consentMedia") === "true",
+    consent_ip_transfer: formData.get("consentIpTransfer") === "true",
+    consent_sponsor_data: formData.get("consentSponsorData") === "true",
+  };
+}
+
 // ─── Submit application (public) ─────────────────────────────
 
 export async function submitApplication(formData: FormData) {
@@ -75,48 +147,14 @@ export async function submitApplication(formData: FormData) {
     return { error: "You have already applied for this match." };
   }
 
-  // Build form_data JSONB
-  const formDataJson = {
-    dateOfBirth: formData.get("dateOfBirth") || null,
-    gender: formData.get("gender") || null,
-    nationality: formData.get("nationality") || null,
-    city: formData.get("locationCity") || null,
-    country: formData.get("locationCountry") || null,
-    currentlyStudying: formData.get("currentlyStudying") === "true",
-    university: formData.get("university") || null,
-    degree: formData.get("degree") || null,
-    fieldOfStudy: formData.get("fieldOfStudy") || null,
-    graduationDate: formData.get("graduationDate") || null,
-    hasProgrammingSkills: formData.get("hasProgrammingSkills") === "true",
-    isTumaiMember: formData.get("isTumaiMember") === "true",
-    hackathonExperience: formData.get("hackathonExperience") || "",
-    linkedIn: formData.get("linkedIn") || null,
-    github: formData.get("github") || null,
-    website: formData.get("website") || null,
-    hasTeam: formData.get("hasTeam") === "true",
-    dietaryRestrictions: formData.get("dietaryRestrictions") || "None",
-    dietaryRestrictionsOther: formData.get("dietaryRestrictionsOther") || null,
-    tshirtCut: formData.get("tshirtCut") || "men's",
-    tshirtSize: formData.get("tshirtSize") || "M",
-    discoverySource: JSON.parse((formData.get("discoverySource") as string) || "[]"),
-    discoverySourceOther: formData.get("discoverySourceOther") || null,
-    additionalNotes: formData.get("additionalNotes") || null,
-  };
-
-  // Parse team members
-  const teamMembers: ApplicationTeamMember[] = [];
-  for (let i = 0; i < 4; i++) {
-    const memberFirst = formData.get(`teamMemberFirstName${i}`) as string;
-    const memberLast = formData.get(`teamMemberLastName${i}`) as string;
-    const memberEmail = formData.get(`teamMemberEmail${i}`) as string;
-    if (memberFirst && memberLast && memberEmail) {
-      teamMembers.push({
-        firstName: memberFirst.trim(),
-        lastName: memberLast.trim(),
-        email: memberEmail.trim().toLowerCase(),
-      });
-    }
-  }
+  // Build the application row payload from the form (shared with the walk-in
+  // flow via buildApplicationInsert, so the two can never drift).
+  const baseInsert = buildApplicationInsert(formData, {
+    chapterId,
+    firstName,
+    lastName,
+    email,
+  });
 
   // Check for existing team (by email in team_members + profiles)
   let existingTeamId: string | null = formData.get("existingTeamId") as string || null;
@@ -160,21 +198,8 @@ export async function submitApplication(formData: FormData) {
   const { data: inserted, error: insertError } = await adminClient
     .from("applications")
     .insert({
-      chapter_id: chapterId,
-      email,
-      first_name: firstName,
-      last_name: lastName,
-      form_data: formDataJson,
-      cv_url: null,
+      ...baseInsert,
       existing_team_id: existingTeamId,
-      team_members: teamMembers,
-      consent_attendance: formData.get("consentAttendance") === "true",
-      consent_privacy: formData.get("consentPrivacy") === "true",
-      consent_newsletter: formData.get("consentNewsletter") === "true",
-      consent_recruiting: formData.get("consentRecruiting") === "true",
-      consent_media: formData.get("consentMedia") === "true",
-      consent_ip_transfer: formData.get("consentIpTransfer") === "true",
-      consent_sponsor_data: formData.get("consentSponsorData") === "true",
     })
     .select("id")
     .single();
