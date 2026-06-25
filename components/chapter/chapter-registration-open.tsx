@@ -15,6 +15,25 @@ interface CheckinInfo {
   members: { name: string; checkedIn: boolean }[];
 }
 
+/**
+ * Message shown in the "no checked-in team" panel during challenge selection.
+ * Distinguishes a logged-in participant without a team (must join/create one)
+ * from a logged-out visitor (must log in). `userRole` truthy means the user is
+ * already on a team and the team-check-in branch handles the messaging instead.
+ */
+export function noTeamRegistrationMessage(
+  userRole: "president" | "member" | null,
+  isLoggedIn: boolean,
+): string {
+  if (userRole) {
+    return "Your team needs to check in to participate. Check in at the event to get started.";
+  }
+  if (isLoggedIn) {
+    return "You're not on a team yet. Join an existing team or create one, then check in at the event. A team needs at least two members to register for a challenge.";
+  }
+  return "Log in to see your team status and register for a challenge.";
+}
+
 interface ChapterRegistrationOpenProps {
   chapter: Chapter;
   challenges: Challenge[];
@@ -22,6 +41,7 @@ interface ChapterRegistrationOpenProps {
   registeredChallengeId: string | null;
   userRole: "president" | "member" | null;
   teamId: string | null;
+  isLoggedIn: boolean;
 }
 
 export function ChapterRegistrationOpen({
@@ -31,6 +51,7 @@ export function ChapterRegistrationOpen({
   registeredChallengeId: initialRegisteredId,
   userRole,
   teamId,
+  isLoggedIn,
 }: ChapterRegistrationOpenProps) {
   const [registeredChallengeId, setRegisteredChallengeId] = useState(initialRegisteredId);
   const [loading, setLoading] = useState<string | null>(null);
@@ -168,9 +189,7 @@ export function ChapterRegistrationOpen({
       ) : (
         <div className="mt-8 rounded-2xl border border-white/[0.06] bg-surface-card/40 p-6">
           <p className="text-text-muted">
-            {userRole
-              ? "Your team needs to check in to participate. Check in at the event to get started."
-              : "Log in to see your team status and register for a challenge."}
+            {noTeamRegistrationMessage(userRole, isLoggedIn)}
           </p>
         </div>
       )}
