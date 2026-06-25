@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { CertificateDocument } from "@/lib/certificates/template";
 import { checkRateLimit, certLimiter } from "@/lib/ratelimit";
 import { getSession } from "@/lib/actions/auth";
+import { verifyCertificateToken } from "@/lib/certificate-token";
 
 export const dynamic = "force-dynamic";
 
@@ -11,36 +12,49 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ chapterId: string; teamId: string }> }
 ) {
-  // Auth: require logged-in user who is a team member or admin
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "Authentication required." }, { status: 401 });
-  }
-
   const { chapterId, teamId } = await params;
 
-  const adminClient = createAdminClient();
-
-  const isAdmin = session.profile?.role === "admin";
-  if (!isAdmin) {
-    // Check if user is a member of this team
-    const { data: membership } = await adminClient
-      .from("team_members")
-      .select("user_id")
-      .eq("team_id", teamId)
-      .eq("user_id", session.user.id)
-      .single();
-
-    if (!membership) {
-      return NextResponse.json({ error: "You can only download certificates for your own team." }, { status: 403 });
-    }
-  }
-
-  // Rate limit: CPU-intensive PDF generation
+  // Rate limit FIRST: PDF generation is CPU-intensive and the route is now
+  // reachable unauthenticated via a capability token, so the limit must apply to
+  // every path (token, session, or no-auth) before any expensive work.
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
   const rl = await checkRateLimit(certLimiter, `cert:${ip}`);
   if (rl.limited) {
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
+  }
+
+  // Authorization: EITHER a valid capability token bound to this exact
+  // (chapterId, teamId), OR a logged-in admin / member of this team.
+  //
+  // The token path serves the emailed certificate link to recipients who are not
+  // logged in. A token authorizes only its own certificate (it is an HMAC over
+  // `${chapterId}:${teamId}`), so it cannot be used to enumerate other teams.
+  const token = new URL(request.url).searchParams.get("token");
+  const hasValidToken = verifyCertificateToken(chapterId, teamId, token);
+
+  const adminClient = createAdminClient();
+
+  if (!hasValidToken) {
+    // Fall back to the session-based path (admin or team member).
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "Authentication required." }, { status: 401 });
+    }
+
+    const isAdmin = session.profile?.role === "admin";
+    if (!isAdmin) {
+      // Check if user is a member of this team
+      const { data: membership } = await adminClient
+        .from("team_members")
+        .select("user_id")
+        .eq("team_id", teamId)
+        .eq("user_id", session.user.id)
+        .single();
+
+      if (!membership) {
+        return NextResponse.json({ error: "You can only download certificates for your own team." }, { status: 403 });
+      }
+    }
   }
 
   // Fetch score (must be published)

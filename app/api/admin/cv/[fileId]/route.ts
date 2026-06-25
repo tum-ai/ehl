@@ -1,21 +1,51 @@
 import { NextResponse } from "next/server";
-import { getSession } from "@/lib/actions/auth";
 import { downloadFile } from "@/lib/gdrive";
+import { requireChapterAdminApi } from "@/lib/admin-auth";
+import { getSession } from "@/lib/actions/auth";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ fileId: string }> }
 ) {
-  const session = await getSession();
-  if (!session || session.profile?.role !== "admin") {
-    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
-  }
-
   const { fileId } = await params;
 
   if (!fileId || fileId.length < 10) {
     return NextResponse.json({ error: "Invalid file ID" }, { status: 400 });
   }
+
+  // Cheap role pre-gate before any DB work: only an admin or chapter admin may
+  // probe this route at all. Without it, an unauthenticated caller could force a
+  // DB lookup and distinguish owned (403) from orphan (404) file ids. The
+  // chapter-scoped check below still enforces WHICH chapter a chapter admin may
+  // read; this only rejects non-admins early with a uniform 403.
+  const session = await getSession();
+  const role = session?.profile?.role;
+  if (role !== "admin" && role !== "chapter_admin") {
+    return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+  }
+
+  // Resolve which chapter this CV belongs to. The fileId is the Google Drive
+  // file id stored as `cv_url` on the owning application row. We scope access to
+  // that chapter so a local (chapter) admin can read CVs in their own chapter
+  // but never CVs from another chapter. Global admins pass for any chapter.
+  const adminClient = createAdminClient();
+  const { data: application } = await adminClient
+    .from("applications")
+    .select("chapter_id")
+    .eq("cv_url", fileId)
+    .maybeSingle();
+
+  if (!application) {
+    // No application owns this file id: there is no chapter to authorize the
+    // caller against, so deny rather than expose an arbitrary Drive file.
+    return NextResponse.json({ error: "File not found or inaccessible" }, { status: 404 });
+  }
+
+  // Chapter-scoped guard: global admins always pass; a chapter admin passes only
+  // for their own chapter; everyone else gets 403. Enforced server-side.
+  const denied = await requireChapterAdminApi(application.chapter_id as string);
+  if (denied) return denied;
 
   try {
     const { buffer, mimeType } = await downloadFile(fileId);

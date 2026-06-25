@@ -69,6 +69,7 @@ export {
   getChallengeById,
   getRegistrationForTeam,
   getAllChallengeRegistrations,
+  getChapterRegistrationsByTeam,
   getPitchOrder,
 } from "./challenges";
 
@@ -84,6 +85,7 @@ export {
 
 export {
   getJuryAssignmentsForUser,
+  resolveJuryAssignment,
   getMyJuryRanking,
 } from "./jury";
 

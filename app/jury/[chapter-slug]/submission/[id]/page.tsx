@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import { getSession } from "@/lib/actions/auth";
 import {
   getChapterBySlug,
-  getJuryAssignmentsForUser,
+  resolveJuryAssignment,
   getChallengeById,
   getSubmissionById,
   getTeams,
@@ -17,19 +17,25 @@ import { ensureFileLinkReadable } from "@/lib/gdrive";
 
 interface PageProps {
   params: Promise<{ "chapter-slug": string; id: string }>;
+  searchParams: Promise<{ challenge?: string }>;
 }
 
-export default async function JurySubmissionDetailPage({ params }: PageProps) {
+export default async function JurySubmissionDetailPage({ params, searchParams }: PageProps) {
   const { "chapter-slug": slug, id: submissionId } = await params;
+  const { challenge: challengeIdParam } = await searchParams;
   const session = await getSession();
   if (!session) redirect("/jury/login");
 
   const chapter = await getChapterBySlug(slug);
   if (!chapter) notFound();
 
-  // Verify jury assignment
-  const assignments = await getJuryAssignmentsForUser(session.user.id);
-  const chapterAssignment = assignments.find((a) => a.chapterId === chapter.id);
+  // Verify jury assignment (resolve the specific challenge the juror is viewing,
+  // since a juror may have multiple challenges in the same chapter).
+  const chapterAssignment = await resolveJuryAssignment(
+    session.user.id,
+    chapter.id,
+    challengeIdParam
+  );
   if (!chapterAssignment) notFound();
 
   // Fetch submission
@@ -92,7 +98,7 @@ export default async function JurySubmissionDetailPage({ params }: PageProps) {
   return (
     <div>
       <Link
-        href={`/jury/${slug}`}
+        href={`/jury/${slug}?challenge=${chapterAssignment.challengeId}`}
         className="text-sm text-text-muted hover:text-text-secondary transition-colors"
       >
         &larr; Back to {challenge.title}

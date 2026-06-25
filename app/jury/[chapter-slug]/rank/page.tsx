@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,13 @@ interface Submission {
 export default function JuryRankingPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const slug = params["chapter-slug"] as string;
+  // The challenge the juror is voting on. Required to disambiguate when the
+  // juror is assigned to more than one challenge in the same chapter.
+  const challengeParam = searchParams.get("challenge");
+  // Suffix used to carry the challenge back to the chapter page on navigation.
+  const backQuery = challengeParam ? `?challenge=${challengeParam}` : "";
 
   const [challengeId, setChallengeId] = useState<string | null>(null);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -42,7 +48,11 @@ export default function JuryRankingPage() {
   useEffect(() => {
     async function load() {
       try {
-        const assignmentRes = await fetch(`/api/jury/assignment?slug=${slug}`);
+        const assignmentRes = await fetch(
+          `/api/jury/assignment?slug=${slug}${
+            challengeParam ? `&challengeId=${challengeParam}` : ""
+          }`
+        );
         if (!assignmentRes.ok) {
           setError("Could not load assignment.");
           setLoading(false);
@@ -75,7 +85,7 @@ export default function JuryRankingPage() {
       setLoading(false);
     }
     load();
-  }, [slug]);
+  }, [slug, challengeParam]);
 
   function getTeamName(teamId: string): string {
     return teams.find((t) => t.id === teamId)?.name || "Unknown";
@@ -153,7 +163,7 @@ export default function JuryRankingPage() {
       setSubmitting(false);
       setShowConfirm(false);
     } else {
-      router.push(`/jury/${slug}`);
+      router.push(`/jury/${slug}${backQuery}`);
     }
   }
 
@@ -168,7 +178,7 @@ export default function JuryRankingPage() {
       setError(result.error);
       setSkipping(false);
     } else {
-      router.push(`/jury/${slug}`);
+      router.push(`/jury/${slug}${backQuery}`);
     }
   }
 
@@ -184,7 +194,7 @@ export default function JuryRankingPage() {
     return (
       <div>
         <Link
-          href={`/jury/${slug}`}
+          href={`/jury/${slug}${backQuery}`}
           className="text-sm text-text-muted hover:text-text-secondary transition-colors"
         >
           &larr; Back to Challenge
@@ -202,7 +212,7 @@ export default function JuryRankingPage() {
   return (
     <div>
       <Link
-        href={`/jury/${slug}`}
+        href={`/jury/${slug}${backQuery}`}
         className="text-sm text-text-muted hover:text-text-secondary transition-colors"
       >
         &larr; Back to Challenge

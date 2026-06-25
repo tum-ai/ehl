@@ -273,7 +273,8 @@ There are two kinds of admin:
 - A local admin sees a reduced sidebar (Chapter, Screening, Teams, Check-in) and is
   confined to that one chapter: application screening, the chapter's teams &
   participants, submissions, and check-in.
-- They **can**: score applications (screening) and check participants in.
+- They **can**: score applications (screening), view the CVs of applicants in their
+  own chapter, and check participants in.
 - They **cannot**: see other chapters or any global admin view, edit chapter
   settings, change status, manage challenges/jury/partners, publish scores, or delete
   anything. Inviting/removing local admins is a global-admin action.
@@ -292,7 +293,8 @@ There are two kinds of admin:
 - Screener scoring per application
 - Bulk accept/reject/waitlist
 - Send branded acceptance/rejection emails
-- View CVs (downloaded from Google Drive)
+- View CVs (proxied from Google Drive via the service account; chapter-scoped, so a
+  local admin sees only CVs of applicants in their own chapter)
 - Cross-chapter screening signals per applicant: prior screening scores from other
   chapters, past participations (checked in elsewhere), and a No-Show warning (checked
   in at a previous event but their team submitted nothing). No-shows are only counted
@@ -337,8 +339,18 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 ### Team Oversight (`/admin/teams`)
 - View all teams with member lists
 - Change team status
-- Remove individual members
+- Remove individual members (never the captain; blocked if the team would drop below `MIN_TEAM_SIZE`, default 2)
 - Delete teams
+- Admin overrides (audit-logged): change captain, add a member by email, move a member to another team
+- Override a team's challenge selection (global admins): assign a challenge to a team that
+  forgot to pick one, or change a team's existing pick to a different challenge. The control
+  appears in the team row only while submissions are still open for the active chapter
+  (status `challenge_selection`/`hacking`/`submissions_open` and the submission deadline not
+  yet passed); the server action re-checks this gate, so the override is rejected once
+  submissions close. Validates that the team belongs to the chapter and the challenge belongs
+  to the chapter, and blocks a change when the team already submitted a project to its current
+  challenge (delete that submission first to avoid orphaning it). Audit-logged with from/to
+  challenge.
 
 ### Submissions (`/admin/submissions`)
 - List every submission across all chapters (match, challenge, team, project, updated)

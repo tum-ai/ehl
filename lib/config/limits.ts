@@ -57,3 +57,9 @@ export const MAX_TEAM_SIZE = envInt("MAX_TEAM_SIZE", 5);
 // invariant enforced at registration time (lib/actions/event.ts); also used when
 // cancelling an attendee, to drop a registration that would fall below it.
 export const MIN_CHALLENGE_ROSTER = envInt("MIN_CHALLENGE_ROSTER", 2);
+
+// Minimum members a team must keep after an admin removes someone. A domain
+// invariant enforced on admin member removal (lib/actions/admin.ts): a removal
+// that would drop the team below this is rejected, so an admin can never leave a
+// team too small to compete. The president always counts toward this total.
+export const MIN_TEAM_SIZE = envInt("MIN_TEAM_SIZE", 2);
