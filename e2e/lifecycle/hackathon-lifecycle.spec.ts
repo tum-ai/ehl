@@ -58,6 +58,16 @@ const RUN_ID = [
 ].join("-");
 const CHAPTER_NAME = `E2E Match ${RUN_ID}`;
 
+// Registration tests create real auth.users rows. Those users accrue append-only
+// event_log audit rows (actor_id FK), which makes them undeletable, so a fixed
+// email collides with a prior run's leftover user ("account already exists").
+// Per-run-unique emails sidestep this: every run registers a fresh user and no
+// cleanup/deletion is needed. See RUN_ID above and the shared-test-DB notes.
+const REGISTER_SOLO_EMAIL = `e2e-register-solo-${RUN_ID}@test-ehl.com`;
+const REGISTER_PRES_EMAIL = `e2e-register-pres-${RUN_ID}@test-ehl.com`;
+const REGISTER_MEM_EMAIL = `e2e-register-mem-${RUN_ID}@test-ehl.com`;
+const REGISTER_TEAM_NAME = `E2E Register Team ${RUN_ID}`;
+
 // ─── Shared state across serial tests ───────────────────────
 
 let chapterId: string;
@@ -84,12 +94,12 @@ test.describe.serial("Block 1: Participant Registration", () => {
 
     // Clean up any existing solo user first
     const admin = getAdminClient();
-    const existingProfile = await getProfileByEmail("e2e-register-solo@test-ehl.com");
+    const existingProfile = await getProfileByEmail(REGISTER_SOLO_EMAIL);
     if (existingProfile) {
       await admin.from("profiles").delete().eq("id", existingProfile.id);
       try { await admin.auth.admin.deleteUser(existingProfile.id as string); } catch {}
     }
-    await admin.from("verification_codes").delete().eq("email", "e2e-register-solo@test-ehl.com");
+    await admin.from("verification_codes").delete().eq("email", REGISTER_SOLO_EMAIL);
 
     await page.goto("/register");
     await page.waitForLoadState("domcontentloaded");
@@ -99,7 +109,7 @@ test.describe.serial("Block 1: Participant Registration", () => {
 
     // Fill solo registration form
     await page.locator('input[name="name"]').fill("E2E Register Solo");
-    await page.locator('input[name="email"]').fill("e2e-register-solo@test-ehl.com");
+    await page.locator('input[name="email"]').fill(REGISTER_SOLO_EMAIL);
     await page.locator('input[name="password"]').fill(TEST_PASSWORD);
 
     // Check "Looking for a team"
@@ -124,7 +134,7 @@ test.describe.serial("Block 1: Participant Registration", () => {
     }
 
     // Read verification code from DB
-    const code = await getVerificationCode("e2e-register-solo@test-ehl.com");
+    const code = await getVerificationCode(REGISTER_SOLO_EMAIL);
 
     // Enter code
     await page.locator('input[placeholder="000000"]').fill(code);
@@ -135,7 +145,7 @@ test.describe.serial("Block 1: Participant Registration", () => {
     await expect(page).toHaveURL(/\/dashboard/);
 
     // Cleanup
-    const profile = await getProfileByEmail("e2e-register-solo@test-ehl.com");
+    const profile = await getProfileByEmail(REGISTER_SOLO_EMAIL);
     if (profile) {
       await admin.from("profiles").delete().eq("id", profile.id);
       try { await admin.auth.admin.deleteUser(profile.id as string); } catch {}
@@ -147,9 +157,9 @@ test.describe.serial("Block 1: Participant Registration", () => {
 
     const admin = getAdminClient();
     // Cleanup from previous runs
-    const existingProfile = await getProfileByEmail("e2e-register-pres@test-ehl.com");
+    const existingProfile = await getProfileByEmail(REGISTER_PRES_EMAIL);
     if (existingProfile) {
-      const { data: teams } = await admin.from("teams").select("id").like("name", "E2E Register%");
+      const { data: teams } = await admin.from("teams").select("id").like("name", `E2E Register Team ${RUN_ID}`);
       const teamIds = (teams ?? []).map((t) => t.id as string);
       if (teamIds.length > 0) {
         await admin.from("team_invites").delete().in("team_id", teamIds);
@@ -159,7 +169,7 @@ test.describe.serial("Block 1: Participant Registration", () => {
       await admin.from("profiles").delete().eq("id", existingProfile.id);
       try { await admin.auth.admin.deleteUser(existingProfile.id as string); } catch {}
     }
-    await admin.from("verification_codes").delete().eq("email", "e2e-register-pres@test-ehl.com");
+    await admin.from("verification_codes").delete().eq("email", REGISTER_PRES_EMAIL);
 
     await page.goto("/register");
     await page.waitForLoadState("domcontentloaded");
@@ -168,18 +178,18 @@ test.describe.serial("Block 1: Participant Registration", () => {
     await page.getByRole("heading", { name: "Create a Team" }).click();
 
     // Fill team info
-    await page.locator('input[name="teamName"]').fill("E2E Register Team");
+    await page.locator('input[name="teamName"]').fill(REGISTER_TEAM_NAME);
     await page.locator('input[name="university"]').fill("E2E University");
     await page.locator('input[name="city"]').fill("E2E City");
 
     // Fill president info
     await page.locator('input[name="presidentName"]').fill("E2E Register Pres");
-    await page.locator('input[name="presidentEmail"]').fill("e2e-register-pres@test-ehl.com");
+    await page.locator('input[name="presidentEmail"]').fill(REGISTER_PRES_EMAIL);
     await page.locator('input[name="password"]').fill(TEST_PASSWORD);
 
     // Fill member info
     await page.locator('input[name="memberName0"]').fill("E2E Register Member");
-    await page.locator('input[name="memberEmail0"]').fill("e2e-register-mem@test-ehl.com");
+    await page.locator('input[name="memberEmail0"]').fill(REGISTER_MEM_EMAIL);
 
     // Submit
     await page.getByRole("button", { name: /continue/i }).click();
@@ -197,7 +207,7 @@ test.describe.serial("Block 1: Participant Registration", () => {
     }
 
     // Read verification code from DB
-    const code = await getVerificationCode("e2e-register-pres@test-ehl.com");
+    const code = await getVerificationCode(REGISTER_PRES_EMAIL);
 
     // Enter code
     await page.locator('input[placeholder="000000"]').fill(code);
@@ -205,12 +215,12 @@ test.describe.serial("Block 1: Participant Registration", () => {
 
     // Should redirect to dashboard with team name visible
     await page.waitForURL(/\/dashboard/, { timeout: 15000 });
-    await expect(page.getByText("E2E Register Team")).toBeVisible();
+    await expect(page.getByText(REGISTER_TEAM_NAME)).toBeVisible();
 
     // Cleanup
-    const presProfile = await getProfileByEmail("e2e-register-pres@test-ehl.com");
+    const presProfile = await getProfileByEmail(REGISTER_PRES_EMAIL);
     if (presProfile) {
-      const { data: teams } = await admin.from("teams").select("id").like("name", "E2E Register%");
+      const { data: teams } = await admin.from("teams").select("id").like("name", `E2E Register Team ${RUN_ID}`);
       const teamIds = (teams ?? []).map((t) => t.id as string);
       if (teamIds.length > 0) {
         await admin.from("team_invites").delete().in("team_id", teamIds);
