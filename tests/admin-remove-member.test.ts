@@ -83,11 +83,20 @@ function makeAdminClient(opts: {
 // Build a responder for a team whose president is PRESIDENT and whose roster is
 // the given user IDs.
 function teamResponder(rosterUserIds: string[]) {
+  // The action selects the roster once (data), then re-counts after the delete
+  // (head:true -> count). Track calls so the post-delete count reflects the
+  // member having been removed.
+  let memberSelects = 0;
   return ({ table, op }: { table: string; op: string }) => {
     if (table === "teams" && op === "select")
       return { data: { president_user_id: PRESIDENT } };
-    if (table === "team_members" && op === "select")
-      return { data: rosterUserIds.map((user_id) => ({ user_id })) };
+    if (table === "team_members" && op === "select") {
+      memberSelects += 1;
+      // First select = roster (with role); second = post-delete head count.
+      if (memberSelects === 1)
+        return { data: rosterUserIds.map((user_id) => ({ user_id, role: "member" })) };
+      return { count: rosterUserIds.length - 1, data: null };
+    }
     if (table === "team_members" && op === "delete") return { error: null };
     return { data: null, error: null };
   };
@@ -170,6 +179,44 @@ describe("adminRemoveMember", () => {
         delta: { deleted: { user_id: "user-2" } },
       })
     );
+  });
+
+  it("compensates (re-inserts) and errors if a concurrent removal dropped the team below the minimum", async () => {
+    // The initial roster read shows 3 (so the pre-delete check passes), but the
+    // post-delete head count returns 1 — a concurrent removal raced in. The
+    // action must re-insert the removed row and report the floor error, not log
+    // a successful removal.
+    const calls: Array<{ table: string; op: string }> = [];
+    let memberSelects = 0;
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "teams" && op === "select")
+            return { data: { president_user_id: PRESIDENT } };
+          if (table === "team_members" && op === "select") {
+            memberSelects += 1;
+            if (memberSelects === 1)
+              return {
+                data: [PRESIDENT, "user-2", "user-3"].map((user_id) => ({
+                  user_id,
+                  role: "member",
+                })),
+              };
+            return { count: 1, data: null }; // post-delete: a race dropped it to 1
+          }
+          if (table === "team_members" && op === "delete") return { error: null };
+          if (table === "team_members" && op === "insert") return { error: null };
+          return { data: null, error: null };
+        },
+      })
+    );
+    const result = await adminRemoveMember(TEAM, "user-2");
+    expect(result.error).toMatch(/fewer than 2 members/i);
+    // It deleted, then compensated with a re-insert, and did NOT log a removal.
+    expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(true);
+    expect(calls.some((c) => c.table === "team_members" && c.op === "insert")).toBe(true);
+    expect(mocks.logEvent).not.toHaveBeenCalled();
   });
 });
 

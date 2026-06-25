@@ -870,13 +870,14 @@ export async function adminRemoveMember(teamId: string, userId: string) {
   }
 
   // The member must actually be on this team, and the removal must leave the
-  // team with at least MIN_TEAM_SIZE members. Both checks read the live roster.
+  // team with at least MIN_TEAM_SIZE members.
   const { data: members } = await adminClient
     .from("team_members")
-    .select("user_id")
+    .select("user_id, role")
     .eq("team_id", teamId);
   const roster = members ?? [];
-  if (!roster.some((m) => m.user_id === userId)) {
+  const memberRow = roster.find((m) => m.user_id === userId);
+  if (!memberRow) {
     return { error: "That user is not a member of this team." };
   }
   if (roster.length - 1 < MIN_TEAM_SIZE) {
@@ -892,6 +893,27 @@ export async function adminRemoveMember(teamId: string, userId: string) {
     .eq("user_id", userId);
 
   if (delError) return { error: delError.message };
+
+  // Guard against a check-then-act race: two admins removing different members
+  // of the same team concurrently could each pass the size check above and
+  // together drop the team below MIN_TEAM_SIZE. Re-count AFTER the delete; if we
+  // crossed the floor, compensate by re-inserting the row we just removed and
+  // report the failure. (This action is admin-only and rare, so an optimistic
+  // delete + compensation is simpler and safe vs. a dedicated transactional RPC.)
+  const { count: remaining } = await adminClient
+    .from("team_members")
+    .select("user_id", { count: "exact", head: true })
+    .eq("team_id", teamId);
+  if (remaining !== null && remaining < MIN_TEAM_SIZE) {
+    await adminClient.from("team_members").insert({
+      team_id: teamId,
+      user_id: userId,
+      role: (memberRow as { role?: string }).role ?? "member",
+    });
+    return {
+      error: `Removing this member would leave fewer than ${MIN_TEAM_SIZE} members on the team.`,
+    };
+  }
 
   const actorId = await getAdminUserId();
   logEvent({
@@ -1109,6 +1131,14 @@ export async function adminMoveMember(userId: string, fromTeamId: string, toTeam
       error: `Moving this member would leave fewer than ${MIN_TEAM_SIZE} members on the source team.`,
     };
   }
+  // NOTE: this source-size check is check-then-act, like adminRemoveMember. Two
+  // admins concurrently moving different members off the same source team could
+  // each pass and drop it below MIN_TEAM_SIZE. Unlike remove (which compensates
+  // with a single re-insert), a move spans two teams, so post-hoc compensation
+  // is multi-step and itself error-prone. Given this is an admin-only, doubly-
+  // rare exception path and the breach is visible + correctable, we accept the
+  // residual race here rather than add a transactional RPC. Revisit if moves
+  // ever become high-frequency.
 
   // Already on destination?
   const { data: dupe } = await adminClient
