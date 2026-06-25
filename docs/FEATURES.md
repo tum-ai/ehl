@@ -267,6 +267,12 @@ There are two kinds of admin:
 - Bulk accept/reject/waitlist
 - Send branded acceptance/rejection emails
 - View CVs (downloaded from Google Drive)
+- Cross-chapter screening signals per applicant: prior screening scores from other
+  chapters, past participations (checked in elsewhere), and a No-Show warning (checked
+  in at a previous event but their team submitted nothing). No-shows are only counted
+  for chapters where check-in actually ran: events that predate the check-in feature
+  (e.g. the first hackathon) never produce No-Show flags, since attendance there was
+  never recorded.
 - Cancel an accepted applicant (e.g. they can no longer attend): keeps the record
   with a visible "cancelled" status, requires a reason, and can optionally send a
   branded cancellation email. Allowed even after the acceptance email was sent.
