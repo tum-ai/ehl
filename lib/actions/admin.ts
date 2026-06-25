@@ -7,6 +7,7 @@ import { requireAdminAction } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
+import { certificateToken } from "@/lib/certificate-token";
 import { logEvent, logEventStrict } from "@/lib/event-log";
 import { MAX_TEAM_SIZE, MIN_TEAM_SIZE } from "@/lib/config/limits";
 import type { ChapterStatus } from "@/lib/types";
@@ -1344,7 +1345,11 @@ export async function sendCertificateEmails(chapterId: string) {
       ? `${getPlacementLabel(placement)} Place`
       : "Participant";
 
-    const certificateUrl = `${baseUrl}/api/certificates/${chapterId}/${teamId}`;
+    // Append an unguessable capability token so the link works without login
+    // while remaining bound to this exact (chapterId, teamId). See
+    // lib/certificate-token.ts.
+    const token = certificateToken(chapterId, teamId);
+    const certificateUrl = `${baseUrl}/api/certificates/${chapterId}/${teamId}?token=${token}`;
 
     const emails = members
       .map((m) => {
