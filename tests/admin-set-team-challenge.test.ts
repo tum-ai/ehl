@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // on a change, and that an audit entry is written.
 const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
+  requireChapterAdminAction: vi.fn(),
   getActingUserId: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
@@ -18,6 +19,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: mocks.requireAdminAction,
+  requireChapterAdminAction: mocks.requireChapterAdminAction,
   getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
@@ -66,7 +68,12 @@ function makeAdminClient(opts: {
       return Promise.resolve(opts.responder(state));
     };
     const builder: Record<string, unknown> = {
-      select: (_c?: unknown, _o?: unknown) => ((state.op = "select"), builder),
+      // A trailing .select() (e.g. update().eq().select("id")) must NOT clobber a
+      // mutating op already set; leave the op as-is once a write started.
+      select: (_c?: unknown, _o?: unknown) => {
+        if (state.op === "select") state.op = "select";
+        return builder;
+      },
       insert: (p: unknown) => ((state.op = "insert"), (state.payload = p), builder),
       update: (p: unknown) => ((state.op = "update"), (state.payload = p), builder),
       delete: () => ((state.op = "delete"), builder),
@@ -104,6 +111,7 @@ function defaultResponder(overrides: Partial<{
   challenge: unknown;
   registration: unknown;
   submission: unknown;
+  updateResult: unknown;
 }> = {}) {
   const o = {
     chapter: { data: { status: "submissions_open", submission_deadline: null } },
@@ -125,7 +133,12 @@ function defaultResponder(overrides: Partial<{
     if (table === "challenges" && op === "select") return o.challenge;
     if (table === "challenge_registrations" && op === "select") return o.registration;
     if (table === "submissions" && op === "select") return o.submission;
-    // writes
+    // The conditional change-update does `.update().eq().eq().select("id")`; it
+    // resolves to the rows it changed (empty array => a concurrent change raced
+    // in). Default: one row updated (success). Override via `updateResult`.
+    if (table === "challenge_registrations" && op === "update")
+      return o.updateResult ?? { data: [{ id: "reg-1" }], error: null };
+    // other writes (insert)
     return { data: null, error: null };
   };
 }
@@ -133,6 +146,7 @@ function defaultResponder(overrides: Partial<{
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireAdminAction.mockResolvedValue(null);
+  mocks.requireChapterAdminAction.mockResolvedValue(null);
   mocks.getActingUserId.mockResolvedValue(CALLER);
   mocks.logEventStrict.mockResolvedValue(undefined);
   mocks.createClient.mockResolvedValue({
@@ -142,7 +156,7 @@ beforeEach(() => {
 
 describe("adminSetTeamChallenge", () => {
   it("rejects a non-admin caller before touching the DB", async () => {
-    mocks.requireAdminAction.mockResolvedValue("Admin access required.");
+    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
     const result = await adminSetTeamChallenge(TEAM, CHALLENGE_A, CHAPTER);
     expect(result).toEqual({ error: "Admin access required." });
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
@@ -349,5 +363,66 @@ describe("adminSetTeamChallenge", () => {
           (c.op === "insert" || c.op === "update")
       )
     ).toBeUndefined();
+  });
+
+  it("rejects a chapter admin acting on a chapter that is not theirs (scoped guard)", async () => {
+    // requireChapterAdminAction denies a local admin whose chapter != this one.
+    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
+    const result = await adminSetTeamChallenge(TEAM, CHALLENGE_A, CHAPTER);
+    expect(result).toEqual({ error: "Admin access required." });
+    expect(mocks.createAdminClient).not.toHaveBeenCalled();
+    // The guard was called WITH the chapter id (scope), not the global guard.
+    expect(mocks.requireChapterAdminAction).toHaveBeenCalledWith(CHAPTER);
+  });
+
+  it("does not treat a rejected/non-accepted applicant as making the team part of the chapter", async () => {
+    // The applications lookup now filters status in (accepted, checked_in); the
+    // mock returns no row for that filter, so the team is rejected.
+    const calls: CallState[] = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: defaultResponder({ application: { data: null } }),
+      })
+    );
+
+    const result = await adminSetTeamChallenge(TEAM, CHALLENGE_A, CHAPTER);
+    expect(result.error).toMatch(/not part of this chapter/i);
+    // The applications query carried the status filter.
+    const appSelect = calls.find((c) => c.table === "applications");
+    expect(appSelect?.filters).toContainEqual([
+      "status",
+      ["accepted", "checked_in"],
+    ]);
+  });
+
+  it("aborts a change if a concurrent override changed the challenge first (conditional update races safely)", async () => {
+    // The registration is on CHALLENGE_A; we try to change to CHALLENGE_B, but
+    // the conditional update matches 0 rows (a concurrent change already moved
+    // it), so we must error rather than apply a stale change.
+    const calls: CallState[] = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: defaultResponder({
+          challenge: { data: { id: CHALLENGE_B, title: "Challenge B" } },
+          registration: { data: { id: "reg-1", challenge_id: CHALLENGE_A, roster: ["u1"] } },
+          submission: { data: null },
+          updateResult: { data: [], error: null }, // 0 rows -> raced
+        }),
+      })
+    );
+
+    const result = await adminSetTeamChallenge(TEAM, CHALLENGE_B, CHAPTER);
+    expect(result.error).toMatch(/changed while you were editing/i);
+    // The conditional update was attempted with BOTH the id and the expected
+    // current challenge_id, so a concurrent change can't be clobbered.
+    const update = calls.find(
+      (c) => c.table === "challenge_registrations" && c.op === "update"
+    );
+    expect(update?.filters).toContainEqual(["id", "reg-1"]);
+    expect(update?.filters).toContainEqual(["challenge_id", CHALLENGE_A]);
+    // No audit for a change that did not actually apply.
+    expect(mocks.logEventStrict).not.toHaveBeenCalled();
   });
 });

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction, requireChapterAdminAction } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
@@ -1246,11 +1246,14 @@ export async function adminSetTeamChallenge(
   challengeId: string,
   chapterId: string
 ) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
   if (!teamId || !challengeId || !chapterId) {
     return { error: "Team, challenge, and chapter are required." };
   }
+  // Chapter-scoped guard: a local (chapter) admin may only override teams in
+  // their OWN chapter; a global admin passes for any chapter. requireAdminAction
+  // would let a chapter admin act on another chapter's teams.
+  const adminErr = await requireChapterAdminAction(chapterId);
+  if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
   // 1. Chapter must exist and still allow the override (submissions open).
@@ -1307,11 +1310,16 @@ export async function adminSetTeamChallenge(
 
   let teamInChapter = false;
   if (memberEmails.length > 0) {
+    // Require an ACCEPTED/checked-in applicant, not just any application: a
+    // rejected/waitlisted/cancelled row must not make a team "part of" the
+    // chapter (consistent with the registration paths, which key off checked-in
+    // roster members).
     const { data: app } = await adminClient
       .from("applications")
       .select("id")
       .eq("chapter_id", chapterId)
       .in("email", memberEmails)
+      .in("status", ["accepted", "checked_in"])
       .limit(1)
       .maybeSingle();
     teamInChapter = !!app;
@@ -1365,11 +1373,24 @@ export async function adminSetTeamChallenge(
 
   // 6. Upsert the registration on (chapter_id, team_id): assign or change.
   if (existing) {
-    const { error } = await adminClient
+    // Conditional update: only change the row if its challenge is STILL the one
+    // we validated against above. If a concurrent override (or registration)
+    // changed it in the meantime, this updates 0 rows and we abort instead of
+    // applying a stale change that could orphan a submission. (The submission
+    // block in step 5 is otherwise check-then-act.)
+    const { data: updated, error } = await adminClient
       .from("challenge_registrations")
       .update({ challenge_id: challengeId })
-      .eq("id", existing.id as string);
+      .eq("id", existing.id as string)
+      .eq("challenge_id", fromChallengeId as string)
+      .select("id");
     if (error) return { error: error.message };
+    if (!updated || updated.length === 0) {
+      return {
+        error:
+          "This team's challenge changed while you were editing. Reload and try again.",
+      };
+    }
   } else {
     // Seed the roster from the team's members so downstream flows (pitch order,
     // submission gating) see a populated roster, mirroring registerForChallenge.
