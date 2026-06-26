@@ -266,7 +266,7 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
     // event_log.actor_id FK changed to ON DELETE SET NULL so participants who
     // logged events can be deleted (the append-only trigger was rewritten to
     // permit only the actor_id -> NULL mutation). confdeltype 'n' = SET NULL.
-    prefix: "00056",
+    prefix: "00058",
     label: "event_log_actor_fk_set_null",
     sql: `select exists (
        select 1 from pg_constraint c
@@ -279,7 +279,7 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
   {
     // code_reviews.queued_at: when a review entered the queue, for stuck-queue
     // detection in the admin code-review console.
-    prefix: "00057",
+    prefix: "00059",
     label: "code_review_queued_at",
     sql: column("code_reviews", "queued_at"),
   },

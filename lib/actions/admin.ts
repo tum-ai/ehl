@@ -864,7 +864,7 @@ export async function deleteParticipant(userId: string) {
   // Delete the auth user FIRST: profiles.id references auth.users(id) ON DELETE
   // CASCADE, so removing the auth user cascades the profile away. This avoids the
   // worst partial state (profile gone, auth user orphaned). The event_log
-  // actor_id FK is now ON DELETE SET NULL (migration 00056), so the historical
+  // actor_id FK is now ON DELETE SET NULL (migration 00058), so the historical
   // audit rows survive with actor_id nulled instead of blocking the delete.
   const { error: authErr } = await adminClient.auth.admin.deleteUser(userId);
   if (authErr) {
