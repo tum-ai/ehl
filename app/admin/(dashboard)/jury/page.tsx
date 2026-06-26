@@ -6,7 +6,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { inviteJury } from "@/lib/actions/auth";
-import { removeJuryAssignment, removeJuryMember, finalizeJuryVotes } from "@/lib/actions/jury";
+import { removeJuryAssignment, removeJuryMember, finalizeJuryVotes, regenerateScoresFromFinalizedRankings } from "@/lib/actions/jury";
 
 interface Chapter {
   id: string;
@@ -19,6 +19,11 @@ interface Challenge {
   chapterId: string;
   title: string;
   sponsorName: string | null;
+  // Whether this challenge produces league points. Community (unscored)
+  // challenges are judged but generate NO scores: the UI must say so instead of
+  // implying finalizing creates points.
+  isScored: boolean;
+  juryFinalizedAt: string | null;
 }
 
 interface Juror {
@@ -130,13 +135,43 @@ export default function AdminJuryPage() {
       alert("At least one jury member must vote before finalizing.");
       return;
     }
-    if (!confirm("Finalize jury voting for this challenge? This will generate scores based on all submitted votes.")) return;
+    const challenge = challenges.find((c) => c.id === challengeId);
+    // Be honest about what finalizing will do. An unscored (community) challenge
+    // is judged but produces NO league points: never imply scores are generated.
+    const confirmMsg = challenge && !challenge.isScored
+      ? "This is a COMMUNITY (unscored) challenge. Finalizing records the jury result but generates NO league scores. If this challenge should award points, cancel and mark it Scored on the Challenges page first. Finalize anyway?"
+      : "Finalize jury voting for this challenge? This will generate scores based on all submitted votes.";
+    if (!confirm(confirmMsg)) return;
 
     setFinalizingId(challengeId);
     const result = await finalizeJuryVotes(challengeId);
     if (result.error) {
       alert(result.error);
     } else {
+      // Tell the admin exactly what happened so it is never a silent no-op.
+      if (result.isScored === false) {
+        alert(
+          "Finalized. This is a community (unscored) challenge, so NO league scores were generated. To award points, mark the challenge as Scored on the Challenges page, then use \"Generate scores\" here."
+        );
+      } else if (typeof result.scoresWritten === "number") {
+        alert(`Finalized. ${result.scoresWritten} score row(s) generated.`);
+      }
+      await loadData();
+    }
+    setFinalizingId(null);
+  }
+
+  // Recovery: a challenge finalized while it was (accidentally) unscored, then
+  // corrected to Scored, can still get its scores generated from the already
+  // finalized jury rankings (finalize refuses to run twice).
+  async function handleGenerateScores(challengeId: string) {
+    if (!confirm("Generate league scores from the finalized jury rankings for this challenge?")) return;
+    setFinalizingId(challengeId);
+    const result = await regenerateScoresFromFinalizedRankings(challengeId);
+    if (result.error) {
+      alert(result.error);
+    } else {
+      alert(`Done. ${result.scoresWritten ?? 0} score row(s) generated.`);
       await loadData();
     }
     setFinalizingId(null);
@@ -426,6 +461,37 @@ export default function AdminJuryPage() {
                               ? "Finalizing..."
                               : `Finalize Voting (${voted} vote${voted !== 1 ? "s" : ""})`}
                           </Button>
+                        </div>
+                      )}
+
+                      {/* Finalized state: be explicit about scores, and offer a
+                          recovery path. A challenge can be finalized while it was
+                          (accidentally) unscored; after marking it Scored the
+                          admin can generate scores from the finalized rankings. */}
+                      {cp.finalized && (
+                        <div className="mt-4 border-t ad-border pt-4">
+                          {challenge.isScored ? (
+                            <>
+                              <p className="mb-3 text-sm ad-text-muted">
+                                Finalized. League scores were generated from the jury rankings.
+                                If this challenge was unscored when first finalized and you have
+                                since marked it Scored, generate the missing scores now.
+                              </p>
+                              <Button
+                                onClick={() => handleGenerateScores(challenge.id)}
+                                disabled={finalizingId === challenge.id}
+                              >
+                                {finalizingId === challenge.id ? "Working..." : "Generate scores"}
+                              </Button>
+                            </>
+                          ) : (
+                            <p className="text-sm ad-text-warning">
+                              Finalized as a community (unscored) challenge: jury results were
+                              recorded but NO league points were generated. To award points,
+                              mark this challenge as Scored on the Challenges page, then return
+                              here and use Generate scores.
+                            </p>
+                          )}
                         </div>
                       )}
                     </Card>

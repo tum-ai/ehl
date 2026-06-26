@@ -92,7 +92,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-55 sequential migrations in `supabase/migrations/`. Key tables:
+59 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055),
   `teams`, `team_members`, `team_invites`, `team_join_requests`

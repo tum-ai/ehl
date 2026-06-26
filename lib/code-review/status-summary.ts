@@ -83,6 +83,78 @@ export function summarizeReviewStatuses(
   };
 }
 
+export interface WorkerHealth {
+  /** "ok" while work is progressing or settled; "stuck" / "dispatch_failed" otherwise. */
+  state: "idle" | "ok" | "stuck" | "dispatch_failed";
+  message: string | null;
+}
+
+/** A review row enriched with queue timing/progress for health detection. */
+export interface HealthReview {
+  status: CodeReviewStatus;
+  progress?: string | null;
+  queuedAt?: string | null;
+}
+
+/**
+ * Decide whether the queue looks healthy, given the current reviews and the last
+ * dispatch outcome. Pure (takes nowMs so it is deterministic in tests).
+ *
+ * - dispatch_failed: the last dispatch attempt failed -> the worker was never
+ *   triggered, so anything queued will sit forever until retried. Highest signal.
+ * - stuck: there are queued rows older than `staleMs`, none are processing, and
+ *   none show progress -> the worker is not picking them up.
+ * - ok: something is processing or progressing, or the queue is fresh.
+ * - idle: nothing queued or processing.
+ */
+export function computeWorkerHealth(
+  reviews: HealthReview[],
+  lastDispatch: { ok: boolean; message: string | null } | null,
+  nowMs: number,
+  staleMs = 3 * 60_000
+): WorkerHealth {
+  const queued = reviews.filter((r) => r.status === "queued");
+  const processing = reviews.filter((r) => r.status === "processing");
+  const inFlight = queued.length > 0 || processing.length > 0;
+
+  if (!inFlight) {
+    return { state: "idle", message: null };
+  }
+
+  // A failed dispatch means nothing will run until retried — surface it even if
+  // the rows were only just queued.
+  if (lastDispatch && lastDispatch.ok === false) {
+    return {
+      state: "dispatch_failed",
+      message:
+        lastDispatch.message ??
+        "The last attempt to trigger the worker failed. Reviews will stay queued until you retry dispatch.",
+    };
+  }
+
+  // Stuck: queued long enough that a running worker should have started, but
+  // nothing is processing and no IN-FLIGHT row shows progress. Only count
+  // progress on queued/processing rows: a completed/failed row keeps its last
+  // step / error message in `progress`, which must not mask a genuinely stalled
+  // queue (a stale queued row sitting behind an old failed one).
+  const anyProgress = reviews.some(
+    (r) => !!r.progress && (r.status === "queued" || r.status === "processing")
+  );
+  const oldestStaleQueued = queued.some((r) => {
+    if (!r.queuedAt) return false;
+    return nowMs - new Date(r.queuedAt).getTime() > staleMs;
+  });
+  if (processing.length === 0 && !anyProgress && oldestStaleQueued) {
+    return {
+      state: "stuck",
+      message:
+        "Reviews have been queued for a while but no worker has picked them up. The GitHub Actions worker may not be running. Try Retry dispatch, or run the process-code-reviews workflow manually.",
+    };
+  }
+
+  return { state: "ok", message: null };
+}
+
 /**
  * Should the admin page keep polling for status updates?
  *

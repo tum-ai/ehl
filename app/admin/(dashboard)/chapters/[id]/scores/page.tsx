@@ -10,6 +10,7 @@ import {
   PARTICIPATION_POINTS,
   getPublishReadiness,
   getPendingJuryTeamIds,
+  getJudgedUnscoredChallenges,
 } from "@/lib/scoring";
 import { publishScores, sendCertificateEmails } from "@/lib/actions/admin";
 
@@ -245,6 +246,16 @@ export default function AdminScoresPage({
   const publishReadiness = getPublishReadiness(
     scores.map((s) => s.teamId),
     pendingJuryTeamIds()
+  );
+  // Challenges the jury ranked but that produce no league points (unscored). This
+  // is the usual reason the page shows "No scores yet" while jury results display
+  // above: the challenge is a community challenge (or was accidentally toggled
+  // unscored). Surface it so the no-op is never silent.
+  const judgedUnscored = getJudgedUnscoredChallenges(
+    challenges,
+    Object.fromEntries(
+      Object.entries(juryData).map(([cid, d]) => [cid, d.aggregated])
+    )
   );
 
   return (
@@ -520,10 +531,37 @@ export default function AdminScoresPage({
                   . Publishing now publishes only finalized scores.
                 </p>
               )}
-              {publishReadiness.kind === "empty" && (
+              {publishReadiness.kind === "empty" && judgedUnscored.length > 0 && (
                 <p className="mt-2 text-sm ad-text-warning">
-                  No scores yet. Finalize the jury rankings to generate scores, or
-                  publish anyway to complete the chapter with an empty leaderboard.
+                  No league scores yet. The jury ranked{" "}
+                  {judgedUnscored.length === 1
+                    ? `challenge "${judgedUnscored[0].title ?? judgedUnscored[0].id}"`
+                    : `${judgedUnscored.length} challenges`}
+                  , but {judgedUnscored.length === 1 ? "it is" : "they are"} marked{" "}
+                  COMMUNITY (unscored), so {judgedUnscored.length === 1 ? "it produces" : "they produce"}{" "}
+                  no league points. If {judgedUnscored.length === 1 ? "it" : "any"} should
+                  count, mark {judgedUnscored.length === 1 ? "it" : "them"} as Scored on the{" "}
+                  <Link
+                    href={`/admin/chapters/${chapterId}/challenges`}
+                    className="underline ad-text-link"
+                  >
+                    Challenges page
+                  </Link>
+                  , then use Generate scores on the{" "}
+                  <Link href="/admin/jury" className="underline ad-text-link">
+                    Jury page
+                  </Link>
+                  .
+                </p>
+              )}
+              {publishReadiness.kind === "empty" && judgedUnscored.length === 0 && (
+                <p className="mt-2 text-sm ad-text-warning">
+                  No scores yet. Finalize the jury rankings on the{" "}
+                  <Link href="/admin/jury" className="underline ad-text-link">
+                    Jury page
+                  </Link>{" "}
+                  to generate scores, or publish anyway to complete the chapter with an
+                  empty leaderboard.
                 </p>
               )}
             </div>

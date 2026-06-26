@@ -2,7 +2,11 @@ import { NextResponse } from "next/server";
 import { requireChapterAdminApi } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { QUERY_LIMITS } from "@/lib/config/limits";
-import { summarizeReviewStatuses } from "@/lib/code-review/status-summary";
+import {
+  summarizeReviewStatuses,
+  computeWorkerHealth,
+} from "@/lib/code-review/status-summary";
+import { getCodeReviewLastDispatch } from "@/lib/settings";
 import type { CodeReviewStatus } from "@/lib/types";
 
 /**
@@ -64,7 +68,7 @@ export async function GET(
   if (submissionIds.length > 0) {
     const { data } = await adminClient
       .from("code_reviews")
-      .select("submission_id, status, progress, cost_usd")
+      .select("submission_id, status, progress, cost_usd, queued_at")
       .in("submission_id", submissionIds);
     reviewRows = (data ?? []) as Array<Record<string, unknown>>;
   }
@@ -74,6 +78,7 @@ export async function GET(
     status: row.status as CodeReviewStatus,
     progress: (row.progress as string) ?? null,
     costUsd: (row.cost_usd as number) ?? null,
+    queuedAt: (row.queued_at as string) ?? null,
   }));
 
   const totalSubmissions = submissionCount ?? submissionIds.length;
@@ -94,20 +99,36 @@ export async function GET(
     const allSubmissionIds = (allSubRows ?? []).map((r) => r.id as string);
     const { data: allReviewRows } = await adminClient
       .from("code_reviews")
-      .select("submission_id, status, progress, cost_usd")
+      .select("submission_id, status, progress, cost_usd, queued_at")
       .in("submission_id", allSubmissionIds);
     allReviews = (allReviewRows ?? []).map((row) => ({
       submissionId: row.submission_id as string,
       status: row.status as CodeReviewStatus,
       progress: (row.progress as string) ?? null,
       costUsd: (row.cost_usd as number) ?? null,
+      queuedAt: (row.queued_at as string) ?? null,
     }));
   }
   const summary = summarizeReviewStatuses(allReviews, totalSubmissions);
 
+  // Persistent worker-health signal so a stuck/failed queue is never a silent
+  // black box. Computed across ALL reviews in the chapter (not just displayed).
+  const lastDispatch = await getCodeReviewLastDispatch();
+  const workerHealth = computeWorkerHealth(
+    allReviews.map((r) => ({
+      status: r.status,
+      progress: r.progress,
+      queuedAt: r.queuedAt,
+    })),
+    lastDispatch ? { ok: lastDispatch.ok, message: lastDispatch.message } : null,
+    Date.now()
+  );
+
   return NextResponse.json({
     reviews,
     summary,
+    workerHealth,
+    lastDispatch,
     totalSubmissions,
     limit,
     // We fetched at most `limit` submissions; if there are more, the list is

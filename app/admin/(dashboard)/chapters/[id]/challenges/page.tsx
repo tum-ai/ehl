@@ -228,17 +228,41 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     formData.set("sponsorLogoUrl", sponsorLogoUrl);
     formData.set("prizeDescription", prizeDescription);
     formData.set("judgingCriteria", judgingCriteria);
-    if (codeReviewEnabled) formData.set("codeReviewEnabled", "on");
-    if (codeReviewInstructions.trim()) formData.set("codeReviewInstructions", codeReviewInstructions.trim());
-    if (isScored) formData.set("isScored", "on");
-    if (inviteJuryToForks) formData.set("inviteJuryToForks", "on");
-    if (entireRequired) formData.set("entireRequired", "on");
+    // Booleans are sent EXPLICITLY as "true"/"false". Never rely on a bare
+    // checkbox's absence to mean false: updateChallenge can no longer tell that
+    // apart from "field not managed by this form", and absent => untouched.
+    formData.set("codeReviewEnabled", codeReviewEnabled ? "true" : "false");
+    formData.set("codeReviewInstructions", codeReviewInstructions.trim());
+    formData.set("isScored", isScored ? "true" : "false");
+    formData.set("inviteJuryToForks", inviteJuryToForks ? "true" : "false");
+    formData.set("entireRequired", entireRequired ? "true" : "false");
     formData.set("submissionFields", JSON.stringify(submissionFields));
-    if (briefFileId) formData.set("briefFileId", briefFileId);
+    formData.set("briefFileId", briefFileId ?? "");
 
     let result;
     if (editingId) {
       formData.set("challengeId", editingId);
+      // Declare exactly which fields this full edit form owns, so updateChallenge
+      // writes all of them (including false booleans / cleared fields) and never
+      // touches anything else.
+      formData.set(
+        "managedFields",
+        [
+          "title",
+          "description",
+          "sponsorName",
+          "sponsorLogoUrl",
+          "prizeDescription",
+          "judgingCriteria",
+          "codeReviewEnabled",
+          "codeReviewInstructions",
+          "isScored",
+          "inviteJuryToForks",
+          "entireRequired",
+          "submissionFields",
+          "briefFileId",
+        ].join(",")
+      );
       result = await updateChallenge(formData);
     } else {
       result = await createChallenge(formData);
