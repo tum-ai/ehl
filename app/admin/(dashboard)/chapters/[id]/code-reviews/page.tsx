@@ -25,6 +25,19 @@ interface ReviewStatusRow {
   status: CodeReviewStatus;
   progress: string | null;
   costUsd: number | null;
+  queuedAt?: string | null;
+}
+
+interface WorkerHealth {
+  state: "idle" | "ok" | "stuck" | "dispatch_failed";
+  message: string | null;
+}
+
+interface LastDispatch {
+  ok: boolean;
+  attempted: boolean;
+  message: string | null;
+  at: string;
 }
 
 // ─── Types ──────────────────────────────────────────────────
@@ -54,6 +67,8 @@ interface CodeReview {
   costUsd: number | null;
   reviewVersion: number;
   progress: string | null;
+  /** Step-by-step worker log, shown as an expandable console. */
+  pipelineLog: unknown[] | null;
 }
 
 interface Team {
@@ -311,6 +326,11 @@ export default function AdminCodeReviewsPage({
   const [statusRows, setStatusRows] = useState<Record<string, ReviewStatusRow>>({});
   const [truncated, setTruncated] = useState(false);
   const [listLimit, setListLimit] = useState(0);
+  // Persistent worker-health + last dispatch outcome (survive reloads), so a
+  // stuck/failed queue is never a silent black box.
+  const [workerHealth, setWorkerHealth] = useState<WorkerHealth | null>(null);
+  const [lastDispatch, setLastDispatch] = useState<LastDispatch | null>(null);
+  const [retrying, setRetrying] = useState(false);
 
   // Model list (loaded once)
   const [availableModels, setAvailableModels] = useState<OpenRouterModel[]>([]);
@@ -374,15 +394,34 @@ export default function AdminCodeReviewsPage({
         reviews: ReviewStatusRow[];
         truncated: boolean;
         limit: number;
+        workerHealth?: WorkerHealth;
+        lastDispatch?: LastDispatch | null;
       };
       const byId: Record<string, ReviewStatusRow> = {};
       for (const r of data.reviews) byId[r.submissionId] = r;
       setStatusRows(byId);
       setTruncated(Boolean(data.truncated));
       setListLimit(data.limit);
+      setWorkerHealth(data.workerHealth ?? null);
+      setLastDispatch(data.lastDispatch ?? null);
     } catch {
       // keep existing status on transient failure
     }
+  }
+
+  // Manually re-trigger the GitHub Actions worker without re-queuing. For when
+  // reviews are stuck Queued because the worker was never triggered.
+  async function retryDispatch() {
+    setRetrying(true);
+    try {
+      const res = await fetch("/api/admin/code-reviews/dispatch", { method: "POST" });
+      const data = await res.json();
+      if (data.dispatch) setDispatchResult(data.dispatch as DispatchResult);
+    } catch {
+      setQueueError("Failed to trigger the worker. Please try again.");
+    }
+    if (chapterId) await refreshStatus(chapterId);
+    setRetrying(false);
   }
 
   // Initial status load once the chapter id is known.
@@ -390,18 +429,22 @@ export default function AdminCodeReviewsPage({
     if (chapterId) refreshStatus(chapterId);
   }, [chapterId]);
 
-  // When a completed review newly appears in the lightweight overview but we
-  // don't yet have its full content, fetch the heavy record once so the report
-  // can render. Failed/processing/queued rows don't need the blob.
+  // When a completed OR failed review newly appears in the lightweight overview
+  // but we don't yet have its full record, fetch it once so the report (completed)
+  // or the console/pipeline log (completed + failed) can render. Processing/queued
+  // rows don't need the heavy blob.
   useEffect(() => {
-    const missingCompleted = Object.values(statusRows).filter(
-      (r) => r.status === "completed" && !reviews[r.submissionId]?.reviewContent
+    const missing = Object.values(statusRows).filter(
+      (r) =>
+        (r.status === "completed" || r.status === "failed") &&
+        !reviews[r.submissionId]?.pipelineLog &&
+        !reviews[r.submissionId]?.reviewContent
     );
-    if (missingCompleted.length === 0) return;
+    if (missing.length === 0) return;
     let cancelled = false;
     (async () => {
       const fetched: Record<string, CodeReview> = {};
-      for (const r of missingCompleted) {
+      for (const r of missing) {
         try {
           const full = await fetch(`/api/admin/code-reviews/${r.submissionId}`).then((res) => res.json());
           if (full) fetched[r.submissionId] = full;
@@ -656,6 +699,39 @@ export default function AdminCodeReviewsPage({
         )
       )}
 
+      {/* Persistent worker health: survives reloads (unlike the transient banner
+          above), so a stuck/failed queue is never an invisible black box. Shows
+          WHAT is wrong and a one-click Retry dispatch. */}
+      {workerHealth && (workerHealth.state === "stuck" || workerHealth.state === "dispatch_failed") && (
+        <div className="mt-6 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="font-semibold">
+                {workerHealth.state === "dispatch_failed"
+                  ? "Worker was not triggered"
+                  : "Reviews are stuck in the queue"}
+              </p>
+              <p className="mt-1">{workerHealth.message}</p>
+              {lastDispatch && (
+                <p className="mt-2 text-xs text-amber-800">
+                  Last dispatch:{" "}
+                  {lastDispatch.ok ? "succeeded" : "FAILED"} at{" "}
+                  {new Date(lastDispatch.at).toLocaleString()}
+                  {lastDispatch.message ? ` — ${lastDispatch.message}` : ""}
+                </p>
+              )}
+            </div>
+            <button
+              onClick={retryDispatch}
+              disabled={retrying}
+              className="shrink-0 rounded-lg border border-amber-400 bg-amber-100 px-3 py-1.5 font-medium text-amber-900 hover:bg-amber-200 disabled:opacity-50"
+            >
+              {retrying ? "Triggering..." : "Retry dispatch"}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Truncation warning if the submission list exceeded the query limit. */}
       {truncated && (
         <div className="mt-6">
@@ -783,7 +859,8 @@ export default function AdminCodeReviewsPage({
                           </div>
                         </div>
 
-                        {/* Progress indicator */}
+                        {/* Live progress (processing, or queued once the worker
+                            started writing a step). */}
                         {progress && (status === "processing" || status === "queued") && (
                           <div className="mt-2 flex items-center gap-2 text-sm ad-text-muted">
                             <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -794,10 +871,46 @@ export default function AdminCodeReviewsPage({
                           </div>
                         )}
 
+                        {/* Queued but no worker step yet: say so explicitly with the
+                            wait time, instead of a bare "Queued" that looks frozen. */}
+                        {status === "queued" && !progress && (
+                          <div className="mt-2 flex items-center gap-2 text-sm ad-text-muted">
+                            <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                            </svg>
+                            Queued, waiting for the worker to pick it up
+                            {st?.queuedAt
+                              ? ` (since ${new Date(st.queuedAt).toLocaleTimeString()})`
+                              : ""}
+                            .
+                          </div>
+                        )}
+
                         {/* Error message for failed reviews */}
                         {status === "failed" && progress && (
                           <p className="mt-2 text-xs ad-text-error">{progress}</p>
                         )}
+
+                        {/* Expandable console: the full pipeline log of what the
+                            worker did, step by step. The data was always captured
+                            (code_reviews.pipeline_log); it just was never shown. */}
+                        {(status === "completed" || status === "failed") &&
+                          Array.isArray(review?.pipelineLog) &&
+                          review.pipelineLog.length > 0 && (
+                            <details className="mt-3 border-t ad-border pt-3">
+                              <summary className="cursor-pointer text-sm font-medium ad-text-link">
+                                View console ({review.pipelineLog.length} steps)
+                              </summary>
+                              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-slate-900 p-3 text-xs leading-relaxed text-slate-100">
+                                {review.pipelineLog
+                                  .map((line) =>
+                                    typeof line === "string" ? line : JSON.stringify(line)
+                                  )
+                                  .join("\n")}
+                              </pre>
+                            </details>
+                          )}
 
                         {/* Show review if completed */}
                         {status === "completed" && review?.reviewContent && (

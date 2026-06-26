@@ -3,6 +3,7 @@ import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 import { dispatchCodeReviewWorker, type DispatchResult } from "@/lib/code-review/dispatch";
+import { recordCodeReviewDispatch } from "@/lib/settings";
 
 const MAX_QUEUED_REVIEWS = QUERY_LIMITS.codeReviewQueueDepth;
 
@@ -40,6 +41,7 @@ export async function POST(request: Request) {
   }
 
   let queued = 0;
+  const queuedAt = new Date().toISOString();
 
   for (const submissionId of submissionIds) {
     const { error } = await adminClient.from("code_reviews").upsert(
@@ -47,6 +49,10 @@ export async function POST(request: Request) {
         submission_id: submissionId,
         status: "queued",
         review_version: 2,
+        // Stamp when it entered the queue + clear stale progress so the console
+        // doesn't show a previous run's last step on a re-queue.
+        queued_at: queuedAt,
+        progress: null,
       },
       { onConflict: "submission_id" }
     );
@@ -64,6 +70,14 @@ export async function POST(request: Request) {
     if (!dispatchResult.ok) {
       console.error(`[code-review queue] ${dispatchResult.message}`);
     }
+    // Persist the outcome so the admin sees it durably (across reloads), not just
+    // in a transient banner that vanishes and leaves a silent "Queued".
+    await recordCodeReviewDispatch({
+      ok: dispatchResult.ok,
+      attempted: dispatchResult.attempted,
+      message: "message" in dispatchResult ? dispatchResult.message : null,
+      at: new Date().toISOString(),
+    });
   }
 
   return NextResponse.json({ success: true, queued, dispatch: dispatchResult });

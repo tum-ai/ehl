@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   summarizeReviewStatuses,
   shouldKeepPolling,
+  computeWorkerHealth,
   type SummarizableReview,
+  type HealthReview,
 } from "@/lib/code-review/status-summary";
 import type { CodeReviewStatus } from "@/lib/types";
 
@@ -80,5 +82,59 @@ describe("shouldKeepPolling", () => {
     expect(shouldKeepPolling(["completed"])).toBe(false);
     expect(shouldKeepPolling(["pending"])).toBe(false);
     expect(shouldKeepPolling([])).toBe(false);
+  });
+});
+
+describe("computeWorkerHealth", () => {
+  const NOW = new Date("2026-06-27T12:00:00Z").getTime();
+  const ago = (mins: number) => new Date(NOW - mins * 60_000).toISOString();
+
+  it("is idle when nothing is queued or processing", () => {
+    const reviews: HealthReview[] = [{ status: "completed" }, { status: "failed" }];
+    expect(computeWorkerHealth(reviews, { ok: true, message: null }, NOW).state).toBe("idle");
+  });
+
+  it("flags dispatch_failed when the last dispatch failed and work is queued", () => {
+    const reviews: HealthReview[] = [{ status: "queued", queuedAt: ago(0.5) }];
+    const h = computeWorkerHealth(
+      reviews,
+      { ok: false, message: "HTTP 404" },
+      NOW
+    );
+    expect(h.state).toBe("dispatch_failed");
+    expect(h.message).toMatch(/404|retry/i);
+  });
+
+  it("flags stuck when queued long ago with no processing and no progress", () => {
+    const reviews: HealthReview[] = [{ status: "queued", queuedAt: ago(10), progress: null }];
+    const h = computeWorkerHealth(reviews, { ok: true, message: null }, NOW);
+    expect(h.state).toBe("stuck");
+  });
+
+  it("is ok when something is processing", () => {
+    const reviews: HealthReview[] = [
+      { status: "queued", queuedAt: ago(10) },
+      { status: "processing", progress: "step 2" },
+    ];
+    expect(computeWorkerHealth(reviews, { ok: true, message: null }, NOW).state).toBe("ok");
+  });
+
+  it("is ok when freshly queued (worker may not have started yet)", () => {
+    const reviews: HealthReview[] = [{ status: "queued", queuedAt: ago(0.5), progress: null }];
+    expect(computeWorkerHealth(reviews, { ok: true, message: null }, NOW).state).toBe("ok");
+  });
+
+  it("is ok when a queued row already shows progress (worker is running)", () => {
+    const reviews: HealthReview[] = [
+      { status: "queued", queuedAt: ago(10), progress: "Cloning repo..." },
+    ];
+    expect(computeWorkerHealth(reviews, { ok: true, message: null }, NOW).state).toBe("ok");
+  });
+
+  it("dispatch_failed takes priority over stuck", () => {
+    const reviews: HealthReview[] = [{ status: "queued", queuedAt: ago(30), progress: null }];
+    expect(
+      computeWorkerHealth(reviews, { ok: false, message: "boom" }, NOW).state
+    ).toBe("dispatch_failed");
   });
 });

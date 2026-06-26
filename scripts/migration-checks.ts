@@ -276,6 +276,13 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
          and c.confdeltype = 'n'
      ) as present`,
   },
+  {
+    // code_reviews.queued_at: when a review entered the queue, for stuck-queue
+    // detection in the admin code-review console.
+    prefix: "00057",
+    label: "code_review_queued_at",
+    sql: column("code_reviews", "queued_at"),
+  },
 ];
 
 /**

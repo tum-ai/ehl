@@ -33,11 +33,27 @@ function fakeAdminClient(opts: {
   submissionCount?: number;
   allSubmissionIds?: string[];
   allReviews?: Array<{ submission_id: string; status: string; progress: string | null; cost_usd: number | null }>;
+  // The app_settings row returned for the last-dispatch lookup ({ value: "<json>" }).
+  lastDispatchValue?: { value: string } | null;
 }) {
   const count = opts.submissionCount ?? opts.submissionIds.length;
   let reviewSelects = 0;
   return {
     from(table: string) {
+      if (table === "app_settings") {
+        // getCodeReviewLastDispatch: .select("value").eq("key",...).single().
+        // Default: no dispatch recorded yet (null).
+        return {
+          select: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({
+                  data: opts.lastDispatchValue ?? null,
+                }),
+            }),
+          }),
+        };
+      }
       if (table === "challenges") {
         return {
           select: () => ({
@@ -176,5 +192,32 @@ describe("GET /api/admin/chapters/[id]/code-reviews", () => {
     expect(json.summary.processing).toBe(1);
     expect(json.summary.completed).toBe(1);
     expect(json.summary.inFlight).toBe(true);
+  });
+
+  it("surfaces a failed last dispatch as workerHealth.dispatch_failed", async () => {
+    mocks.requireChapterAdminApi.mockResolvedValue(null);
+    mocks.createAdminClient.mockReturnValue(
+      fakeAdminClient({
+        challengeIds: ["c1"],
+        submissionIds: ["s1"],
+        reviews: [{ submission_id: "s1", status: "queued", progress: null, cost_usd: null }],
+        lastDispatchValue: {
+          value: JSON.stringify({
+            ok: false,
+            attempted: true,
+            message: "GitHub dispatch failed (HTTP 404)",
+            at: "2026-06-27T00:00:00Z",
+          }),
+        },
+      })
+    );
+
+    const res = await GET(new Request("http://t/"), paramsFor(CHAPTER));
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.workerHealth.state).toBe("dispatch_failed");
+    expect(json.lastDispatch.ok).toBe(false);
+    expect(json.lastDispatch.message).toMatch(/404/);
   });
 });
