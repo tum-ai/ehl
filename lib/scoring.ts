@@ -105,6 +105,26 @@ export function getPendingJuryTeamIds(
   return [...ids];
 }
 
+/**
+ * Challenges that were JUDGED (have aggregated jury results) but are NOT scored,
+ * so they produce no league points by design. Surfacing these stops the scores
+ * page from showing a bare, misleading "No scores yet" when in fact the jury
+ * ranked teams in a community challenge. If such a challenge SHOULD count, the
+ * admin must mark it Scored on the Challenges page.
+ */
+export function getJudgedUnscoredChallenges(
+  challenges: ReadonlyArray<{ id: string; title?: string; isScored: boolean }>,
+  juryAggregatedByChallenge: Record<string, Record<string, number>>
+): Array<{ id: string; title?: string }> {
+  return challenges
+    .filter((c) => {
+      if (c.isScored) return false;
+      const agg = juryAggregatedByChallenge[c.id];
+      return !!agg && Object.keys(agg).length > 0;
+    })
+    .map((c) => ({ id: c.id, title: c.title }));
+}
+
 export function calculateLeaderboard(
   teams: Team[],
   scores: Score[],

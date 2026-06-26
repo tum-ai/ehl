@@ -8,6 +8,122 @@ import { PLACEMENT_POINTS, PARTICIPATION_POINTS } from "@/lib/scoring";
 import { logEvent, logEventStrict } from "@/lib/event-log";
 import { validateJuryRanking } from "@/lib/jury-validation";
 
+// ─── Score generation helpers (shared by finalize + regenerate) ─────────────
+// Not exported: a "use server" module may only export async functions, and these
+// are internal building blocks reused by finalizeJuryVotes and
+// regenerateScoresFromFinalizedRankings so both produce identical scores.
+
+type RankingRow = { ranking: unknown };
+type AdminClient = ReturnType<typeof createAdminClient>;
+
+/** Average each team's placement across all jury rankings, best (lowest) first. */
+function aggregateTeamAverages(
+  rankings: RankingRow[]
+): Array<{ teamId: string; avgPlace: number; voteCount: number }> {
+  const teamPlacements: Record<string, number[]> = {};
+  for (const r of rankings) {
+    const rankingData = (r.ranking as Record<string, string>) ?? {};
+    for (const [place, teamId] of Object.entries(rankingData)) {
+      if (!teamPlacements[teamId]) teamPlacements[teamId] = [];
+      teamPlacements[teamId].push(parseInt(place));
+    }
+  }
+  return Object.entries(teamPlacements)
+    .map(([teamId, places]) => ({
+      teamId,
+      avgPlace: places.reduce((sum, p) => sum + p, 0) / places.length,
+      voteCount: places.length,
+    }))
+    .sort((a, b) => {
+      if (Math.abs(a.avgPlace - b.avgPlace) < 0.001) return b.voteCount - a.voteCount;
+      return a.avgPlace - b.avgPlace;
+    });
+}
+
+/**
+ * Build placement (top 5) + participation scores from jury rankings and upsert
+ * them. Preserves existing admin_override rows. Returns the count written, or an
+ * error string. Idempotent-ish: an upsert keyed (chapter_id, team_id).
+ */
+async function writeScoresFromRankings(
+  adminClient: AdminClient,
+  challengeId: string,
+  chapterId: string,
+  challengeName: string,
+  rankings: RankingRow[]
+): Promise<{ scoresWritten: number } | { error: string }> {
+  const teamAverages = aggregateTeamAverages(rankings);
+
+  const { data: submissions } = await adminClient
+    .from("submissions")
+    .select("team_id")
+    .eq("challenge_id", challengeId);
+
+  // Don't overwrite admin overrides.
+  const { data: existingOverrides } = await adminClient
+    .from("scores")
+    .select("team_id")
+    .eq("chapter_id", chapterId)
+    .eq("source", "admin_override");
+  const overriddenTeamIds = new Set(
+    (existingOverrides ?? []).map((s) => s.team_id as string)
+  );
+
+  const scoresToUpsert: Array<{
+    chapter_id: string;
+    team_id: string;
+    challenge_id: string;
+    challenge_name: string;
+    placement: number | null;
+    points: number;
+    source: string;
+    published: boolean;
+  }> = [];
+  const rankedTeamIds = new Set<string>();
+
+  for (let i = 0; i < Math.min(5, teamAverages.length); i++) {
+    const placement = i + 1;
+    const teamId = teamAverages[i].teamId;
+    rankedTeamIds.add(teamId);
+    if (overriddenTeamIds.has(teamId)) continue;
+    scoresToUpsert.push({
+      chapter_id: chapterId,
+      team_id: teamId,
+      challenge_id: challengeId,
+      challenge_name: challengeName,
+      placement,
+      points: PLACEMENT_POINTS[placement] || 0,
+      source: "jury",
+      published: false,
+    });
+  }
+
+  for (const sub of submissions ?? []) {
+    const teamId = sub.team_id as string;
+    if (!rankedTeamIds.has(teamId) && !overriddenTeamIds.has(teamId)) {
+      scoresToUpsert.push({
+        chapter_id: chapterId,
+        team_id: teamId,
+        challenge_id: challengeId,
+        challenge_name: challengeName,
+        placement: null,
+        points: PARTICIPATION_POINTS,
+        source: "jury",
+        published: false,
+      });
+    }
+  }
+
+  if (scoresToUpsert.length > 0) {
+    const { error } = await adminClient
+      .from("scores")
+      .upsert(scoresToUpsert, { onConflict: "chapter_id,team_id" });
+    if (error) return { error: `Failed to save scores: ${error.message}` };
+  }
+
+  return { scoresWritten: scoresToUpsert.length };
+}
+
 export async function removeJuryMember(userId: string): Promise<{ success?: boolean; error?: string }> {
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
@@ -266,112 +382,22 @@ export async function finalizeJuryVotes(challengeId: string) {
 
   const isScored = challenge.is_scored as boolean;
 
-  // Aggregate rankings: average placement across all votes
-  // Each ranking is {place: teamId}, we invert to {teamId: [places]}
-  const teamPlacements: Record<string, number[]> = {};
+  const teamAverages = aggregateTeamAverages(rankings);
 
-  for (const r of rankings) {
-    const rankingData = r.ranking as Record<string, string>;
-    for (const [place, teamId] of Object.entries(rankingData)) {
-      if (!teamPlacements[teamId]) teamPlacements[teamId] = [];
-      teamPlacements[teamId].push(parseInt(place));
-    }
-  }
-
-  // Calculate average placement per team, sort ascending (lower = better)
-  const teamAverages = Object.entries(teamPlacements)
-    .map(([teamId, places]) => ({
-      teamId,
-      avgPlace: places.reduce((sum, p) => sum + p, 0) / places.length,
-      voteCount: places.length,
-    }))
-    .sort((a, b) => {
-      // More votes first as tiebreaker, then lower average
-      if (Math.abs(a.avgPlace - b.avgPlace) < 0.001) return b.voteCount - a.voteCount;
-      return a.avgPlace - b.avgPlace;
-    });
-
-  // Only generate scores for scored challenges (challenge partner)
-  // Community partner challenges are judged but don't affect league points
+  // Only generate scores for scored challenges (challenge partner). Community
+  // partner challenges are judged but don't affect league points (and the
+  // caller is told scoresWritten=0 so it never implies otherwise).
+  let scoresWrittenCount = 0;
   if (isScored) {
-    const { data: submissions } = await adminClient
-      .from("submissions")
-      .select("team_id")
-      .eq("challenge_id", challengeId);
-
-    // Load existing admin overrides so we don't overwrite them
-    const { data: existingOverrides } = await adminClient
-      .from("scores")
-      .select("team_id")
-      .eq("chapter_id", challenge.chapter_id as string)
-      .eq("source", "admin_override");
-    const overriddenTeamIds = new Set(
-      (existingOverrides ?? []).map((s) => s.team_id as string)
+    const written = await writeScoresFromRankings(
+      adminClient,
+      challengeId,
+      challenge.chapter_id as string,
+      (challenge.title as string) || "",
+      rankings
     );
-
-    // Build all scores in memory, then upsert as a single batch (atomic)
-    const scoresToUpsert: Array<{
-      chapter_id: unknown;
-      team_id: string;
-      challenge_id: string;
-      challenge_name: string;
-      placement: number | null;
-      points: number;
-      source: string;
-      published: boolean;
-    }> = [];
-
-    const rankedTeamIds = new Set<string>();
-
-    for (let i = 0; i < Math.min(5, teamAverages.length); i++) {
-      const placement = i + 1;
-      const points = PLACEMENT_POINTS[placement] || 0;
-      const teamId = teamAverages[i].teamId;
-      rankedTeamIds.add(teamId);
-
-      if (overriddenTeamIds.has(teamId)) continue;
-
-      scoresToUpsert.push({
-        chapter_id: challenge.chapter_id,
-        team_id: teamId,
-        challenge_id: challengeId,
-        challenge_name: (challenge.title as string) || "",
-        placement,
-        points,
-        source: "jury",
-        published: false,
-      });
-    }
-
-    // Participation scores for unranked submissions
-    if (submissions) {
-      for (const sub of submissions) {
-        const teamId = sub.team_id as string;
-        if (!rankedTeamIds.has(teamId) && !overriddenTeamIds.has(teamId)) {
-          scoresToUpsert.push({
-            chapter_id: challenge.chapter_id,
-            team_id: teamId,
-            challenge_id: challengeId,
-            challenge_name: (challenge.title as string) || "",
-            placement: null,
-            points: PARTICIPATION_POINTS,
-            source: "jury",
-            published: false,
-          });
-        }
-      }
-    }
-
-    // Single atomic upsert for all scores
-    if (scoresToUpsert.length > 0) {
-      const { error: scoreError } = await adminClient
-        .from("scores")
-        .upsert(scoresToUpsert, { onConflict: "chapter_id,team_id" });
-
-      if (scoreError) {
-        return { error: `Failed to save scores: ${scoreError.message}` };
-      }
-    }
+    if ("error" in written) return { error: written.error };
+    scoresWrittenCount = written.scoresWritten;
   }
 
   // Mark all rankings for this challenge as final
@@ -395,10 +421,99 @@ export async function finalizeJuryVotes(challengeId: string) {
     entityId: challengeId,
     actorId: adminUserId,
     actorType: "admin",
-    delta: { created: { rankings_count: rankings.length } },
+    delta: { created: { rankings_count: rankings.length, is_scored: isScored } },
   });
 
   revalidatePath("/admin/jury");
   revalidatePath("/jury");
-  return { success: true };
+  // Return what ACTUALLY happened so the UI never presents a silent no-op. An
+  // unscored (community) challenge is finalized but produces NO league scores by
+  // design; the caller must say so instead of implying scores were generated.
+  return {
+    success: true,
+    isScored,
+    scoresWritten: isScored ? scoresWrittenCount : 0,
+    rankedTeamCount: Math.min(5, teamAverages.length),
+  };
+}
+
+/**
+ * Recovery path for a challenge that was finalized while it was (accidentally)
+ * unscored, then corrected to Scored. finalizeJuryVotes refuses to run twice
+ * (jury_finalized_at is set), so without this the admin is stuck: the challenge
+ * is Scored and finalized but has no score rows, and there is no way to generate
+ * them. This generates scores from the ALREADY-FINALIZED jury rankings without
+ * touching jury_finalized_at (an audit fact). Preconditions are strict.
+ */
+export async function regenerateScoresFromFinalizedRankings(challengeId: string) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  const adminUserId = await getActingUserId();
+  if (!adminUserId) return { error: "Could not identify admin user." };
+  const adminClient = createAdminClient();
+
+  const { data: challenge } = await adminClient
+    .from("challenges")
+    .select("chapter_id, title, is_scored, jury_finalized_at")
+    .eq("id", challengeId)
+    .single();
+  if (!challenge) return { error: "Challenge not found." };
+
+  if (!challenge.is_scored) {
+    return {
+      error:
+        "This challenge is not marked as Scored. Mark it Scored on the Challenges page first, then generate scores.",
+    };
+  }
+  if (!challenge.jury_finalized_at) {
+    return {
+      error:
+        "This challenge has not been finalized yet. Use Finalize on the Jury page instead.",
+    };
+  }
+
+  // Do not clobber finalized scores: only generate when none exist yet for this
+  // challenge (admin_override rows are preserved regardless).
+  const { data: existing } = await adminClient
+    .from("scores")
+    .select("team_id")
+    .eq("chapter_id", challenge.chapter_id as string)
+    .eq("challenge_id", challengeId)
+    .eq("source", "jury");
+  if (existing && existing.length > 0) {
+    return {
+      error: `Scores already exist for this challenge (${existing.length}). Use Score Overrides to adjust them.`,
+    };
+  }
+
+  const { data: rankings } = await adminClient
+    .from("jury_rankings")
+    .select("ranking")
+    .eq("challenge_id", challengeId);
+  if (!rankings || rankings.length === 0) {
+    return { error: "No finalized jury rankings exist for this challenge." };
+  }
+
+  const written = await writeScoresFromRankings(
+    adminClient,
+    challengeId,
+    challenge.chapter_id as string,
+    (challenge.title as string) || "",
+    rankings
+  );
+  if ("error" in written) return { error: written.error };
+  const scoresWritten = written.scoresWritten;
+
+  await logEventStrict({
+    action: "jury.scores_regenerated",
+    entityType: "challenge",
+    entityId: challengeId,
+    actorId: adminUserId,
+    actorType: "admin",
+    delta: { created: { scores_written: scoresWritten } },
+  });
+
+  revalidatePath("/admin/jury");
+  revalidatePath("/jury");
+  return { success: true, scoresWritten };
 }

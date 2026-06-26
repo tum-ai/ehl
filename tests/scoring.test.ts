@@ -6,6 +6,7 @@ import {
   calculateLeaderboard,
   getPublishReadiness,
   getPendingJuryTeamIds,
+  getJudgedUnscoredChallenges,
 } from "@/lib/scoring";
 import type { Team, Score, Chapter } from "@/lib/types";
 
@@ -486,5 +487,37 @@ describe("getPendingJuryTeamIds", () => {
 
   it("returns empty for no challenges", () => {
     expect(getPendingJuryTeamIds([], {})).toEqual([]);
+  });
+});
+
+// ─── getJudgedUnscoredChallenges() ──────────────────────────
+// Surfaces challenges the jury ranked but that are unscored, so the scores page
+// can explain a "No scores yet" that coexists with displayed jury results
+// (instead of a misleading bare message — the actual reported bug).
+describe("getJudgedUnscoredChallenges", () => {
+  it("returns an unscored challenge that has aggregated jury results", () => {
+    const challenges = [
+      { id: "ch1", title: "Community", isScored: false },
+      { id: "ch2", title: "Scored", isScored: true },
+    ];
+    const aggregated = { ch1: { t1: 8 }, ch2: { t2: 8 } };
+    expect(getJudgedUnscoredChallenges(challenges, aggregated)).toEqual([
+      { id: "ch1", title: "Community" },
+    ]);
+  });
+
+  it("ignores an unscored challenge with no jury results", () => {
+    const challenges = [{ id: "ch1", title: "Community", isScored: false }];
+    expect(getJudgedUnscoredChallenges(challenges, {})).toEqual([]);
+  });
+
+  it("ignores an unscored challenge with an empty aggregation", () => {
+    const challenges = [{ id: "ch1", title: "Community", isScored: false }];
+    expect(getJudgedUnscoredChallenges(challenges, { ch1: {} })).toEqual([]);
+  });
+
+  it("never returns a scored challenge", () => {
+    const challenges = [{ id: "ch1", title: "Scored", isScored: true }];
+    expect(getJudgedUnscoredChallenges(challenges, { ch1: { t1: 8 } })).toEqual([]);
   });
 });
