@@ -62,12 +62,25 @@ describe("isDevLoginEnabled", () => {
     process.env.DEV_LOGIN_ENABLED = "true";
     process.env.VERCEL_ENV = "production";
     expect(() => isDevLoginEnabled()).toThrow(
-      "DEV_LOGIN_ENABLED must never be set on the production deployment."
+      /DEV_LOGIN_ENABLED must never be set on a production deployment/i
     );
   });
 
-  it("does not throw on non-production Vercel environments (preview/sim)", () => {
+  it("throws if the flag is set while pointed at the PRODUCTION Supabase DB, even off Vercel-prod", () => {
+    // Closes the gap where VERCEL_ENV is not "production" (a non-Vercel or
+    // prod-like deployment) but the app is connected to the prod database.
     process.env.DEV_LOGIN_ENABLED = "true";
+    delete process.env.VERCEL_ENV;
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://fdoeygfcjllrzogoymsf.supabase.co";
+    expect(() => isDevLoginEnabled()).toThrow(
+      /production Supabase database detected/i
+    );
+  });
+
+  it("does not throw on non-production Vercel environments pointed at the TEST DB (preview/sim)", () => {
+    process.env.DEV_LOGIN_ENABLED = "true";
+    // A real preview/sim points at the TEST Supabase project, not prod.
+    process.env.NEXT_PUBLIC_SUPABASE_URL = "https://wbplmgiykuxzfkqxczzf.supabase.co";
 
     process.env.VERCEL_ENV = "preview";
     expect(isDevLoginEnabled()).toBe(true);
@@ -76,6 +89,27 @@ describe("isDevLoginEnabled", () => {
     delete process.env.VERCEL_ENV;
     (process.env as Record<string, string>).NODE_ENV = "production";
     expect(isDevLoginEnabled()).toBe(true);
+  });
+
+  it("a lookalike DB host does NOT count as production (exact hostname match)", () => {
+    process.env.DEV_LOGIN_ENABLED = "true";
+    delete process.env.VERCEL_ENV;
+    // A host that merely CONTAINS the prod ref as a substring must not trip.
+    process.env.NEXT_PUBLIC_SUPABASE_URL =
+      "https://fdoeygfcjllrzogoymsf.supabase.co.evil.example";
+    expect(isDevLoginEnabled()).toBe(true);
+  });
+
+  it("still trips on the prod DB despite uppercase, a port, or a trailing dot (FQDN)", () => {
+    // A trailing dot is a valid FQDN and an uppercase host + explicit port are
+    // all equivalent to the prod host; none may be used to dodge the tripwire.
+    process.env.DEV_LOGIN_ENABLED = "true";
+    delete process.env.VERCEL_ENV;
+    process.env.NEXT_PUBLIC_SUPABASE_URL =
+      "https://FDOEYGFCJLLRZOGOYMSF.SUPABASE.CO.:443";
+    expect(() => isDevLoginEnabled()).toThrow(
+      /production Supabase database detected/i
+    );
   });
 });
 
@@ -117,7 +151,7 @@ describe("devLoginAction", () => {
     process.env.VERCEL_ENV = "production";
 
     await expect(devLoginAction(formDataFor("admin@example.com"))).rejects.toThrow(
-      "DEV_LOGIN_ENABLED must never be set on the production deployment."
+      /DEV_LOGIN_ENABLED must never be set on a production deployment/i
     );
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
   });

@@ -1,0 +1,63 @@
+name: Process Code Reviews (TEST)
+
+# TEST-ONLY mirror of process-code-reviews.yml. It runs the SAME worker script
+# but against the TEST Supabase database, triggered by a SEPARATE event type
+# (`process-code-reviews-test`) that ONLY the sim/preview deployment dispatches
+# (see lib/code-review/dispatch.ts codeReviewEventType()). The production worker
+# and the production event type are intentionally untouched by this file, so this
+# can never affect production code-review.
+
+on:
+  repository_dispatch:
+    types: [process-code-reviews-test]
+  workflow_dispatch: {} # Manual trigger from the GitHub UI
+
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Smaller fan-out than prod: test runs are occasional and the test DB never
+    # has the ~100-repo event load. The worker still claims rows atomically, so
+    # any matrix size is safe.
+    strategy:
+      fail-fast: false
+      matrix:
+        worker: [1, 2]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Defense-in-depth: this worker must ONLY ever touch the TEST database. Fail
+      # loudly if TEST_SUPABASE_URL is not the known test project ref, so a mis-set
+      # secret can never make this run against production.
+      # (Project refs are not secrets; refs are already exposed in client bundles.)
+      - name: Guard - must target the TEST database
+        env:
+          URL: ${{ secrets.TEST_SUPABASE_URL }}
+        run: |
+          if ! echo "$URL" | grep -q "wbplmgiykuxzfkqxczzf.supabase.co"; then
+            echo "::error::TEST_SUPABASE_URL is not the test project ref. Refusing to run." >&2
+            exit 1
+          fi
+
+      - name: Process queued code reviews against the TEST DB
+        run: pnpm tsx scripts/process-code-reviews.ts
+        env:
+          WORKER_ID: ${{ matrix.worker }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          # No TEST_OPENROUTER_API_KEY exists; reuse the shared key for occasional
+          # test runs. The pipeline prefers app_settings.openrouter_api_key from the
+          # TEST DB over this env fallback, so cost can be steered via the test DB.
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}
