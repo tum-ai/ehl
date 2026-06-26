@@ -564,18 +564,30 @@ export async function submitSingleTeamRankingViaUI(
   await expect(teamBtn).toBeVisible({ timeout: 20000 });
   await teamBtn.click();
 
-  // Once the slot is filled the main Submit Vote button is enabled.
-  const mainSubmit = page.getByRole("button", { name: /^submit vote$/i });
+  // Once the slot is filled the main submit button is enabled. The label is
+  // "Submit Vote" for a first vote and "Update Vote" if the juror already voted
+  // (the rank page renders one or the other based on hasExistingVote), so match
+  // both rather than assuming a first vote.
+  const submitLabel = /^(submit|update) vote$/i;
+  const mainSubmit = page.getByRole("button", { name: submitLabel });
   await expect(mainSubmit).toBeEnabled({ timeout: 10000 });
   await mainSubmit.click();
 
   // Confirmation modal → confirm. The modal replaces the main button, so the
-  // remaining Submit Vote is the modal's. On success the page navigates back to
-  // /jury/<slug>; wait for that so we know the vote actually persisted.
-  const confirmSubmit = page.getByRole("button", { name: /^submit vote$/i }).last();
+  // remaining submit button is the modal's.
+  const confirmSubmit = page.getByRole("button", { name: submitLabel }).last();
   await expect(confirmSubmit).toBeVisible({ timeout: 10000 });
   await confirmSubmit.click();
-  await page.waitForURL(new RegExp(`/jury/${opts.slug}$`), { timeout: 20000 });
+
+  // On success the rank page navigates back to the challenge view, which is
+  // `/jury/<slug>?challenge=<id>` (router.push(`/jury/${slug}${backQuery}`) in
+  // app/jury/[chapter-slug]/rank/page.tsx). The previous `/jury/<slug>$` regex
+  // never matched because of the query string. Match the pathname EXACTLY (not a
+  // raw-interpolated regex) so a slug with regex-special chars or a sibling slug
+  // like `<slug>-other` can never cause a false match.
+  await page.waitForURL((url) => url.pathname === `/jury/${opts.slug}`, {
+    timeout: 20000,
+  });
 }
 
 /**
@@ -647,63 +659,77 @@ export async function submitApplicationViaUI(
   await page.locator('input[name="email"]').fill(opts.email);
   await page.locator('input[name="email"]').blur();
 
+  await fillApplicationFields(page, {
+    firstName: opts.firstName,
+    lastName: opts.lastName,
+    withCv: opts.withCv,
+  });
+
+  await page.getByRole("button", { name: /submit application/i }).click();
+  await expect(page.getByText(/application submitted/i)).toBeVisible({ timeout: 20000 });
+}
+
+/**
+ * Fill the shared <ApplicationFields> portion of a form (everything below the
+ * email/account fields, up to and including the CV decision). Used by BOTH the
+ * public apply form and the walk-in form, which render the same ApplicationFields
+ * component — so the field-fill stays single-sourced and can't drift between the
+ * two flows. The caller fills the form-specific top fields (email for apply;
+ * email + password + confirm for walk-in) and clicks the submit button.
+ */
+export async function fillApplicationFields(
+  page: Page,
+  opts: {
+    firstName: string;
+    lastName: string;
+    withCv?: boolean;
+    // The walk-in form renders ApplicationFields with cvAlwaysOptional=true, so
+    // there is NO "Do you want to upload your CV?" radio — the CV input is always
+    // shown and optional. Set this so the helper skips that radio.
+    cvAlwaysOptional?: boolean;
+  }
+): Promise<void> {
   await page.locator('input[name="firstName"]').fill(opts.firstName);
   await page.locator('input[name="lastName"]').fill(opts.lastName);
   await page.locator('input[name="dateOfBirth"]').fill("2000-01-15");
-  await page.getByText("Male", { exact: true }).click();
+  await page.locator('input[name="gender"][value="Male"]').check({ force: true });
   await page.locator('input[name="locationCity"]').fill("Munich");
   await page.locator('input[name="locationCountry"]').fill("Germany");
   await page.locator('input[name="nationality"]').fill("German");
 
   // Academic: not currently studying (keeps form short).
-  await page.getByText("No", { exact: true }).first().click();
-
-  await page
-    .getByText("Do you have any programming skills?")
-    .locator("xpath=ancestor::div[1]")
-    .getByText("Yes", { exact: true })
-    .click();
-  await page
-    .getByText("Are you a TUM.ai member?")
-    .locator("xpath=ancestor::div[1]")
-    .getByText("No", { exact: true })
-    .click();
+  await page.locator('input[name="currentlyStudying"][value="false"]').check({ force: true });
+  await page.locator('input[name="hasProgrammingSkills"][value="true"]').check({ force: true });
+  await page.locator('input[name="isTumaiMember"][value="false"]').check({ force: true });
   await page
     .locator('textarea[name="hackathonExperience"]')
     .fill("Attended two hackathons previously and enjoy building fast.");
 
-  await page
-    .getByText("Do you already have a team?")
-    .locator("xpath=ancestor::div[1]")
-    .getByText("No", { exact: true })
-    .click();
-
-  await page.getByText("None", { exact: true }).click();
-  await page.getByText("Men's", { exact: true }).click();
-  await page.getByText("M", { exact: true }).click();
+  await page.locator('input[name="hasTeam"][value="false"]').check({ force: true });
+  await page.locator('input[name="dietaryRestrictions"][value="None"]').check({ force: true });
+  await page.locator('input[name="tshirtCut"][value="men\'s"]').check({ force: true });
+  await page.locator('input[name="tshirtSize"][value="M"]').check({ force: true });
   await page.getByText("LinkedIn", { exact: true }).click();
 
-  if (opts.withCv) {
-    await page
-      .getByText("Do you want to upload your CV?")
-      .locator("xpath=ancestor::div[1]")
-      .getByText("Yes", { exact: true })
-      .click();
+  if (opts.cvAlwaysOptional) {
+    // Walk-in: no "want CV?" radio; the CV input is always present and optional.
+    if (opts.withCv) {
+      await page.locator('input[name="cv"]').setInputFiles({
+        name: "cv.pdf",
+        mimeType: "application/pdf",
+        buffer: tinyPdfBuffer(),
+      });
+    }
+  } else if (opts.withCv) {
+    await page.locator('input[name="wantsCv"][value="true"]').check({ force: true });
     await page.locator('input[name="cv"]').setInputFiles({
       name: "cv.pdf",
       mimeType: "application/pdf",
       buffer: tinyPdfBuffer(),
     });
   } else {
-    await page
-      .getByText("Do you want to upload your CV?")
-      .locator("xpath=ancestor::div[1]")
-      .getByText("No", { exact: true })
-      .click();
+    await page.locator('input[name="wantsCv"][value="false"]').check({ force: true });
   }
-
-  await page.getByRole("button", { name: /submit application/i }).click();
-  await expect(page.getByText(/application submitted/i)).toBeVisible({ timeout: 20000 });
 }
 
 /** Assert a profile row exists for an email (DB-level confirmation). */
