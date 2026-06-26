@@ -387,11 +387,43 @@ export async function getSession() {
 
   if (!user) return null;
 
-  const { data: profile } = await supabase
+  let { data: profile } = await supabase
     .from("profiles")
     .select("*")
     .eq("id", user.id)
     .single();
+
+  // Last-resort self-heal: a logged-in user must always have a profile. The DB
+  // trigger (migration 00055) guarantees this for new accounts; this repairs any
+  // pre-existing profileless account (e.g. an imported user) on their next
+  // authenticated request, so the FK to profiles(id) and participant views never
+  // break. Fail-soft: a repair hiccup must never break the session/login.
+  if (!profile) {
+    try {
+      const email = (user.email ?? "").trim().toLowerCase();
+      const role = email && (await isAdminEmail(email)) ? "admin" : "participant";
+      const adminClient = createAdminClient();
+      await adminClient
+        .from("profiles")
+        .upsert(
+          {
+            id: user.id,
+            email: user.email ?? null,
+            name:
+              (user.user_metadata?.full_name as string) ||
+              (user.user_metadata?.name as string) ||
+              user.email ||
+              null,
+            role,
+          },
+          { onConflict: "id", ignoreDuplicates: true }
+        );
+      const reread = await supabase.from("profiles").select("*").eq("id", user.id).single();
+      profile = reread.data;
+    } catch (e) {
+      console.error("getSession: profile self-heal failed for", user.id, e);
+    }
+  }
 
   return {
     user,

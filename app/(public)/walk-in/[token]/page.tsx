@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Section } from "@/components/ui/section";
 import { WalkInForm } from "@/components/application/walk-in-form";
 import { getWalkInChapterByToken } from "@/lib/actions/walk-in";
+import { getSession } from "@/lib/actions/auth";
 
 interface PageProps {
   params: Promise<{ token: string }>;
@@ -26,12 +27,20 @@ export default async function WalkInPage({ params }: PageProps) {
     notFound();
   }
 
+  // A signed-in participant reuses their existing account: the form prefills and
+  // locks their email and drops the password fields (the server reuses the
+  // authenticated session, no password needed). A logged-out walk-in creates a
+  // new account as before.
+  const session = await getSession();
+  const signedInEmail = session?.user?.email ?? null;
+
   return (
     <Section>
       <WalkInForm
         walkInToken={token}
         chapterId={chapter.id}
         chapterName={chapter.name}
+        signedInEmail={signedInEmail}
       />
     </Section>
   );

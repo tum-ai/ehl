@@ -449,10 +449,23 @@ export async function toggleLookingForTeam(value: boolean) {
 
   const adminClient = createAdminClient();
 
-  await adminClient
+  // Update and CONFIRM a row was actually changed. Previously this returned
+  // success even when 0 rows matched (e.g. a user whose profile row was missing),
+  // so the toggle silently "didn't stick". Select the updated row back and error
+  // if nothing was updated, so a missing profile surfaces instead of hiding.
+  const { data: updated, error: updateError } = await adminClient
     .from("profiles")
     .update({ looking_for_team: value })
-    .eq("id", user.id);
+    .eq("id", user.id)
+    .select("id")
+    .maybeSingle();
+
+  if (updateError) {
+    return { error: "Could not update your status. Please try again." };
+  }
+  if (!updated) {
+    return { error: "Your profile could not be found. Please reload and try again." };
+  }
 
   return { success: true };
 }

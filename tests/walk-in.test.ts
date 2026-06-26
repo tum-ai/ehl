@@ -295,6 +295,169 @@ describe("submitWalkInApplication", () => {
     expect(calls.find((c) => c.table === "profiles" && c.op === "upsert")).toBeUndefined();
   });
 
+  it("signed-in owner with an ACCEPTED application: returns the existing check-in token, writes NOTHING (idempotent)", async () => {
+    // The fix for the "already registered" dead-end: a signed-in owner who is
+    // already accepted for this chapter just gets their existing check-in QR back.
+    mocks.getSession.mockResolvedValue({
+      user: { email: "walkin@example.com" },
+      profile: { id: "owner-1" },
+    });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi.fn();
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "chapter_walk_in" && op === "select")
+            return { data: { chapter_id: CHAPTER_ID } };
+          if (table === "chapters" && op === "select")
+            return { data: { id: CHAPTER_ID, name: "Paris", status: "hacking" } };
+          if (table === "applications" && op === "select")
+            return { data: { id: "app-1", status: "accepted", check_in_token: "existing-token" } };
+          if (table === "profiles" && op === "select") return { data: { id: "owner-1" } };
+          return { data: null, error: null };
+        },
+        auth: { createUser },
+      })
+    );
+    const result = await submitWalkInApplication(baseForm());
+    expect("success" in result && result.success).toBe(true);
+    expect("checkInToken" in result && result.checkInToken).toBe("existing-token");
+    expect(createUser).not.toHaveBeenCalled();
+    expect(calls.find((c) => c.table === "applications" && c.op === "insert")).toBeUndefined();
+  });
+
+  it("signed-in owner with NO application for this chapter: creates an accepted app for the EXISTING account, no new auth user", async () => {
+    mocks.getSession.mockResolvedValue({
+      user: { email: "walkin@example.com" },
+      profile: { id: "owner-1" },
+    });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi.fn();
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "chapter_walk_in" && op === "select")
+            return { data: { chapter_id: CHAPTER_ID } };
+          if (table === "chapters" && op === "select")
+            return { data: { id: CHAPTER_ID, name: "Paris", status: "hacking" } };
+          if (table === "applications" && op === "select") return { data: null }; // no app here
+          if (table === "profiles" && op === "select") return { data: { id: "owner-1" } };
+          if (table === "applications" && op === "insert")
+            return { data: { id: "new-app", check_in_token: "fresh-token" }, error: null };
+          return { data: null, error: null };
+        },
+        auth: { createUser },
+      })
+    );
+    const result = await submitWalkInApplication(baseForm());
+    expect("success" in result && result.success).toBe(true);
+    expect("checkInToken" in result && result.checkInToken).toBe("fresh-token");
+    // Reused the existing account: NO new auth user.
+    expect(createUser).not.toHaveBeenCalled();
+    // It DOES idempotently self-heal the profile (ignoreDuplicates, never
+    // destructive) so a profileless imported owner gets repaired — but never
+    // creates a second auth user.
+    const upsert = calls.find((c) => c.table === "profiles" && c.op === "upsert");
+    expect(upsert).toBeDefined();
+    // And DID insert an accepted application.
+    const insert = calls.find((c) => c.table === "applications" && c.op === "insert");
+    expect(insert).toBeDefined();
+  });
+
+  it("signed-in owner with NO profile row (imported/profileless) is repaired, not dead-ended: reuses session user id, no createUser", async () => {
+    // The exact bug class that blocked team formation: a valid session whose
+    // profile is null. The owner path must use session.user.id and self-heal,
+    // NOT fall through to createUser (which would fail on the existing auth user).
+    mocks.getSession.mockResolvedValue({
+      user: { id: "session-uid", email: "walkin@example.com" },
+      profile: null,
+    });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi.fn();
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "chapter_walk_in" && op === "select")
+            return { data: { chapter_id: CHAPTER_ID } };
+          if (table === "chapters" && op === "select")
+            return { data: { id: CHAPTER_ID, name: "Paris", status: "hacking" } };
+          if (table === "applications" && op === "select") return { data: null };
+          if (table === "profiles" && op === "select") return { data: null }; // profileless!
+          if (table === "applications" && op === "insert")
+            return { data: { id: "new-app", check_in_token: "tok" }, error: null };
+          return { data: null, error: null };
+        },
+        auth: { createUser },
+      })
+    );
+    const result = await submitWalkInApplication(baseForm());
+    expect("success" in result && result.success).toBe(true);
+    // Critically: NO createUser (the auth user already exists) — no dead-end.
+    expect(createUser).not.toHaveBeenCalled();
+    // The profile was self-healed against the SESSION user id.
+    const upsert = calls.find((c) => c.table === "profiles" && c.op === "upsert");
+    expect(upsert).toBeDefined();
+    expect((upsert!.payload as { id: string }).id).toBe("session-uid");
+  });
+
+  it("signed-in owner with a REJECTED application here: refused (a public QR must not promote it), no writes", async () => {
+    mocks.getSession.mockResolvedValue({
+      user: { email: "walkin@example.com" },
+      profile: { id: "owner-1" },
+    });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi.fn();
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "chapter_walk_in" && op === "select")
+            return { data: { chapter_id: CHAPTER_ID } };
+          if (table === "chapters" && op === "select")
+            return { data: { id: CHAPTER_ID, name: "Paris", status: "hacking" } };
+          if (table === "applications" && op === "select")
+            return { data: { id: "app-1", status: "rejected", check_in_token: "secret" } };
+          if (table === "profiles" && op === "select") return { data: { id: "owner-1" } };
+          return { data: null, error: null };
+        },
+        auth: { createUser },
+      })
+    );
+    const result = await submitWalkInApplication(baseForm());
+    expect("error" in result && result.error).toMatch(/registration desk/i);
+    expect(createUser).not.toHaveBeenCalled();
+    expect(calls.find((c) => c.table === "applications" && c.op === "insert")).toBeUndefined();
+  });
+
+  it("NOT signed in but the email has an accepted app: refuses without leaking the check-in token (public QR safety)", async () => {
+    // Default getSession mock has no matching user.email -> not the owner.
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: ({ table, op }) => {
+          if (table === "chapter_walk_in" && op === "select")
+            return { data: { chapter_id: CHAPTER_ID } };
+          if (table === "chapters" && op === "select")
+            return { data: { id: CHAPTER_ID, name: "Paris", status: "hacking" } };
+          if (table === "applications" && op === "select")
+            return { data: { id: "app-1", status: "accepted", check_in_token: "secret-token" } };
+          if (table === "profiles" && op === "select") return { data: { id: "owner-1" } };
+          return { data: null, error: null };
+        },
+      })
+    );
+    const result = await submitWalkInApplication(baseForm());
+    expect("error" in result).toBe(true);
+    // Must NOT return the token to a non-owner.
+    expect("checkInToken" in result).toBe(false);
+    expect("success" in result).toBe(false);
+    expect("error" in result && result.error).toMatch(/sign in first/i);
+  });
+
   it("CV omitted: succeeds without touching Drive", async () => {
     const calls: Array<{ table: string; op: string; payload: unknown }> = [];
     mocks.createAdminClient.mockReturnValue(
