@@ -17,16 +17,21 @@ interface WalkInFormProps {
   walkInToken: string;
   chapterId: string;
   chapterName: string;
+  // When set, the visitor is already signed in: reuse their account. The email
+  // is prefilled + locked and the password fields are hidden (the server reuses
+  // the authenticated session).
+  signedInEmail?: string | null;
 }
 
-export function WalkInForm({ walkInToken, chapterName }: WalkInFormProps) {
+export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFormProps) {
+  const isSignedIn = !!signedInEmail;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [checkInToken, setCheckInToken] = useState<string | null>(null);
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [cvUploadFailed, setCvUploadFailed] = useState(false);
 
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(signedInEmail ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
 
@@ -49,15 +54,19 @@ export function WalkInForm({ walkInToken, chapterName }: WalkInFormProps) {
       return;
     }
 
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
-      return;
-    }
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
-      return;
+    // Password is only needed to CREATE a new account. A signed-in owner reuses
+    // their existing account, so skip the password checks for them.
+    if (!isSignedIn) {
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters.");
+        setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+        return;
+      }
+      if (password !== confirmPassword) {
+        setError("Passwords do not match.");
+        setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+        return;
+      }
     }
 
     setLoading(true);
@@ -190,7 +199,9 @@ export function WalkInForm({ walkInToken, chapterName }: WalkInFormProps) {
 
       {/* Account credentials */}
       <Card className="mb-6">
-        <h2 className="text-lg font-bold">Create Your Account</h2>
+        <h2 className="text-lg font-bold">
+          {isSignedIn ? "Your Account" : "Create Your Account"}
+        </h2>
         <div className="mt-4 space-y-4">
           <div>
             <label className="block text-sm text-text-muted">
@@ -200,42 +211,52 @@ export function WalkInForm({ walkInToken, chapterName }: WalkInFormProps) {
               type="email"
               name="email"
               required
+              readOnly={isSignedIn}
               placeholder="your@email.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+              className={`mt-1 w-full rounded-lg border border-white/10 px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none ${
+                isSignedIn ? "bg-white/5 cursor-not-allowed" : "bg-surface-deep"
+              }`}
             />
+            {isSignedIn && (
+              <p className="mt-1 text-xs text-text-muted">
+                You&apos;re signed in: we&apos;ll register you for this match with your existing account.
+              </p>
+            )}
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div>
-              <label className="block text-sm text-text-muted">
-                Password <span className="text-error">*</span>
-              </label>
-              <input
-                type="password"
-                name="password"
-                required
-                placeholder="At least 8 characters"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
-              />
+          {!isSignedIn && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm text-text-muted">
+                  Password <span className="text-error">*</span>
+                </label>
+                <input
+                  type="password"
+                  name="password"
+                  required
+                  placeholder="At least 8 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-text-muted">
+                  Confirm Password <span className="text-error">*</span>
+                </label>
+                <input
+                  type="password"
+                  name="confirmPassword"
+                  required
+                  placeholder="Re-enter your password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm text-text-muted">
-                Confirm Password <span className="text-error">*</span>
-              </label>
-              <input
-                type="password"
-                name="confirmPassword"
-                required
-                placeholder="Re-enter your password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
-              />
-            </div>
-          </div>
+          )}
         </div>
       </Card>
 
