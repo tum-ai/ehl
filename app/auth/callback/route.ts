@@ -42,10 +42,15 @@ export async function GET(request: NextRequest) {
 
   let authenticated = false;
 
+  // Capture the underlying auth error so we can surface it (admin/jury logins are
+  // staff-only, so showing the real reason is safe and makes debugging far easier).
+  let authErrorMessage = "";
+
   // PKCE flow: exchange code for session
   if (code) {
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) authenticated = true;
+    else authErrorMessage = error.message;
   }
 
   // Token hash flow (magic links, invites, email verification, password recovery)
@@ -55,16 +60,20 @@ export async function GET(request: NextRequest) {
       type: type as "magiclink" | "invite" | "email" | "recovery",
     });
     if (!error) authenticated = true;
+    else authErrorMessage = error.message;
   }
 
   if (!authenticated) {
+    const detail = authErrorMessage
+      ? `&detail=${encodeURIComponent(authErrorMessage)}`
+      : "";
     if (next === "/jury") {
-      return redirectWithCookies(`${origin}/jury/login?error=auth_failed`);
+      return redirectWithCookies(`${origin}/jury/login?error=auth_failed${detail}`);
     }
     if (next === "/admin") {
-      return redirectWithCookies(`${origin}/admin/login?error=auth_failed`);
+      return redirectWithCookies(`${origin}/admin/login?error=auth_failed${detail}`);
     }
-    return redirectWithCookies(`${origin}/login?error=auth_failed`);
+    return redirectWithCookies(`${origin}/login?error=auth_failed${detail}`);
   }
 
   const {
@@ -110,7 +119,10 @@ export async function GET(request: NextRequest) {
     }
 
     await supabase.auth.signOut();
-    return redirectWithCookies(`${origin}/admin/login?error=not_authorized`);
+    // Include which account was rejected so the admin sees exactly why (e.g. wrong
+    // Google account, or an email not on the allowlist / not a chapter admin).
+    const who = email ? `&email=${encodeURIComponent(email)}` : "";
+    return redirectWithCookies(`${origin}/admin/login?error=not_authorized${who}`);
   }
 
   // Check existing profile or create one

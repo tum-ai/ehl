@@ -17,14 +17,39 @@ function GoogleIcon() {
   );
 }
 
+// Map an admin-login error code (+ optional detail/email from the OAuth callback)
+// to a clear, specific message. Admin login is staff-only, so surfacing the real
+// reason (which account, what failed) is safe and makes debugging far easier than
+// a generic "access denied". Exported for unit testing.
+export function adminLoginErrorMessage(
+  errorParam: string | null,
+  detail: string | null,
+  email: string | null
+): string | null {
+  if (!errorParam) return null;
+  if (errorParam === "not_authorized") {
+    const who = email ? ` (${email})` : "";
+    return `Access denied. The Google account${who} you signed in with is not authorized for admin access. Make sure you picked the right account, or ask a global admin to add it to the allowlist or invite it as a chapter admin.`;
+  }
+  if (errorParam === "auth_failed") {
+    return detail
+      ? `Sign-in failed: ${detail}`
+      : "Sign-in failed. The login link may have expired or been used already. Please try again.";
+  }
+  // Unknown code: still show it rather than swallowing.
+  return detail ? `Login error: ${errorParam} (${detail})` : `Login error: ${errorParam}`;
+}
+
 function LoginForm() {
   const searchParams = useSearchParams();
   const errorParam = searchParams.get("error");
   const [loading, setLoading] = useState<"admin" | "chapter" | null>(null);
   const [error, setError] = useState<string | null>(
-    errorParam === "not_authorized"
-      ? "Access denied. Your Google account is not authorized for admin access."
-      : null
+    adminLoginErrorMessage(
+      errorParam,
+      searchParams.get("detail"),
+      searchParams.get("email")
+    )
   );
 
   async function handleGoogleSignIn() {
