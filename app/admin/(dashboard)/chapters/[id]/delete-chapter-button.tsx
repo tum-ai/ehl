@@ -75,7 +75,7 @@ export function DeleteChapterButton({ chapterId, chapterName }: DeleteChapterBut
               type="button"
               onClick={handleDelete}
               disabled={!canDelete}
-              className="rounded-lg ad-bg-error-solid px-4 py-2 text-sm font-bold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border ad-border-error px-4 py-2 text-sm font-bold ad-text-error disabled:cursor-not-allowed disabled:opacity-50"
             >
               {deleting ? "Deleting…" : "Permanently delete"}
             </button>
