@@ -262,6 +262,7 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
    } },
   { prefix: "00054", label: "walk_in_token", sql: table("chapter_walk_in") },
   { prefix: "00055", label: "auto_create_profile_on_auth_user", sql: fn("handle_new_auth_user") },
+  { prefix: "00056", label: "application_user_link_and_registration", sql: column("applications", "user_id") },
 ];
 
 /**
