@@ -236,7 +236,22 @@ code-reviews page shows an amber "worker was NOT triggered" banner (it no longer
 fails silently). If reviews stay "Queued", verify in this order: (1) the amber
 banner's message, (2) `GITHUB_TOKEN`/`GITHUB_REPO` in Vercel, (3) the PAT scopes,
 (4) the Actions tab for a run (you can also start one manually via
-**Run workflow** / `workflow_dispatch`).
+**Run workflow** / `workflow_dispatch`). Note: `GITHUB_REPO` must point at a
+**non-archived** repo — an archived repo is read-only and `repository_dispatch`
+returns 404 (the dispatch banner will show it), so the worker never starts.
+
+**Testing the worker against the TEST database (preview/sim).** The production
+worker always runs against the prod DB (its secrets are `SUPABASE_URL` /
+`SUPABASE_SERVICE_ROLE_KEY`). To exercise the full pipeline from a sim/preview
+deployment (which queues into the TEST DB), a sim deployment dispatches a separate
+event type `process-code-reviews-test` instead of `process-code-reviews`. The app
+chooses this automatically when `DEV_LOGIN_ENABLED=true` (sim/preview only; the
+dev-login tripwire guarantees this is never set on production, so production can
+never send the test event). A second workflow,
+`.github/workflows/process-code-reviews-test.yml`, handles that event with
+`TEST_SUPABASE_URL` / `TEST_SUPABASE_SERVICE_ROLE_KEY`. Both workflows assert their
+Supabase project ref before running, so neither can ever touch the other's
+database even if a secret is mis-set.
 
 The workflow runs a **matrix of parallel workers** (default 10). Each worker
 atomically claims queued rows and loops until the queue drains, so they

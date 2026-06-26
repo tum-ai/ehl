@@ -45,6 +45,14 @@ Local admins (role `chapter_admin`) are bounded by three independent layers, so 
 
 The CV proxy (`GET /api/admin/cv/[fileId]`) is a special case: the request carries only a Drive `fileId`, not a chapter. The route therefore resolves the owning chapter server-side (looking up the `applications` row whose `cv_url` equals the `fileId`) and then calls `requireChapterAdminApi(<owning chapter>)`. A local admin can read CVs only for applicants in their own chapter; a global admin reads any. A `fileId` not owned by any application is rejected (404) before the guard or Drive are touched, so the proxy cannot be used to pull arbitrary Drive files by id. The chapter is never taken from caller input, so it cannot be spoofed.
 
+### Test-only features can never run on production (dev-login)
+A few features exist only for the sim/preview deployment: **dev-login** (passwordless admin/jury/participant sessions, `app/dev-login`) and the **code-review TEST routing** (dispatches a separate worker that runs against the TEST database). All of them are gated by `isDevLoginEnabled()` (`lib/dev-login.ts`), which is **default-safe and fail-closed** on three independent layers:
+1. **Default off** — it returns `true` only when `DEV_LOGIN_ENABLED` is exactly `"true"`. Unset/empty/`"false"` ⇒ off. Production never needs to set anything; leaving the var unset is the safe default (explicitly setting `false` adds nothing and just creates a prod-scoped knob).
+2. **Vercel-prod tripwire** — if the flag is somehow `"true"` while `VERCEL_ENV === "production"`, it **throws** instead of enabling.
+3. **Prod-database tripwire** — if the flag is `"true"` while the app is pointed at the production Supabase project (exact hostname match on `NEXT_PUBLIC_SUPABASE_URL` against the known prod ref, not a substring), it **throws**. This closes the gap where `VERCEL_ENV` is not `"production"` (a non-Vercel or prod-like deployment) but the prod DB is in use — a test feature must never touch prod data regardless of where it runs.
+
+Every entry point enforces this server-side (the dev-login page `notFound()`s, the action throws, the code-review dispatch picks its event type via the same gate), so UI hiding is never the control. Unit tests pin all three layers.
+
 ---
 
 ## 2. Authorization and Data Access

@@ -38,6 +38,19 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Defense-in-depth: this PRODUCTION worker must only ever touch the prod DB.
+      # Fail loudly if SUPABASE_URL is not the known prod project ref, so a mis-set
+      # secret can never make the prod worker process a different database.
+      # (Project refs are not secrets; the prod ref is already in the client bundle.)
+      - name: Guard - must target the PRODUCTION database
+        env:
+          URL: ${{ secrets.SUPABASE_URL }}
+        run: |
+          if ! echo "$URL" | grep -q "fdoeygfcjllrzogoymsf.supabase.co"; then
+            echo "::error::SUPABASE_URL is not the production project ref. Refusing to run." >&2
+            exit 1
+          fi
+
       - name: Process queued code reviews
         run: pnpm tsx scripts/process-code-reviews.ts
         env:
