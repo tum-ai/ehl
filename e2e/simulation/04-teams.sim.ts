@@ -129,10 +129,22 @@ test.describe("Simulation: team formation (real UI)", () => {
     const joinPage = await joinCtx.newPage();
     await registerSoloViaUI(joinPage, { name: "Sim Joiner", email: JOINER, lookingForTeam: true });
     await joinPage.goto("/dashboard");
-    // The team appears under "Teams Looking for Members"; click "Ask to Join".
-    await expect(joinPage.getByText(TEAM_NAME).first()).toBeVisible({ timeout: 15000 });
-    await joinPage.getByRole("button", { name: /ask to join/i }).first().click();
-    await expect(joinPage.getByText(/^Requested$/i)).toBeVisible({ timeout: 15000 });
+    // The team appears under "Teams Looking for Members". Scope the "Ask to Join"
+    // click to OUR team's card: the list shows every team looking for members
+    // (ordered by name), so a `.first()` "Ask to Join" could click a different
+    // team that happens to sort before ours on the shared test DB, sending the
+    // join request to the wrong team and leaving our team without a pending row.
+    // Anchor on the `.ui-card` element (the Card component's class) filtered by
+    // OUR team name only — NOT by the "Ask to Join" button, because that button
+    // is replaced by a "Requested" badge after the click, which would make a
+    // button-filtered locator go stale before the follow-up assertion.
+    const ourTeamCard = joinPage
+      .locator(".ui-card")
+      .filter({ has: joinPage.getByText(TEAM_NAME, { exact: true }) });
+    await expect(ourTeamCard).toHaveCount(1, { timeout: 15000 });
+    await ourTeamCard.getByRole("button", { name: /^ask to join$/i }).click();
+    // The clicked card now shows "Requested" instead of the join button.
+    await expect(ourTeamCard.getByText(/^Requested$/i)).toBeVisible({ timeout: 15000 });
 
     // DB confirms a pending join request exists.
     const { data: team } = await db.from("teams").select("id").eq("name", TEAM_NAME).single();

@@ -9,7 +9,7 @@
  */
 import { test, expect } from "@playwright/test";
 import { adminLoginViaSession, adminClient, simEmail, SIM_RUN } from "./sim-helpers";
-import { MAX_TEAM_SIZE } from "@/lib/config/limits";
+import { MAX_TEAM_SIZE, MIN_TEAM_SIZE } from "@/lib/config/limits";
 
 const db = adminClient();
 
@@ -127,7 +127,56 @@ test.describe("Simulation: admin team overrides (real UI)", () => {
     const presB = await mkProfile(`ov-mv-presB-${Date.now()}`);
     const teamA = await mkTeam("mvA", presA.id);
     const teamB = await mkTeam("mvB", presB.id);
-    const mover = await mkProfile(`ov-mv-mover-${Date.now()}`);
+    // Source team needs MIN_TEAM_SIZE+1 members so that moving one out still
+    // leaves it valid (>= MIN_TEAM_SIZE). The admin UI hides the move control for
+    // a source team that would drop below MIN_TEAM_SIZE (matching the
+    // adminMoveMember server guard added in this release), so a 2-member source
+    // would correctly show "Cannot move members out..." and have no move select.
+    const moverName = `ov-mv-mover-${Date.now()}`;
+    const mover = await mkProfile(moverName);
+    const extra = await mkProfile(`ov-mv-extra-${Date.now()}`);
+    await db.from("team_members").insert([
+      { team_id: teamA.id, user_id: mover.id, role: "member" },
+      { team_id: teamA.id, user_id: extra.id, role: "member" },
+    ]);
+
+    await adminLoginViaSession(page);
+    await page.goto("/admin/teams", { waitUntil: "networkidle" });
+    const rowA = page.locator("tr", { hasText: teamA.name });
+    await expect(rowA).toHaveCount(1);
+    await rowA.getByRole("button", { name: /^manage$/i }).click();
+    await expect(rowA.getByText("Move member to team")).toBeVisible();
+    // There is one move <select> per non-captain; target the mover's specifically
+    // by anchoring on its name span's following sibling select (member ordering
+    // is only by role, so `.last()` could hit the wrong member).
+    await rowA
+      .locator(
+        `xpath=.//span[normalize-space()="${moverName}"]/following-sibling::select[1]`
+      )
+      .selectOption(teamB.id);
+    await page.waitForTimeout(1500);
+
+    const { data: onA } = await db.from("team_members").select("user_id").eq("team_id", teamA.id).eq("user_id", mover.id).maybeSingle();
+    const { data: onB } = await db.from("team_members").select("user_id").eq("team_id", teamB.id).eq("user_id", mover.id).maybeSingle();
+    expect(onA, "mover removed from source team").toBeNull();
+    expect(onB, "mover added to destination team").toBeTruthy();
+    // The extra member keeps teamA at MIN_TEAM_SIZE — it must NOT have been moved.
+    const { data: extraStillA } = await db.from("team_members").select("user_id").eq("team_id", teamA.id).eq("user_id", extra.id).maybeSingle();
+    expect(extraStillA, "non-targeted member stays on source team").toBeTruthy();
+  });
+
+  test("move is BLOCKED in the UI when the source team would drop below the minimum", async ({ page }) => {
+    // New-this-release guard: a source team at exactly MIN_TEAM_SIZE cannot move
+    // a member out (it would leave fewer than MIN_TEAM_SIZE). The UI renders an
+    // explanatory message instead of the move control. This locks in the
+    // behavior that previously made the move test time out.
+    const presA = await mkProfile(`ov-mvblock-presA-${Date.now()}`);
+    const presB = await mkProfile(`ov-mvblock-presB-${Date.now()}`);
+    const teamA = await mkTeam("mvBlockA", presA.id);
+    await mkTeam("mvBlockB", presB.id); // a destination must exist for the control to be considered
+    const mover = await mkProfile(`ov-mvblock-mover-${Date.now()}`);
+    // teamA = president + one member = MIN_TEAM_SIZE (2). Moving the member out
+    // would drop it to 1.
     await db.from("team_members").insert({ team_id: teamA.id, user_id: mover.id, role: "member" });
 
     await adminLoginViaSession(page);
@@ -135,15 +184,13 @@ test.describe("Simulation: admin team overrides (real UI)", () => {
     const rowA = page.locator("tr", { hasText: teamA.name });
     await expect(rowA).toHaveCount(1);
     await rowA.getByRole("button", { name: /^manage$/i }).click();
-    // The "move member to team" select for the non-captain mover -> teamB.
-    await rowA.getByText("Move member to team").waitFor();
-    await rowA.locator("select").last().selectOption(teamB.id);
-    await page.waitForTimeout(1500);
 
-    const { data: onA } = await db.from("team_members").select("user_id").eq("team_id", teamA.id).eq("user_id", mover.id).maybeSingle();
-    const { data: onB } = await db.from("team_members").select("user_id").eq("team_id", teamB.id).eq("user_id", mover.id).maybeSingle();
-    expect(onA, "mover removed from source team").toBeNull();
-    expect(onB, "mover added to destination team").toBeTruthy();
+    await expect(
+      rowA.getByText(
+        `Cannot move members out: the team must keep at least ${MIN_TEAM_SIZE} members.`
+      )
+    ).toBeVisible();
+    await expect(rowA.getByText("Move member to team")).toHaveCount(0);
   });
 
   test("change email updates auth + profile (UI)", async ({ page }) => {
