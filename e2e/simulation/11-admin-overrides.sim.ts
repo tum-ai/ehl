@@ -8,7 +8,17 @@
  * construction); every OVERRIDE is then driven through the real /admin/teams UI.
  */
 import { test, expect } from "@playwright/test";
-import { adminLoginViaSession, adminClient, simEmail, SIM_RUN } from "./sim-helpers";
+import {
+  adminLoginViaSession,
+  adminClient,
+  simEmail,
+  SIM_RUN,
+  SIM_ADMIN_EMAIL,
+  createChapterViaUI,
+  createChallengeViaUI,
+  getChallengeId,
+  advanceChapterStatusViaUI,
+} from "./sim-helpers";
 import { MAX_TEAM_SIZE, MIN_TEAM_SIZE } from "@/lib/config/limits";
 
 const db = adminClient();
@@ -65,6 +75,29 @@ test.describe("Simulation: admin team overrides (real UI)", () => {
     const { data: roles } = await db.from("team_members").select("user_id, role").eq("team_id", teamId);
     expect(roles!.find((r) => r.user_id === member.id)!.role).toBe("president");
     expect(roles!.find((r) => r.user_id === pres.id)!.role).toBe("member");
+
+    // Audit-actor regression (#42): the captain-change event must record WHICH
+    // admin made the edit — actor_type "admin" with a NON-NULL actor_id equal to
+    // the acting admin's profile id (never an anonymous "who changed this?" row).
+    // logEvent is deferred via after(), so poll.
+    const { data: adminProfile } = await db
+      .from("profiles")
+      .select("id")
+      .eq("email", SIM_ADMIN_EMAIL)
+      .single();
+    expect(adminProfile?.id, "sim admin profile resolvable").toBeTruthy();
+    await expect
+      .poll(async () => {
+        const { data } = await db
+          .from("event_log")
+          .select("actor_id, actor_type")
+          .eq("action", "team.captain_changed")
+          .eq("entity_id", teamId)
+          .order("created_at", { ascending: false })
+          .limit(1);
+        return data?.[0] ?? null;
+      }, { timeout: 15000 })
+      .toEqual({ actor_id: adminProfile!.id, actor_type: "admin" });
   });
 
   test("add member by email enforces the team-size limit", async ({ page }) => {
@@ -215,5 +248,146 @@ test.describe("Simulation: admin team overrides (real UI)", () => {
     // auth.users email updated too (login source of truth).
     const { data: authUser } = await db.auth.admin.getUserById(user.id);
     expect(authUser.user?.email).toBe(newEmail);
+  });
+
+  test("admin overrides a team's challenge via the real /admin/teams dropdown (#41)", async ({ page }) => {
+    test.setTimeout(120_000);
+    // Challenge-override (#41): on /admin/teams an admin can assign/change a team's
+    // challenge while the chapter is in challenge_selection/hacking/submissions_open
+    // and before the submission deadline. The control only renders for the page's
+    // ACTIVE chapter (the FIRST chapter, by match_number, in an event status).
+    //
+    // On the shared test DB other (non-sim) chapters sit in event statuses with
+    // low match_numbers we must not touch. To make OUR chapter the active one
+    // deterministically we set its match_number to -1 (lower than any real chapter;
+    // the column is plain `int not null`, no constraint). Two gotchas, both handled:
+    //   - The match_number MUST be set AFTER all chapter/challenge/status UI steps:
+    //     createChapterViaUI's details-save runs a GLOBAL recalculateMatchNumbers()
+    //     that would clobber an earlier value. Challenge creation + status changes
+    //     do not recalc, so setting it last is safe.
+    //   - adminSetTeamChallenge requires a team member with an accepted/checked-in
+    //     application in the chapter (not just team-in-chapter), so we create one.
+    const chapterName = `Sim OV Challenge ${SIM_RUN}-${Date.now()}`;
+    let chapterId = "";
+    const pres = await mkProfile(`ov-chal-pres-${Date.now()}`);
+    const team = await mkTeam("chalOV", pres.id);
+    // Defensive: a CRASHED earlier run (before its finally) could leave a stale
+    // "Sim OV Challenge" chapter at match_number -1 in an event status, which would
+    // tie with ours for "first active chapter". Remove any such leftovers first so
+    // our chapter is the unambiguous active one.
+    {
+      const { data: stale } = await db
+        .from("chapters")
+        .select("id")
+        .like("name", "Sim OV Challenge%");
+      for (const c of stale ?? []) {
+        await db.from("challenge_registrations").delete().eq("chapter_id", c.id);
+        await db.from("applications").delete().eq("chapter_id", c.id);
+        const { data: chal } = await db.from("challenges").select("id").eq("chapter_id", c.id);
+        for (const ch of chal ?? []) await db.from("challenges").delete().eq("id", ch.id);
+        await db.from("chapters").delete().eq("id", c.id);
+      }
+    }
+    try {
+      await adminLoginViaSession(page);
+      const created = await createChapterViaUI(page, { name: chapterName });
+      chapterId = created.id;
+
+      await createChallengeViaUI(page, chapterId, { title: `Sim OV Chal A ${SIM_RUN}` });
+      await createChallengeViaUI(page, chapterId, { title: `Sim OV Chal B ${SIM_RUN}` });
+      const chalA = await getChallengeId(chapterId, `Sim OV Chal A ${SIM_RUN}`);
+      const chalB = await getChallengeId(chapterId, `Sim OV Chal B ${SIM_RUN}`);
+      // challenge_selection is an override-open status and only needs >= 1 challenge.
+      await advanceChapterStatusViaUI(page, chapterId, "challenge_selection");
+
+      // The president must be an accepted applicant in this chapter, else the
+      // override action rejects the team as "not part of this chapter's event".
+      await db.from("applications").insert({
+        chapter_id: chapterId,
+        email: pres.email,
+        first_name: "OvChal",
+        last_name: "Pres",
+        status: "accepted",
+      });
+      // Team registered on challenge A (the override will move it to B).
+      await db.from("challenge_registrations").insert({
+        chapter_id: chapterId,
+        challenge_id: chalA,
+        team_id: team.id,
+        roster: [pres.id],
+      });
+
+      // Make OUR chapter the active one — LAST, after all UI/recalc, and confirm it
+      // actually took AND that it is now the first active chapter the page will use.
+      const { error: mnErr } = await db
+        .from("chapters")
+        .update({ match_number: -1, submission_deadline: null })
+        .eq("id", chapterId);
+      expect(mnErr, "match_number update succeeded").toBeNull();
+      const eventStatuses = ["preparation", "challenge_selection", "hacking", "submissions_open", "pitching"];
+      await expect
+        .poll(async () => {
+          const { data } = await db
+            .from("chapters")
+            .select("id")
+            .in("status", eventStatuses)
+            .order("match_number", { ascending: true })
+            .limit(1);
+          return data?.[0]?.id ?? null;
+        }, { timeout: 15000 })
+        .toBe(chapterId);
+
+      await page.goto("/admin/teams", { waitUntil: "networkidle" });
+      // Our chapter is active, so the Challenge column + override dropdowns render.
+      const row = page.locator("tr", { hasText: team.name });
+      await expect(row).toHaveCount(1);
+      // The override <select> is the only select in the row (the challenge column).
+      const challengeSelect = row.locator("select");
+      await expect(challengeSelect).toHaveCount(1);
+      // advanceChapterStatusViaUI installed a PERSISTENT page.on("dialog") accepter,
+      // so the challenge-change confirm() is handled by it. A second page.once here
+      // would double-handle the dialog ("Cannot accept dialog which is already
+      // handled"), so we do NOT add one.
+      await challengeSelect.selectOption(chalB);
+
+      // DB: the registration row now points at challenge B (changed, not duplicated).
+      await expect
+        .poll(async () => {
+          const { data } = await db
+            .from("challenge_registrations")
+            .select("challenge_id")
+            .eq("chapter_id", chapterId)
+            .eq("team_id", team.id);
+          return { count: data?.length ?? 0, challenge: data?.[0]?.challenge_id ?? null };
+        }, { timeout: 15000 })
+        .toEqual({ count: 1, challenge: chalB });
+
+      // Audit (#42 + #41): the override is logged as an admin action with a
+      // non-null actor_id equal to the acting admin.
+      const { data: adminProfile } = await db
+        .from("profiles").select("id").eq("email", SIM_ADMIN_EMAIL).single();
+      await expect
+        .poll(async () => {
+          const { data } = await db
+            .from("event_log")
+            .select("actor_id, actor_type")
+            .eq("action", "challenge_registration.admin_override")
+            .eq("entity_id", team.id)
+            .order("created_at", { ascending: false })
+            .limit(1);
+          return data?.[0] ?? null;
+        }, { timeout: 15000 })
+        .toEqual({ actor_id: adminProfile!.id, actor_type: "admin" });
+    } finally {
+      // Clean up so retries / reruns don't accumulate sim chapters that linger in
+      // an event status (they would compete to be the active chapter).
+      if (chapterId) {
+        await db.from("challenge_registrations").delete().eq("chapter_id", chapterId);
+        await db.from("applications").delete().eq("chapter_id", chapterId);
+        const { data: chal } = await db.from("challenges").select("id").eq("chapter_id", chapterId);
+        for (const c of chal ?? []) await db.from("challenges").delete().eq("id", c.id);
+        await db.from("chapters").delete().eq("id", chapterId);
+      }
+    }
   });
 });
