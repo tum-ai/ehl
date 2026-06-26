@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { updateChallenge } from "@/lib/actions/admin";
+import { updateCodeReviewConfig } from "@/lib/actions/admin";
 import { ReportCard } from "@/components/code-review/report-card";
 import { LimitBanner } from "@/components/admin/limit-banner";
 import { shouldKeepPolling } from "@/lib/code-review/status-summary";
@@ -144,14 +144,10 @@ function ReviewConfigEditor({
       token_budget: tokenBudget,
     };
 
-    const formData = new FormData();
-    formData.set("challengeId", challenge.id);
-    formData.set("chapterId", ""); // not used for update path matching
-    formData.set("title", challenge.title);
-    formData.set("codeReviewConfig", JSON.stringify(config));
-    if (challenge.codeReviewEnabled) formData.set("codeReviewEnabled", "on");
-
-    const result = await updateChallenge(formData);
+    // Use the narrow action that writes ONLY the code-review config. This panel
+    // must never touch is_scored / entire_required / etc: doing so via the full
+    // updateChallenge silently cleared every flag this form omitted.
+    const result = await updateCodeReviewConfig(challenge.id, config);
     if (result?.error) {
       setMessage(result.error);
     } else {

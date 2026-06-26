@@ -355,10 +355,15 @@ export async function createChallenge(formData: FormData) {
   const sponsorLogoUrl = (formData.get("sponsorLogoUrl") as string) || null;
   const prizeDescription = (formData.get("prizeDescription") as string) || null;
   const judgingCriteria = (formData.get("judgingCriteria") as string) || null;
-  const codeReviewEnabled = formData.get("codeReviewEnabled") === "on";
-  const isScored = formData.get("isScored") === "on";
-  const inviteJuryToForks = formData.get("inviteJuryToForks") === "on";
-  const entireRequired = formData.get("entireRequired") === "on";
+  // Accept both "true" (new explicit form) and "on" (legacy raw checkbox).
+  const checked = (name: string) => {
+    const v = formData.get(name);
+    return v === "true" || v === "on";
+  };
+  const codeReviewEnabled = checked("codeReviewEnabled");
+  const isScored = checked("isScored");
+  const inviteJuryToForks = checked("inviteJuryToForks");
+  const entireRequired = checked("entireRequired");
   const submissionFieldsJson = formData.get("submissionFields") as string;
   const briefFileId = (formData.get("briefFileId") as string) || null;
   const codeReviewInstructions = (formData.get("codeReviewInstructions") as string) || null;
@@ -417,63 +422,132 @@ export async function createChallenge(formData: FormData) {
   return { success: true };
 }
 
+// Maps a managedFields token -> the challenges column it writes. Only fields the
+// caller EXPLICITLY declares it manages are written; every other column is left
+// untouched. This closes a destructive class of bug: a partial form (e.g. the
+// code-review config panel) that omitted a checkbox used to silently clear it,
+// because an unchecked HTML checkbox and a "field this form does not own" are
+// indistinguishable by absence. A challenge created as Scored would silently
+// flip to unscored after saving an unrelated panel. Never again: absence now
+// means "do not touch", and only declared fields are written.
+const CHALLENGE_FIELD_COLUMNS = {
+  title: "title",
+  description: "description",
+  sponsorName: "sponsor_name",
+  sponsorLogoUrl: "sponsor_logo_url",
+  prizeDescription: "prize_description",
+  judgingCriteria: "judging_criteria",
+  codeReviewEnabled: "code_review_enabled",
+  isScored: "is_scored",
+  inviteJuryToForks: "invite_jury_to_forks",
+  entireRequired: "entire_required",
+  submissionFields: "submission_fields",
+  briefFileId: "brief_file_id",
+  codeReviewInstructions: "code_review_instructions",
+  codeReviewConfig: "code_review_config",
+} as const;
+
+type ChallengeFieldKey = keyof typeof CHALLENGE_FIELD_COLUMNS;
+
+// Form fields that carry a boolean, sent explicitly as "true"/"false" (never as
+// a bare checkbox whose absence is ambiguous). When the field is managed, a
+// value other than "true" is written as false intentionally.
+const CHALLENGE_BOOLEAN_FIELDS = new Set<ChallengeFieldKey>([
+  "codeReviewEnabled",
+  "isScored",
+  "inviteJuryToForks",
+  "entireRequired",
+]);
+
 export async function updateChallenge(formData: FormData) {
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
   const challengeId = formData.get("challengeId") as string;
-  const chapterId = formData.get("chapterId") as string;
-  const title = formData.get("title") as string;
-  const description = (formData.get("description") as string) || null;
-  const sponsorName = (formData.get("sponsorName") as string) || null;
-  const sponsorLogoUrl = (formData.get("sponsorLogoUrl") as string) || null;
-  const prizeDescription = (formData.get("prizeDescription") as string) || null;
-  const judgingCriteria = (formData.get("judgingCriteria") as string) || null;
-  const codeReviewEnabled = formData.get("codeReviewEnabled") === "on";
-  const isScored = formData.get("isScored") === "on";
-  const inviteJuryToForks = formData.get("inviteJuryToForks") === "on";
-  const entireRequired = formData.get("entireRequired") === "on";
-  const submissionFieldsJson = formData.get("submissionFields") as string;
-  const briefFileId = (formData.get("briefFileId") as string) || null;
-  const codeReviewInstructions = (formData.get("codeReviewInstructions") as string) || null;
-  const codeReviewConfigJson = formData.get("codeReviewConfig") as string;
+  const chapterId = (formData.get("chapterId") as string) || "";
 
-  if (!challengeId || !title) {
-    return { error: "Challenge ID and title are required." };
+  if (!challengeId) {
+    return { error: "Challenge ID is required." };
   }
 
-  let submissionFields;
-  try {
-    submissionFields = submissionFieldsJson ? JSON.parse(submissionFieldsJson) : undefined;
-  } catch {
-    return { error: "Invalid submission fields JSON." };
+  // The form declares which fields it owns. Legacy callers that omit the
+  // manifest fall back to "every field present in the payload is owned" so a
+  // checkbox sent as "true"/"false" still works, but a field entirely absent is
+  // never cleared.
+  const managedRaw = formData.get("managedFields");
+  const declared = typeof managedRaw === "string" && managedRaw.length > 0;
+  const managed = new Set(
+    declared
+      ? (managedRaw as string).split(",").map((s) => s.trim()).filter(Boolean)
+      : []
+  );
+
+  function owns(field: ChallengeFieldKey): boolean {
+    if (declared) return managed.has(field);
+    // No manifest: treat a field as owned only if it is actually present.
+    return formData.has(field);
   }
 
-  let codeReviewConfig;
-  try {
-    codeReviewConfig = codeReviewConfigJson ? JSON.parse(codeReviewConfigJson) : undefined;
-  } catch {
-    // Ignore invalid config
+  const patch: Record<string, unknown> = {};
+
+  for (const key of Object.keys(CHALLENGE_FIELD_COLUMNS) as ChallengeFieldKey[]) {
+    if (!owns(key)) continue;
+    const column = CHALLENGE_FIELD_COLUMNS[key];
+    const raw = formData.get(key);
+
+    if (CHALLENGE_BOOLEAN_FIELDS.has(key)) {
+      // Explicit boolean: "true" => true, anything else (incl. "off"/"false") => false.
+      patch[column] = raw === "true" || raw === "on";
+      continue;
+    }
+
+    if (key === "title") {
+      const title = (raw as string) ?? "";
+      if (!title.trim()) return { error: "Title is required." };
+      patch[column] = title;
+      continue;
+    }
+
+    if (key === "submissionFields") {
+      const json = (raw as string) ?? "";
+      if (!json) {
+        patch[column] = null;
+      } else {
+        try {
+          patch[column] = JSON.parse(json);
+        } catch {
+          return { error: "Invalid submission fields JSON." };
+        }
+      }
+      continue;
+    }
+
+    if (key === "codeReviewConfig") {
+      const json = (raw as string) ?? "";
+      if (!json) {
+        patch[column] = null;
+      } else {
+        try {
+          patch[column] = JSON.parse(json);
+        } catch {
+          return { error: "Invalid code review config JSON." };
+        }
+      }
+      continue;
+    }
+
+    // Nullable text columns: empty string => null.
+    const text = (raw as string) ?? "";
+    patch[column] = text.length > 0 ? text : null;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return { error: "No fields to update." };
   }
 
   const adminClient = createAdminClient();
   const { error } = await adminClient
     .from("challenges")
-    .update({
-      title,
-      description,
-      sponsor_name: sponsorName,
-      sponsor_logo_url: sponsorLogoUrl,
-      prize_description: prizeDescription,
-      judging_criteria: judgingCriteria,
-      code_review_enabled: codeReviewEnabled,
-      is_scored: isScored,
-      invite_jury_to_forks: inviteJuryToForks,
-      entire_required: entireRequired,
-      submission_fields: submissionFields,
-      brief_file_id: briefFileId,
-      code_review_instructions: codeReviewInstructions,
-      code_review_config: codeReviewConfig,
-    })
+    .update(patch)
     .eq("id", challengeId);
 
   if (error) return { error: error.message };
@@ -485,10 +559,59 @@ export async function updateChallenge(formData: FormData) {
     entityId: challengeId,
     actorId,
     actorType: "admin",
-    delta: { updated: { title } },
+    delta: { updated: { fields: [...Object.keys(patch)] } },
   });
 
-  revalidatePath(`/admin/chapters/${chapterId}/challenges`);
+  if (chapterId) revalidatePath(`/admin/chapters/${chapterId}/challenges`);
+  return { success: true };
+}
+
+// Dedicated, narrow action for the code-review "Configure" panel. It writes ONLY
+// the code-review fields and NEVER touches is_scored / entire_required / etc.
+// Previously this panel called the full updateChallenge with a partial payload,
+// silently clearing every challenge flag it omitted (the Scored->unscored bug).
+export async function updateCodeReviewConfig(
+  challengeId: string,
+  config: unknown,
+  opts?: { enabled?: boolean }
+) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+  if (!challengeId) return { error: "Challenge ID is required." };
+
+  const adminClient = createAdminClient();
+
+  // Resolve chapter for revalidation (and to confirm the challenge exists).
+  const { data: challenge } = await adminClient
+    .from("challenges")
+    .select("chapter_id")
+    .eq("id", challengeId)
+    .single();
+  if (!challenge) return { error: "Challenge not found." };
+
+  const patch: Record<string, unknown> = { code_review_config: config };
+  if (typeof opts?.enabled === "boolean") {
+    patch.code_review_enabled = opts.enabled;
+  }
+
+  const { error } = await adminClient
+    .from("challenges")
+    .update(patch)
+    .eq("id", challengeId);
+
+  if (error) return { error: error.message };
+
+  const actorId = await getAdminUserId();
+  logEvent({
+    action: "challenge.updated",
+    entityType: "challenge",
+    entityId: challengeId,
+    actorId,
+    actorType: "admin",
+    delta: { updated: { fields: [...Object.keys(patch)] } },
+  });
+
+  revalidatePath(`/admin/chapters/${challenge.chapter_id as string}/challenges`);
   return { success: true };
 }
 
