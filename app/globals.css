@@ -393,6 +393,10 @@ input, textarea, select {
   --admin-error: #b91c1c;
   --admin-error-bg: rgba(185, 28, 28, 0.08);
   --admin-error-border: rgba(185, 28, 28, 0.2);
+  /* Solid fill for destructive CTAs (white text sits on this), distinct from
+     the subtle --admin-error-bg alert tint. */
+  --admin-error-solid: #dc2626;
+  --admin-error-solid-hover: #b91c1c;
 
   --admin-warning: #a16207;
   --admin-warning-bg: rgba(161, 98, 7, 0.08);
@@ -442,6 +446,8 @@ input, textarea, select {
   --admin-error: #f87171;
   --admin-error-bg: rgba(248, 113, 113, 0.1);
   --admin-error-border: rgba(248, 113, 113, 0.2);
+  --admin-error-solid: #dc2626;
+  --admin-error-solid-hover: #ef4444;
 
   --admin-warning: #fbbf24;
   --admin-warning-bg: rgba(251, 191, 36, 0.1);
@@ -505,6 +511,8 @@ input, textarea, select {
 .ad-bg-gold { background-color: var(--admin-gold-bg); }
 .ad-bg-success { background-color: var(--admin-success-bg); }
 .ad-bg-error { background-color: var(--admin-error-bg); }
+.ad-bg-error-solid { background-color: var(--admin-error-solid); }
+.ad-bg-error-solid:hover { background-color: var(--admin-error-solid-hover); }
 .ad-bg-warning { background-color: var(--admin-warning-bg); }
 .ad-bg-info { background-color: var(--admin-info-bg); }
 

@@ -92,15 +92,27 @@ async function runDeadlineCheck(): Promise<NextResponse> {
     });
   }
 
-  // Auto-close challenge selection: challenge_selection -> submissions_open
+  // Auto-close challenge selection -> submissions_open on the selection deadline.
+  //
+  // Match BOTH challenge_selection AND hacking. `hacking` sits between
+  // challenge_selection and submissions_open in the flow (lib/types.ts), and an
+  // admin running the event may have manually advanced the chapter into it. The
+  // public match page renders `hacking` and `submissions_open` identically and
+  // there is no separate hacking deadline, so for the purpose of this deadline
+  // both source states resolve to submissions_open. Previously this branch only
+  // matched challenge_selection, so a chapter sitting in `hacking` was never
+  // auto-closed — that was the bug (the selection deadline appeared to do
+  // nothing while the submission deadline still worked, because by then the
+  // chapter was already in submissions_open).
   const { data: csChapters } = await adminClient
     .from("chapters")
-    .select("id, name, challenge_selection_deadline")
-    .eq("status", "challenge_selection")
+    .select("id, name, status, challenge_selection_deadline")
+    .in("status", ["challenge_selection", "hacking"])
     .not("challenge_selection_deadline", "is", null)
     .lte("challenge_selection_deadline", now);
 
   for (const chapter of csChapters ?? []) {
+    const from = chapter.status as string;
     const { error } = await adminClient
       .from("chapters")
       .update({ status: "submissions_open" })
@@ -109,13 +121,13 @@ async function runDeadlineCheck(): Promise<NextResponse> {
       console.error(`[cron] Failed to advance ${chapter.name} to submissions_open:`, error.message);
       continue;
     }
-    transitions.push(`${chapter.name}: challenge_selection -> submissions_open`);
+    transitions.push(`${chapter.name}: ${from} -> submissions_open`);
     logEvent({
       action: "chapter.status_changed",
       entityType: "chapter",
       entityId: chapter.id as string,
       actorType: "system",
-      delta: { from: "challenge_selection", to: "submissions_open", reason: "deadline" },
+      delta: { from, to: "submissions_open", reason: "deadline" },
     });
   }
 
