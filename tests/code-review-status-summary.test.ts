@@ -137,4 +137,14 @@ describe("computeWorkerHealth", () => {
       computeWorkerHealth(reviews, { ok: false, message: "boom" }, NOW).state
     ).toBe("dispatch_failed");
   });
+
+  it("an old FAILED row's leftover progress does not mask a genuinely stuck queue", () => {
+    // REGRESSION: a failed review keeps its error message in `progress`. That must
+    // not count as "the worker is making progress" and hide a stale queued row.
+    const reviews: HealthReview[] = [
+      { status: "failed", progress: "Repository is empty." },
+      { status: "queued", queuedAt: ago(10), progress: null },
+    ];
+    expect(computeWorkerHealth(reviews, { ok: true, message: null }, NOW).state).toBe("stuck");
+  });
 });

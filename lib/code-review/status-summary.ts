@@ -133,8 +133,13 @@ export function computeWorkerHealth(
   }
 
   // Stuck: queued long enough that a running worker should have started, but
-  // nothing is processing and no progress has been written.
-  const anyProgress = reviews.some((r) => !!r.progress);
+  // nothing is processing and no IN-FLIGHT row shows progress. Only count
+  // progress on queued/processing rows: a completed/failed row keeps its last
+  // step / error message in `progress`, which must not mask a genuinely stalled
+  // queue (a stale queued row sitting behind an old failed one).
+  const anyProgress = reviews.some(
+    (r) => !!r.progress && (r.status === "queued" || r.status === "processing")
+  );
   const oldestStaleQueued = queued.some((r) => {
     if (!r.queuedAt) return false;
     return nowMs - new Date(r.queuedAt).getTime() > staleMs;

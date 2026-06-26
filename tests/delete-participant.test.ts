@@ -45,19 +45,33 @@ const USER = "user-1";
  * Build an admin client whose .from(table).delete()/update()/select() resolves
  * via `responder`, and whose auth.admin.deleteUser resolves via `authResult`.
  */
+interface DeleteCall {
+  table: string;
+  col: string;
+  val: unknown;
+}
+
 function makeClient(opts: {
   responder?: (table: string, op: string) => unknown;
   authResult?: unknown;
   deleteUser?: ReturnType<typeof vi.fn>;
+  deleteCalls?: DeleteCall[];
 }) {
   const responder = opts.responder ?? (() => ({ data: null, error: null }));
   function builder(table: string) {
     let op = "select";
+    const eqArgs: [string, unknown][] = [];
     const b: Record<string, unknown> = {
       select: () => b,
       delete: () => ((op = "delete"), b),
       update: () => ((op = "update"), b),
-      eq: () => b,
+      eq: (col: string, val: unknown) => {
+        eqArgs.push([col, val]);
+        if (op === "delete" && opts.deleteCalls) {
+          opts.deleteCalls.push({ table, col, val });
+        }
+        return b;
+      },
       in: () => b,
       single: () => Promise.resolve(responder(table, "select")),
       maybeSingle: () => Promise.resolve(responder(table, "select")),
@@ -138,6 +152,36 @@ describe("deleteParticipant — errors surfaced, not swallowed", () => {
     expect(mocks.logEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: "participant.deleted" })
     );
+  });
+
+  it("deletes participant_flags by NORMALIZED email, not a nonexistent profile_id", async () => {
+    // REGRESSION: participant_flags has no profile_id column (email/created_by/
+    // resolved_by). Matching by profile_id errored and broke deletion. Flags are
+    // stored with email.toLowerCase().trim(), so the delete must use that.
+    const deleteCalls: DeleteCall[] = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeClient({
+        responder: (table, op) => {
+          if (table === "profiles" && op === "select")
+            return { data: { email: "  Pat@X.com ", name: "Pat" } };
+          if (table === "admin_emails" && op === "select") return { data: null };
+          if (table === "team_members" && op === "select") return { data: [] };
+          return { data: null, error: null };
+        },
+        deleteUser: vi.fn().mockResolvedValue({ error: null }),
+        deleteCalls,
+      })
+    );
+
+    const result = await deleteParticipant(USER);
+    expect(result).toEqual({ success: true });
+
+    const flagDelete = deleteCalls.find((c) => c.table === "participant_flags");
+    expect(flagDelete).toBeDefined();
+    expect(flagDelete?.col).toBe("email");
+    expect(flagDelete?.val).toBe("pat@x.com"); // normalized
+    // And it must NEVER use the nonexistent profile_id column.
+    expect(deleteCalls.some((c) => c.table === "participant_flags" && c.col === "profile_id")).toBe(false);
   });
 
   it("refuses to delete an admin account", async () => {

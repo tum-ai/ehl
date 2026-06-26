@@ -828,7 +828,16 @@ export async function deleteParticipant(userId: string) {
   if (e) return { error: `Failed to delete join requests: ${e.message}` };
   e = await del("verification_codes", "email", profile.email as string);
   if (e) return { error: `Failed to delete verification codes: ${e.message}` };
-  e = await del("participant_flags", "profile_id", userId);
+  // participant_flags has NO profile_id column: it matches the flagged person by
+  // normalized email (lowercased+trimmed, exactly as flag creation stores it).
+  // The old `.eq("profile_id", userId)` referenced a nonexistent column and, once
+  // error-checked, would break deletion entirely. (created_by/resolved_by are
+  // admin actor columns and are not the participant being deleted.)
+  e = await del(
+    "participant_flags",
+    "email",
+    (profile.email as string).toLowerCase().trim()
+  );
   if (e) return { error: `Failed to delete participant flags: ${e.message}` };
   e = await del("applications", "email", profile.email as string);
   if (e) return { error: `Failed to delete applications: ${e.message}` };
