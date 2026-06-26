@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { dispatchCodeReviewWorker } from "@/lib/code-review/dispatch";
+import {
+  dispatchCodeReviewWorker,
+  codeReviewEventType,
+  DISPATCH_EVENT_TYPE,
+  DISPATCH_EVENT_TYPE_TEST,
+} from "@/lib/code-review/dispatch";
 
 const ORIGINAL = { ...process.env };
 
@@ -96,5 +101,50 @@ describe("dispatchCodeReviewWorker", () => {
     });
     expect(capturedUrl).toBe("https://api.github.com/repos/owner/repo/dispatches");
     expect(capturedBody).toEqual({ event_type: "process-code-reviews" });
+  });
+});
+
+describe("codeReviewEventType (test-vs-prod routing)", () => {
+  it("dispatches the PROD event type by default (no dev-login flag)", () => {
+    delete process.env.DEV_LOGIN_ENABLED;
+    delete process.env.VERCEL_ENV;
+    expect(codeReviewEventType()).toBe(DISPATCH_EVENT_TYPE);
+    expect(codeReviewEventType()).toBe("process-code-reviews");
+  });
+
+  it("dispatches the TEST event type on a sim/preview deployment (DEV_LOGIN_ENABLED=true)", () => {
+    process.env.DEV_LOGIN_ENABLED = "true";
+    // preview/sim: VERCEL_ENV is "preview" or undefined (Docker sim), never "production".
+    delete process.env.VERCEL_ENV;
+    expect(codeReviewEventType()).toBe(DISPATCH_EVENT_TYPE_TEST);
+    expect(codeReviewEventType()).toBe("process-code-reviews-test");
+  });
+
+  it("treats DEV_LOGIN_ENABLED other than 'true' as prod (no accidental test routing)", () => {
+    process.env.DEV_LOGIN_ENABLED = "1"; // not the literal "true"
+    delete process.env.VERCEL_ENV;
+    expect(codeReviewEventType()).toBe(DISPATCH_EVENT_TYPE);
+  });
+
+  it("THROWS via the dev-login tripwire if the flag is set on production (can never send the test event)", () => {
+    // The hard tripwire in isDevLoginEnabled() makes it impossible for a real
+    // production deployment to select the test event type: if the flag were ever
+    // set on prod, evaluating the route throws loudly instead of routing to test.
+    process.env.DEV_LOGIN_ENABLED = "true";
+    process.env.VERCEL_ENV = "production";
+    expect(() => codeReviewEventType()).toThrow(/never be set on a production deployment/i);
+  });
+
+  it("the actual dispatch sends the TEST event type when on a sim/preview deployment", async () => {
+    process.env.DEV_LOGIN_ENABLED = "true";
+    delete process.env.VERCEL_ENV;
+    let capturedBody: unknown = null;
+    await dispatchCodeReviewWorker({
+      fetchImpl: (async (_url: string, init: RequestInit) => {
+        capturedBody = JSON.parse(init.body as string);
+        return new Response(null, { status: 204 });
+      }) as unknown as typeof fetch,
+    });
+    expect(capturedBody).toEqual({ event_type: "process-code-reviews-test" });
   });
 });

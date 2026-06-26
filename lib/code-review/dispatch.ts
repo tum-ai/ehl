@@ -13,6 +13,8 @@
  * structured result the caller can surface to the admin and log.
  */
 
+import { isDevLoginEnabled } from "@/lib/dev-login";
+
 export type DispatchResult =
   | { attempted: false; ok: false; reason: "not_configured"; message: string }
   | { attempted: true; ok: true; status: number }
@@ -25,6 +27,28 @@ export type DispatchResult =
     };
 
 export const DISPATCH_EVENT_TYPE = "process-code-reviews";
+export const DISPATCH_EVENT_TYPE_TEST = "process-code-reviews-test";
+
+/**
+ * Pick the repository_dispatch event type for the current deployment.
+ *
+ * PRODUCTION always dispatches `process-code-reviews`, processed by the prod
+ * worker against the PROD database — exactly as before. A sim/test deployment
+ * (staging preview) dispatches `process-code-reviews-test`, processed by a
+ * SEPARATE workflow against the TEST database, so preview-queued reviews are
+ * actually processed instead of being read by the prod worker (which points at
+ * a different DB).
+ *
+ * We route on `isDevLoginEnabled()` (DEV_LOGIN_ENABLED==="true") because that
+ * signal is ALREADY set only on the sim/preview deployments and is hard-tripwired
+ * OFF on production (isDevLoginEnabled throws if the flag is set while
+ * VERCEL_ENV==="production"). So production can never select the test event, and
+ * there is no new env var to misconfigure. The prod path (flag unset) simply
+ * returns false without throwing.
+ */
+export function codeReviewEventType(): string {
+  return isDevLoginEnabled() ? DISPATCH_EVENT_TYPE_TEST : DISPATCH_EVENT_TYPE;
+}
 
 /**
  * POST a repository_dispatch to trigger the code-review worker workflow.
@@ -40,6 +64,7 @@ export async function dispatchCodeReviewWorker(opts?: {
   const githubToken = process.env.GITHUB_TOKEN;
   const githubRepo = process.env.GITHUB_REPO;
   const doFetch = opts?.fetchImpl ?? fetch;
+  const eventType = codeReviewEventType();
 
   if (!githubToken || !githubRepo) {
     const missing = [
@@ -65,7 +90,7 @@ export async function dispatchCodeReviewWorker(opts?: {
           Authorization: `Bearer ${githubToken}`,
           Accept: "application/vnd.github.v3+json",
         },
-        body: JSON.stringify({ event_type: DISPATCH_EVENT_TYPE }),
+        body: JSON.stringify({ event_type: eventType }),
       }
     );
 
