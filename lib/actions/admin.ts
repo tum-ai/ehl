@@ -812,12 +812,26 @@ export async function deleteParticipant(userId: string) {
     .single();
   if (adminCheck) return { error: "Cannot delete admin accounts." };
 
-  // FK-safe deletion order
-  await adminClient.from("team_invites").delete().eq("email", profile.email as string);
-  await adminClient.from("team_join_requests").delete().eq("user_id", userId);
-  await adminClient.from("verification_codes").delete().eq("email", profile.email as string);
-  await adminClient.from("participant_flags").delete().eq("profile_id", userId);
-  await adminClient.from("applications").delete().eq("email", profile.email as string);
+  // FK-safe deletion order. Every delete is now error-checked: the original code
+  // swallowed all errors and returned success even when profiles.delete() failed
+  // on the event_log.actor_id FK, so a "deleted" user reappeared in search.
+  // Admins see the real error (no security risk: this path is admin-only).
+  const del = async (table: string, col: string, val: string) => {
+    const { error } = await adminClient.from(table).delete().eq(col, val);
+    return error;
+  };
+
+  let e: { message: string } | null = null;
+  e = await del("team_invites", "email", profile.email as string);
+  if (e) return { error: `Failed to delete team invites: ${e.message}` };
+  e = await del("team_join_requests", "user_id", userId);
+  if (e) return { error: `Failed to delete join requests: ${e.message}` };
+  e = await del("verification_codes", "email", profile.email as string);
+  if (e) return { error: `Failed to delete verification codes: ${e.message}` };
+  e = await del("participant_flags", "profile_id", userId);
+  if (e) return { error: `Failed to delete participant flags: ${e.message}` };
+  e = await del("applications", "email", profile.email as string);
+  if (e) return { error: `Failed to delete applications: ${e.message}` };
 
   // Remove from team (update president if needed)
   const { data: membership } = await adminClient
@@ -827,14 +841,36 @@ export async function deleteParticipant(userId: string) {
 
   for (const m of membership ?? []) {
     if (m.role === "president") {
-      await adminClient.from("teams").update({ president_user_id: null }).eq("id", m.team_id as string);
+      const { error: presErr } = await adminClient
+        .from("teams")
+        .update({ president_user_id: null })
+        .eq("id", m.team_id as string);
+      if (presErr)
+        return { error: `Failed to clear team president: ${presErr.message}` };
     }
   }
-  await adminClient.from("team_members").delete().eq("user_id", userId);
+  e = await del("team_members", "user_id", userId);
+  if (e) return { error: `Failed to remove team memberships: ${e.message}` };
 
-  // Delete profile and auth user
-  await adminClient.from("profiles").delete().eq("id", userId);
-  await adminClient.auth.admin.deleteUser(userId);
+  // Delete the auth user FIRST: profiles.id references auth.users(id) ON DELETE
+  // CASCADE, so removing the auth user cascades the profile away. This avoids the
+  // worst partial state (profile gone, auth user orphaned). The event_log
+  // actor_id FK is now ON DELETE SET NULL (migration 00056), so the historical
+  // audit rows survive with actor_id nulled instead of blocking the delete.
+  const { error: authErr } = await adminClient.auth.admin.deleteUser(userId);
+  if (authErr) {
+    return { error: `Failed to delete auth user: ${authErr.message}` };
+  }
+
+  // Belt and suspenders: ensure the profile row is gone (cascade should have
+  // handled it; surface any residual error rather than silently leaving it).
+  const { error: profileErr } = await adminClient
+    .from("profiles")
+    .delete()
+    .eq("id", userId);
+  if (profileErr) {
+    return { error: `Auth user deleted but profile remained: ${profileErr.message}` };
+  }
 
   const actorId = await getAdminUserId();
   logEvent({

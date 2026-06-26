@@ -262,6 +262,20 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
    } },
   { prefix: "00054", label: "walk_in_token", sql: table("chapter_walk_in") },
   { prefix: "00055", label: "auto_create_profile_on_auth_user", sql: fn("handle_new_auth_user") },
+  {
+    // event_log.actor_id FK changed to ON DELETE SET NULL so participants who
+    // logged events can be deleted (the append-only trigger was rewritten to
+    // permit only the actor_id -> NULL mutation). confdeltype 'n' = SET NULL.
+    prefix: "00056",
+    label: "event_log_actor_fk_set_null",
+    sql: `select exists (
+       select 1 from pg_constraint c
+       where c.conrelid = 'public.event_log'::regclass
+         and c.confrelid = 'public.profiles'::regclass
+         and c.contype = 'f'
+         and c.confdeltype = 'n'
+     ) as present`,
+  },
 ];
 
 /**
