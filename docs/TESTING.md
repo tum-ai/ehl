@@ -123,6 +123,17 @@ hosted DB, but NO LONGER for the CI E2E jobs.
 | Keys | real secrets | well-known local dev keys (non-secret) | test secrets |
 | Data | Real users | seed + e2e-* (fresh each run) | seed + e2e-*, auto-cleaned |
 
+**No Google Drive in the test harness.** The test environments intentionally have NO
+`GOOGLE_DRIVE_CREDENTIALS` configured, so anything that uploads to or reads from Drive
+(CVs, pitch-deck previews) exercises its FAIL-SOFT path. The slidedeck-preview sim
+(`e2e/simulation/13-drive-preview-failsoft.sim.ts`, #33) deliberately leans on this: it
+asserts the admin submission page still renders 200 with the "Open in new tab" fallback
+when Drive is unavailable. The Drive HAPPY path (a real file actually rendering in the
+Google iframe) is out of scope for an automated test — it would need real credentials,
+real uploaded files, real Drive ACLs, and a browser embedding a Google iframe — so it is
+covered by the `ensureFileLinkReadable` / `admin-cv-route` unit tests (Drive mocked) plus
+manual verification against real Drive. Don't add a real-Drive E2E to the harness.
+
 ### Running the ephemeral stack locally
 
 ```bash
