@@ -10,7 +10,7 @@
  * jury vote) are set via the admin client + a real jury vote; the slice's
  * subject — finalize, publish, and public display — is all real UI.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, request as playwrightRequest } from "@playwright/test";
 import {
   adminLoginViaSession,
   createChapterViaUI,
@@ -27,6 +27,7 @@ import {
   clearMailbox,
   cleanupSimData,
 } from "./sim-helpers";
+import { certificateToken } from "@/lib/certificate-token";
 
 const CHAPTER_NAME = "Sim Scoring Match";
 const CHALLENGE_TITLE = "Sim Scoring Challenge";
@@ -94,6 +95,44 @@ test.describe("Simulation: scoring + leaderboard (real UI)", () => {
       .toBe(1);
   });
 
+  test("scores page truthfully warns when jury results are shown but NOT finalized (#39)", async ({ page }) => {
+    // Regression for the publish-readiness divergence (#39): the admin scores
+    // page reads DISPLAYED jury results from a live aggregation of jury_rankings,
+    // but publish only surfaces rows persisted in `scores`. Before finalize there
+    // is a jury ranking (displayed) but NO `scores` row, so the page must warn
+    // that those teams will NOT be published — NOT falsely claim "no scores yet"
+    // and NOT silently drop them. (The unit tests cover getPublishReadiness; this
+    // asserts the real page wires the live jury aggregation into that warning.)
+    const db = adminClient();
+    // Guard the precondition this regression depends on: a displayed jury ranking
+    // exists, but finalization has not yet written any `scores` row.
+    const { count: rankings } = await db
+      .from("jury_rankings")
+      .select("id", { count: "exact", head: true })
+      .eq("challenge_id", challengeId);
+    expect(rankings, "a jury ranking is displayed").toBe(1);
+    const { data: preScores } = await db
+      .from("scores")
+      .select("team_id")
+      .eq("chapter_id", chapterId);
+    expect(preScores ?? [], "no scores finalized yet").toHaveLength(0);
+
+    await adminLoginViaSession(page);
+    await page.goto(`/admin/chapters/${chapterId}/scores`);
+
+    // The page must show the truthful "unfinalized" warning (the #39 fix), naming
+    // the count of teams whose displayed jury results are not yet finalized, and
+    // must NOT show the false "NO scores yet" empty-state warning.
+    await expect(
+      page.getByText(/have not been finalized into scores/i)
+    ).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText(/will NOT\s+appear on the public leaderboard/i)).toBeVisible();
+    // The false empty-state warning ("This chapter has NO scores yet") must NOT
+    // show. Match the distinctive "no scores yet" fragment (case-insensitive) so
+    // this catches the empty warning regardless of exact surrounding wording.
+    await expect(page.getByText(/no scores yet/i)).toHaveCount(0);
+  });
+
   test("admin finalizes voting and publishes scores via the real UI", async ({ page }) => {
     // The admin jury page loads every chapter's challenges + progress, so it can
     // be slow to become interactive; give this step extra headroom.
@@ -159,5 +198,63 @@ test.describe("Simulation: scoring + leaderboard (real UI)", () => {
     // The chapter's public match page shows the published result (team name).
     await page.goto(`/matches/${slug}`);
     await expect(page.getByText(TEAM_NAME).first()).toBeVisible({ timeout: 20000 });
+  });
+
+  test("the emailed certificate link is viewable WITHOUT login via the capability token (#36)", async ({ baseURL }) => {
+    // Regression for #36: a participant clicks the certificate link from their
+    // email while NOT logged in. The PDF route authorizes via a stateless HMAC
+    // capability token bound to (chapterId, teamId) — no session, no enumeration.
+    // We sign a REAL token with the same secret the app uses, fetch it from a
+    // fresh LOGGED-OUT request context, and assert the full token contract.
+    const db = adminClient();
+    const { data: team } = await db
+      .from("teams")
+      .select("id")
+      .eq("name", TEAM_NAME)
+      .single();
+    const teamId = team!.id as string;
+
+    // Precondition: this team's score is published (set by the publish step above);
+    // the route only serves a certificate for a published score.
+    const { data: score } = await db
+      .from("scores")
+      .select("published")
+      .eq("chapter_id", chapterId)
+      .eq("team_id", teamId)
+      .single();
+    expect(score?.published, "score is published").toBe(true);
+
+    const goodToken = certificateToken(chapterId, teamId);
+    const base = `/api/certificates/${chapterId}/${teamId}`;
+
+    // A brand-new request context with NO cookies = a logged-out recipient.
+    const anon = await playwrightRequest.newContext({ baseURL: baseURL ?? undefined });
+    try {
+      // 1) Valid token, logged out -> 200 and a real PDF.
+      const ok = await anon.get(`${base}?token=${goodToken}`);
+      expect(ok.status(), "valid token logged-out -> 200").toBe(200);
+      expect(ok.headers()["content-type"]).toContain("application/pdf");
+      const body = await ok.body();
+      expect(body.subarray(0, 4).toString("latin1"), "real PDF bytes").toBe("%PDF");
+
+      // 2) No token -> 401 (no PII leak without the capability).
+      expect((await anon.get(base)).status(), "no token -> 401").toBe(401);
+
+      // 3) Wrong token -> 401.
+      expect(
+        (await anon.get(`${base}?token=not-the-real-token`)).status(),
+        "wrong token -> 401"
+      ).toBe(401);
+
+      // 4) A token valid for THIS chapter but a DIFFERENT team must not authorize
+      //    this certificate (no cross-team enumeration).
+      const otherTeamToken = certificateToken(chapterId, "00000000-0000-0000-0000-000000000000");
+      expect(
+        (await anon.get(`${base}?token=${otherTeamToken}`)).status(),
+        "other-team token -> 401"
+      ).toBe(401);
+    } finally {
+      await anon.dispose();
+    }
   });
 });
