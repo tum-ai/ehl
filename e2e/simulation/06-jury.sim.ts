@@ -108,4 +108,68 @@ test.describe("Simulation: jury assignment + ranking (real UI)", () => {
       }, { timeout: 15000 })
       .toBe(1);
   });
+
+  test("a juror on TWO challenges sees the challenge picked by ?challenge=, not the first (#35)", async ({ page, browser }) => {
+    test.setTimeout(120_000);
+    // Regression for #35: a juror assigned to two challenges in the SAME chapter
+    // used to always see the FIRST challenge's submissions (every layer resolved
+    // the assignment by chapter alone). The fix resolves by the ?challenge= id.
+    // We add a SECOND challenge with its OWN submitted team, assign the SAME juror,
+    // then open the rank UI for the second challenge and assert it shows the SECOND
+    // team — and NOT the first challenge's team.
+    const db = adminClient();
+    const SECOND_CHALLENGE = "Sim Jury Challenge Two";
+    const SECOND_TEAM = "Sim Pitchers Two";
+    const SECOND_PRES = simEmail("sim-jury-pres-2");
+
+    await adminLoginViaSession(page);
+    await createChallengeViaUI(page, chapterId, { title: SECOND_CHALLENGE });
+    const challengeId2 = await getChallengeId(chapterId, SECOND_CHALLENGE);
+
+    const presCtx = await browser.newContext();
+    await registerSoloViaUI(await presCtx.newPage(), { name: "Sim Jury Pres Two", email: SECOND_PRES });
+    await presCtx.close();
+    const { data: pres2 } = await db.from("profiles").select("id").eq("email", SECOND_PRES).single();
+
+    await bootstrapSubmission({
+      chapterId,
+      challengeId: challengeId2,
+      teamName: SECOND_TEAM,
+      presidentUserId: pres2!.id as string,
+      projectName: "Sim Jury Project Two",
+    });
+
+    // Assign the SAME juror (JURY_EMAIL) to the second challenge too.
+    await assignJuryViaUI(page, {
+      chapterId,
+      challengeId: challengeId2,
+      juryName: "Sim Jury One",
+      juryEmail: JURY_EMAIL,
+    });
+    // Confirm the juror now has TWO assignments in this chapter (the #35 condition).
+    const { data: jury } = await db.from("profiles").select("id").eq("email", JURY_EMAIL).single();
+    await expect
+      .poll(async () => {
+        const { count } = await db
+          .from("jury_assignments")
+          .select("user_id", { count: "exact", head: true })
+          .eq("user_id", jury!.id)
+          .in("challenge_id", [challengeId, challengeId2]);
+        return count ?? 0;
+      }, { timeout: 15000 })
+      .toBe(2);
+
+    // Log in as the juror and open the rank UI for the SECOND challenge explicitly.
+    await juryLoginViaUI(page, JURY_EMAIL);
+    await page.goto(`/jury/${slug}/rank?challenge=${challengeId2}`);
+
+    // The available-teams list must show the SECOND challenge's team, and must NOT
+    // show the FIRST challenge's team (the bug returned the first challenge here).
+    await expect(
+      page.getByRole("button", { name: new RegExp(SECOND_TEAM, "i") }).first()
+    ).toBeVisible({ timeout: 20000 });
+    await expect(
+      page.getByRole("button", { name: new RegExp(`^${TEAM_NAME}$`, "i") })
+    ).toHaveCount(0);
+  });
 });
