@@ -692,23 +692,23 @@ export async function fillApplicationFields(
   await page.locator('input[name="firstName"]').fill(opts.firstName);
   await page.locator('input[name="lastName"]').fill(opts.lastName);
   await page.locator('input[name="dateOfBirth"]').fill("2000-01-15");
-  await page.locator('input[name="gender"][value="Male"]').check({ force: true });
+  await selectRadio(page, "gender", "Male");
   await page.locator('input[name="locationCity"]').fill("Munich");
   await page.locator('input[name="locationCountry"]').fill("Germany");
   await page.locator('input[name="nationality"]').fill("German");
 
   // Academic: not currently studying (keeps form short).
-  await page.locator('input[name="currentlyStudying"][value="false"]').check({ force: true });
-  await page.locator('input[name="hasProgrammingSkills"][value="true"]').check({ force: true });
-  await page.locator('input[name="isTumaiMember"][value="false"]').check({ force: true });
+  await selectRadio(page, "currentlyStudying", "false");
+  await selectRadio(page, "hasProgrammingSkills", "true");
+  await selectRadio(page, "isTumaiMember", "false");
   await page
     .locator('textarea[name="hackathonExperience"]')
     .fill("Attended two hackathons previously and enjoy building fast.");
 
-  await page.locator('input[name="hasTeam"][value="false"]').check({ force: true });
-  await page.locator('input[name="dietaryRestrictions"][value="None"]').check({ force: true });
-  await page.locator('input[name="tshirtCut"][value="men\'s"]').check({ force: true });
-  await page.locator('input[name="tshirtSize"][value="M"]').check({ force: true });
+  await selectRadio(page, "hasTeam", "false");
+  await selectRadio(page, "dietaryRestrictions", "None");
+  await selectRadio(page, "tshirtCut", "men's");
+  await selectRadio(page, "tshirtSize", "M");
   await page.getByText("LinkedIn", { exact: true }).click();
 
   if (opts.cvAlwaysOptional) {
@@ -721,15 +721,39 @@ export async function fillApplicationFields(
       });
     }
   } else if (opts.withCv) {
-    await page.locator('input[name="wantsCv"][value="true"]').check({ force: true });
+    await selectRadio(page, "wantsCv", "true");
     await page.locator('input[name="cv"]').setInputFiles({
       name: "cv.pdf",
       mimeType: "application/pdf",
       buffer: tinyPdfBuffer(),
     });
   } else {
-    await page.locator('input[name="wantsCv"][value="false"]').check({ force: true });
+    await selectRadio(page, "wantsCv", "false");
   }
+}
+
+/**
+ * Select a radio option in the application form by clicking its wrapping <label>.
+ *
+ * ApplicationFields renders each radio as a visually-hidden `<input class="sr-only">`
+ * inside a clickable `<label>` (components/application/application-fields.tsx
+ * RadioGroup). A real user clicks the label, never the hidden input. Driving the
+ * hidden input directly via `.check({ force: true })` works on Chromium but FAILS on
+ * Firefox/WebKit ("Clicking the checkbox did not change its state"), because those
+ * engines verify the state actually changed and an sr-only (clipped) input doesn't
+ * register the synthetic click reliably. Clicking the label is both how a user
+ * interacts AND cross-browser robust, so this is the single source of radio
+ * selection for the application/walk-in forms.
+ */
+async function selectRadio(page: Page, name: string, value: string): Promise<void> {
+  // CSS attribute selectors need quoted values to be safe (e.g. tshirtCut="men's").
+  const label = page.locator(`label:has(input[name="${name}"][value="${value}"])`);
+  await label.click();
+  // Confirm the underlying radio is actually checked before moving on, so a missed
+  // click surfaces here (with this field's name) instead of as a vague later failure.
+  await expect(
+    page.locator(`input[name="${name}"][value="${value}"]`)
+  ).toBeChecked();
 }
 
 /** Assert a profile row exists for an email (DB-level confirmation). */
