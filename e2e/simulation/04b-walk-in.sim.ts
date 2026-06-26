@@ -25,6 +25,7 @@ import {
   createChapterViaUI,
   advanceChapterStatusViaUI,
   fillApplicationFields,
+  registerSoloViaUI,
   simEmail,
   adminClient,
   cleanupSimData,
@@ -34,6 +35,7 @@ import {
 const CHAPTER_NAME = "Sim Walk-in Match";
 const WALKIN_EMAIL = simEmail("sim-walkin");
 const WALKIN_PASSWORD = "WalkInPass123!";
+const EXISTING_EMAIL = simEmail("sim-walkin-existing");
 
 test.describe("Simulation: walk-in registration (real UI)", () => {
   let chapterId: string;
@@ -212,6 +214,86 @@ test.describe("Simulation: walk-in registration (real UI)", () => {
     // the checked-in confirmation, and the gate heading is gone.
     await expect(wp.getByText("You are checked in for this event.")).toBeVisible({ timeout: 15000 });
     await expect(wp.getByRole("heading", { name: "Access Denied" })).toHaveCount(0);
+    await ctx.close();
+  });
+
+  test("a SIGNED-IN existing user can walk in without 'already registered' dead-end (no account deletion)", async ({ browser }) => {
+    // Regression for the reported event-day bug: an existing, signed-in user who
+    // opens the walk-in link must NOT dead-end with "sign in first" / "already
+    // registered". The walk-in page prefills + locks their email, hides the
+    // password fields, and registers them against their EXISTING account.
+    const db = adminClient();
+    const { data: rows } = await db
+      .from("chapter_walk_in")
+      .select("walk_in_token")
+      .eq("chapter_id", chapterId);
+    const token = rows![0].walk_in_token as string;
+
+    // A pre-existing registered participant (own context, signed in).
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await registerSoloViaUI(page, { name: "Existing Walkin", email: EXISTING_EMAIL });
+    // They have NO application for this chapter yet.
+    const { data: prof } = await db.from("profiles").select("id").eq("email", EXISTING_EMAIL).single();
+
+    // Open the walk-in link WHILE SIGNED IN.
+    await page.goto(`/walk-in/${token}`);
+    await expect(page.getByRole("heading", { name: "Walk-In Registration" })).toBeVisible();
+
+    // The email is prefilled + locked, and there are NO password fields (the
+    // signed-in account is reused).
+    await expect(page.locator('input[name="email"]')).toHaveValue(EXISTING_EMAIL);
+    await expect(page.locator('input[name="password"]')).toHaveCount(0);
+
+    // Fill the application fields (CV optional on walk-in) and submit.
+    await fillApplicationFields(page, {
+      firstName: "Existing",
+      lastName: "Walkin",
+      cvAlwaysOptional: true,
+    });
+    await page.getByRole("button", { name: /register & create account|register/i }).click();
+
+    // Success: they get a personal check-in QR (NOT a "already registered" error).
+    await expect(page.getByText(/you're registered/i)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByRole("img", { name: "Your check-in QR code" })).toBeVisible();
+
+    // DB: an ACCEPTED application now exists for the EXISTING account (no second
+    // account was created — same profile id).
+    const { data: app } = await db
+      .from("applications")
+      .select("status, check_in_token")
+      .eq("chapter_id", chapterId)
+      .eq("email", EXISTING_EMAIL)
+      .maybeSingle();
+    expect(app, "accepted application created for existing user").toBeTruthy();
+    expect(app!.status).toBe("accepted");
+    expect(app!.check_in_token).toBeTruthy();
+
+    // Exactly ONE profile for this email (no duplicate account).
+    const { count: profCount } = await db
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("email", EXISTING_EMAIL);
+    expect(profCount).toBe(1);
+    expect(prof!.id).toBeTruthy();
+
+    // Idempotent: opening the walk-in link AGAIN returns the same check-in QR,
+    // does not error, and creates no second application.
+    await page.goto(`/walk-in/${token}`);
+    await fillApplicationFields(page, {
+      firstName: "Existing",
+      lastName: "Walkin",
+      cvAlwaysOptional: true,
+    });
+    await page.getByRole("button", { name: /register & create account|register/i }).click();
+    await expect(page.getByRole("img", { name: "Your check-in QR code" })).toBeVisible({ timeout: 20000 });
+    const { count: appCount } = await db
+      .from("applications")
+      .select("id", { count: "exact", head: true })
+      .eq("chapter_id", chapterId)
+      .eq("email", EXISTING_EMAIL);
+    expect(appCount, "still exactly one application (idempotent)").toBe(1);
+
     await ctx.close();
   });
 });

@@ -85,11 +85,22 @@ export async function submitWalkInApplication(
   if (!walkInToken) {
     return { error: "Invalid walk-in link." };
   }
-  if (!firstName || !lastName || !email || !password) {
-    return { error: "First name, last name, email, and password are required." };
+  // Resolve the session early: a signed-in owner reuses their account and so does
+  // NOT need to supply a password (the field is for creating a new account).
+  const earlySession = await getSession();
+  const signedInAsThisEmail =
+    !!earlySession && earlySession.user?.email?.toLowerCase() === email;
+
+  if (!firstName || !lastName || !email) {
+    return { error: "First name, last name, and email are required." };
   }
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
+  if (!signedInAsThisEmail) {
+    if (!password) {
+      return { error: "A password is required to create your account." };
+    }
+    if (password.length < 8) {
+      return { error: "Password must be at least 8 characters." };
+    }
   }
 
   // Bot protection
@@ -124,30 +135,70 @@ export async function submitWalkInApplication(
 
   const adminClient = createAdminClient();
 
-  // Duplicate application for this chapter+email.
+  // ── Existing-identity handling (idempotent walk-in) ───────────────────────
+  // The walk-in QR is PUBLIC at the venue, so we must NEVER reveal an existing
+  // applicant's personal check-in token from an emailed value alone. Idempotent
+  // behavior is gated on PROVEN identity: the caller must be SIGNED IN as the
+  // account that owns the email.
+  //
+  // Behavior matrix (signed in as `email`):
+  //   - accepted/checked_in application for THIS chapter → return the existing
+  //     check-in token (no writes). Fixes the "already registered" dead-end.
+  //   - no application for this chapter → create an accepted application for the
+  //     EXISTING account (no new account), return its check-in token.
+  //   - pending/waitlisted/rejected/cancelled here → don't auto-promote via a
+  //     public QR; send them to the registration desk.
+  // Not signed in (or signed in as someone else) but the email already has an
+  // account → refuse with a sign-in-first path (no account takeover, no oracle).
+  // Reuses the session resolved at the top of the action.
+  const isOwnerSignedIn = signedInAsThisEmail;
+
   const { data: existingApp } = await adminClient
     .from("applications")
-    .select("id")
+    .select("id, status, check_in_token")
     .eq("chapter_id", chapter.id)
     .eq("email", email)
     .maybeSingle();
-  if (existingApp) {
-    return { error: "An application with this email already exists for this match." };
-  }
 
-  // Account: if the email already has an account, REFUSE. We never create a
-  // second account and never touch the existing password. The walk-in must sign
-  // in first, then use the walk-in link.
   const { data: existingProfile } = await adminClient
     .from("profiles")
     .select("id")
     .eq("email", email)
     .maybeSingle();
-  if (existingProfile) {
+
+  if (existingApp) {
+    // An application for this chapter already exists. Only the proven owner may
+    // act on it; otherwise this stays a non-revealing generic message.
+    if (!isOwnerSignedIn) {
+      return {
+        error:
+          "An application with this email already exists for this match. Please sign in first, then reopen the walk-in link.",
+      };
+    }
+    if (existingApp.status === "accepted" || existingApp.status === "checked_in") {
+      // Idempotent: hand back the existing personal check-in QR, no writes.
+      return { success: true, checkInToken: existingApp.check_in_token as string };
+    }
+    // pending / waitlisted / rejected / cancelled must not be promoted by a QR.
+    return {
+      error:
+        "You already have an application for this match that can't be auto-accepted here. Please see the registration desk.",
+    };
+  }
+
+  // An account exists for this email but the caller is NOT the signed-in owner:
+  // refuse (no second account, no password change). NOTE: existingProfile may be
+  // null even when an auth user exists (an imported/profileless user), so we also
+  // guard the create path below by isOwnerSignedIn, not just existingProfile.
+  if (existingProfile && !isOwnerSignedIn) {
     return {
       error:
         "An account with this email already exists. Please sign in first, then use the walk-in link.",
     };
+  }
+  if (existingProfile) {
+    // Signed in as the owner: create an accepted application for the EXISTING
+    // account (no new auth user), then fall through to the shared insert path.
   }
 
   // Validate the CV (optional) before any write so a Drive outage can never lose
@@ -164,28 +215,47 @@ export async function submitWalkInApplication(
     }
   }
 
-  // Create the auth user + profile (mirrors registration.ts). email_confirm so
-  // the walk-in is immediately usable; no verification code at an in-person event.
+  // Resolve the participant. Three paths reach here:
+  //  - SIGNED-IN owner: reuse their authenticated account (session.user.id),
+  //    regardless of whether a profiles row exists. A valid session can have a
+  //    NULL profile (an imported/profileless user — the exact bug that blocks
+  //    team formation), so we ALSO repair the missing profile here. We must NOT
+  //    fall through to createUser for them: the auth user already exists, so
+  //    createUser would fail with a duplicate and dead-end again.
+  //  - NEW person: create the auth user + profile (mirrors registration.ts).
   const fullName = `${firstName} ${lastName}`;
-  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { name: fullName },
-  });
+  let userId: string;
+  if (isOwnerSignedIn) {
+    userId = earlySession!.user.id;
+    // Self-heal: ensure the owner has a profile (idempotent; never downgrades an
+    // existing role — upsert only sets role on first insert via the DB default).
+    await adminClient
+      .from("profiles")
+      .upsert(
+        { id: userId, email, name: fullName, role: "participant" },
+        { onConflict: "id", ignoreDuplicates: true }
+      );
+  } else {
+    const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { name: fullName },
+    });
 
-  if (authError || !authData.user) {
-    return { error: authError?.message || "Failed to create account." };
+    if (authError || !authData.user) {
+      return { error: authError?.message || "Failed to create account." };
+    }
+
+    userId = authData.user.id;
+
+    await adminClient.from("profiles").upsert({
+      id: userId,
+      email,
+      name: fullName,
+      role: "participant",
+    });
   }
-
-  const userId = authData.user.id;
-
-  await adminClient.from("profiles").upsert({
-    id: userId,
-    email,
-    name: fullName,
-    role: "participant",
-  });
 
   // Insert the application as AUTO-ACCEPTED. check_in_token auto-generates so the
   // existing personal check-in QR flow handles the rest, unchanged.
@@ -240,9 +310,13 @@ export async function submitWalkInApplication(
     delta: { created: { email, chapter_id: chapter.id } },
   });
 
-  // Sign the new user in so they land logged in (mirrors registration.ts).
-  const supabase = await createClient();
-  await supabase.auth.signInWithPassword({ email, password });
+  // Sign the NEW user in so they land logged in (mirrors registration.ts). A
+  // signed-in owner is already authenticated — don't re-auth with the form
+  // password (which may be blank/irrelevant for them).
+  if (!isOwnerSignedIn) {
+    const supabase = await createClient();
+    await supabase.auth.signInWithPassword({ email, password });
+  }
 
   return {
     success: true,
