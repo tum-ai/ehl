@@ -5,6 +5,7 @@ import { lockSubmissionsCore } from "@/lib/submissions-lock";
 import { logEvent } from "@/lib/event-log";
 import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
 import { dispatchCodeReviewWorker } from "@/lib/code-review/dispatch";
+import { recordCodeReviewDispatch } from "@/lib/settings";
 
 // The cron runs every minute (vercel.json), but the submissions->pitching branch
 // forks GitHub repos and can run long. Give the function room and serialize runs
@@ -173,6 +174,9 @@ async function runDeadlineCheck(): Promise<NextResponse> {
                 submission_id: sub.id,
                 status: "queued",
                 review_version: 2,
+                // Stamp queue time so the admin console's stuck-detection works
+                // for cron-queued reviews too (not just manually queued ones).
+                queued_at: new Date().toISOString(),
               },
               { onConflict: "submission_id", ignoreDuplicates: true }
             );
@@ -211,6 +215,14 @@ async function runDeadlineCheck(): Promise<NextResponse> {
       console.error(`[deadline-check] ${dispatchResult.message}`);
       transitions.push(`Failed to dispatch code review processing: ${dispatchResult.message}`);
     }
+    // Persist the outcome so the admin console shows whether the cron-triggered
+    // worker actually ran (same durable signal as the manual queue path).
+    await recordCodeReviewDispatch({
+      ok: dispatchResult.ok,
+      attempted: dispatchResult.attempted,
+      message: "message" in dispatchResult ? dispatchResult.message : null,
+      at: new Date().toISOString(),
+    });
   }
 
   return NextResponse.json({
