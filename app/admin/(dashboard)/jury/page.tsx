@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { inviteJury } from "@/lib/actions/auth";
 import { removeJuryAssignment, removeJuryMember, finalizeJuryVotes, regenerateScoresFromFinalizedRankings } from "@/lib/actions/jury";
+import { shouldShowFinalizedBlock, hasJury as hasJuryFor } from "@/lib/jury-view";
 
 interface Chapter {
   id: string;
@@ -63,11 +64,28 @@ export default function AdminJuryPage() {
   const [finalizingId, setFinalizingId] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
+    // Only accept the EXPECTED shape from each endpoint. A non-OK response (e.g.
+    // a 403 returning `{ error: "..." }`) must never poison state — feeding an
+    // error object into `progress` then iterating `cp.jurors` over it would crash
+    // the whole page. Default to a safe empty value instead.
+    const okJson = async <T,>(url: string, fallback: T, isValid: (v: unknown) => boolean): Promise<T> => {
+      try {
+        const r = await fetch(url);
+        if (!r.ok) return fallback;
+        const data = await r.json();
+        return isValid(data) ? (data as T) : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+    const isArray = (v: unknown) => Array.isArray(v);
+    const isObject = (v: unknown) => !!v && typeof v === "object" && !Array.isArray(v);
+
     try {
       const [chaptersRes, progressRes, usersRes] = await Promise.all([
-        fetch("/api/admin/jury/chapters").then((r) => r.json()).catch(() => []),
-        fetch("/api/admin/jury/progress").then((r) => r.json()).catch(() => ({})),
-        fetch("/api/admin/jury/users").then((r) => r.json()).catch(() => []),
+        okJson<Chapter[]>("/api/admin/jury/chapters", [], isArray),
+        okJson<Record<string, ChallengeProgress>>("/api/admin/jury/progress", {}, isObject),
+        okJson<JuryUser[]>("/api/admin/jury/users", [], isArray),
       ]);
 
       setChapters(chaptersRes);
@@ -77,9 +95,11 @@ export default function AdminJuryPage() {
       // Load challenges for all chapters
       const allChallenges: Challenge[] = [];
       for (const ch of chaptersRes) {
-        const chChallenges = await fetch(`/api/admin/chapters/${ch.id}/challenges`)
-          .then((r) => r.json())
-          .catch(() => []);
+        const chChallenges = await okJson<Challenge[]>(
+          `/api/admin/chapters/${ch.id}/challenges`,
+          [],
+          isArray
+        );
         allChallenges.push(
           ...chChallenges.map((c: Challenge) => ({ ...c, chapterId: ch.id }))
         );
@@ -337,7 +357,7 @@ export default function AdminJuryPage() {
               <div className="mt-3 space-y-4">
                 {chapterChallenges.map((challenge) => {
                   const cp = progress[challenge.id];
-                  const hasJury = cp && cp.jurors.length > 0;
+                  const hasJury = hasJuryFor(cp);
                   const total = cp?.jurors.length ?? 0;
                   const voted = cp?.jurors.filter((j) => j.status === "voted").length ?? 0;
                   const skipped = cp?.jurors.filter((j) => j.status === "skipped").length ?? 0;
@@ -467,8 +487,11 @@ export default function AdminJuryPage() {
                       {/* Finalized state: be explicit about scores, and offer a
                           recovery path. A challenge can be finalized while it was
                           (accidentally) unscored; after marking it Scored the
-                          admin can generate scores from the finalized rankings. */}
-                      {cp.finalized && (
+                          admin can generate scores from the finalized rankings.
+                          shouldShowFinalizedBlock is null-safe — a challenge with no
+                          jury progress entry has cp === undefined, and an unguarded
+                          cp.finalized here crashed the whole /admin/jury page. */}
+                      {shouldShowFinalizedBlock(cp) && (
                         <div className="mt-4 border-t ad-border pt-4">
                           {challenge.isScored ? (
                             <>
