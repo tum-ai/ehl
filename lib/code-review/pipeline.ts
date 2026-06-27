@@ -24,11 +24,15 @@ import {
 
 const DEFAULT_CONFIG: CodeReviewConfig = {
   models: {
-    tech_description: "google/gemini-2.0-flash-001",
-    code_quality: "anthropic/claude-sonnet-4-20250514",
-    highlights_issues: "anthropic/claude-sonnet-4-20250514",
-    originality: "google/gemini-2.0-flash-001",
-    coordinator: "anthropic/claude-sonnet-4-20250514",
+    // Model IDs must be CURRENT OpenRouter IDs — a stale id (e.g. a dated
+    // anthropic snapshot or an old gemini -001) makes OpenRouter 400 "not a valid
+    // model ID" and the whole review fails. The admin Code-Reviews page also lets
+    // an operator override these per challenge from the LIVE model list.
+    tech_description: "google/gemini-2.5-flash",
+    code_quality: "anthropic/claude-sonnet-4.5",
+    highlights_issues: "anthropic/claude-sonnet-4.5",
+    originality: "google/gemini-2.5-flash",
+    coordinator: "anthropic/claude-sonnet-4.5",
   },
   weights: {
     code_quality: 30,

@@ -124,11 +124,29 @@ export async function fetchAvailableModels(): Promise<OpenRouterModel[]> {
     name: string;
     pricing: { prompt: string; completion: string };
     context_length: number;
+    architecture?: {
+      input_modalities?: string[];
+      output_modalities?: string[];
+    };
   }>;
 
-  // Filter to models that support chat completions and have reasonable pricing
+  // Only offer models that are actually usable for code review: they must accept
+  // a text PROMPT and return TEXT (the pipeline sends text and parses a text/JSON
+  // reply). This drops image/audio/embedding output models (e.g.
+  // google/gemini-*-image, *-tts, embeddings) that OpenRouter also lists but that
+  // would fail at review time. When OpenRouter omits the architecture field we
+  // keep the model (fail-open) so a schema change can't empty the list.
   return models
     .filter((m) => m.context_length > 0)
+    .filter((m) => {
+      const arch = m.architecture;
+      if (!arch) return true; // unknown shape — don't hide it
+      const inputs = arch.input_modalities;
+      const outputs = arch.output_modalities;
+      const acceptsText = !inputs || inputs.includes("text");
+      const returnsText = !outputs || outputs.includes("text");
+      return acceptsText && returnsText;
+    })
     .map((m) => ({
       id: m.id,
       name: m.name,

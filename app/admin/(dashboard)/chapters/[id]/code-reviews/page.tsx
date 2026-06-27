@@ -85,12 +85,15 @@ interface OpenRouterModel {
 
 // ─── Defaults ───────────────────────────────────────────────
 
+// Keep in sync with DEFAULT_CONFIG.models in lib/code-review/pipeline.ts. These
+// MUST be current OpenRouter model IDs: the dropdown below loads the live model
+// list, and a stale default 400s ("not a valid model ID") at review time.
 const DEFAULT_MODELS: CodeReviewConfig["models"] = {
-  tech_description: "google/gemini-2.0-flash-001",
-  code_quality: "anthropic/claude-sonnet-4-20250514",
-  highlights_issues: "anthropic/claude-sonnet-4-20250514",
-  originality: "google/gemini-2.0-flash-001",
-  coordinator: "anthropic/claude-sonnet-4-20250514",
+  tech_description: "google/gemini-2.5-flash",
+  code_quality: "anthropic/claude-sonnet-4.5",
+  highlights_issues: "anthropic/claude-sonnet-4.5",
+  originality: "google/gemini-2.5-flash",
+  coordinator: "anthropic/claude-sonnet-4.5",
 };
 
 const DEFAULT_WEIGHTS: CodeReviewConfig["weights"] = {
