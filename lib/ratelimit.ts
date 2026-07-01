@@ -75,6 +75,11 @@ export const applicationLimiter = makeLimiter("rl:apply", 500, "60 s", { limit: 
 // for a real event (a volunteer-supervised line), tight enough that a leaked token
 // can't be scripted into mass account creation. 60 per 60s per token.
 export const walkInTokenLimiter = makeLimiter("rl:walkin-token", 60, "60 s", { limit: 60, windowMs: 60_000 });
+// Partner showcase, keyed per IP: the token-gated showcase page exposes applicant
+// profiles and CVs. A holder is trusted, but the token lives in a URL that can
+// leak, so cap CV fetches per IP to blunt scripted mass-download of a leaked link
+// and to slow brute-force enumeration of application ids. 120 per 60s per IP.
+export const showcaseLimiter = makeLimiter("rl:showcase", 120, "60 s", { limit: 120, windowMs: 60_000 });
 // File upload: 50 per hour per user (fallback tighter: 10/min)
 export const uploadLimiter = makeLimiter("rl:upload", 50, "3600 s", { limit: 10, windowMs: 60_000 });
 // General API: 1000 per 60s per IP (fallback 200/min)

@@ -92,7 +92,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-59 sequential migrations in `supabase/migrations/`. Key tables:
+60 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055),
   `teams`, `team_members`, `team_invites`, `team_join_requests`
@@ -107,6 +107,9 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 - `chapter_walk_in` (admin-only per-chapter unguessable walk-in registration token; a
   SEPARATE table, never on the publicly-readable `chapters` row, mirroring
   `chapter_communications`)
+- `chapter_partner_showcase` (admin-only per-chapter unguessable sponsor showcase token +
+  settings: is_enabled, show_cvs, expires_at; a SEPARATE table, never on the
+  publicly-readable `chapters` row, mirroring `chapter_walk_in`)
 - `admin_emails`, `chapter_admins` (local/chapter admins), `app_settings`, `admin_audit_log`
 - `leaderboard` (Postgres VIEW, not a table)
 

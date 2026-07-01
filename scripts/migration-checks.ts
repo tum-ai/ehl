@@ -283,6 +283,13 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
     label: "code_review_queued_at",
     sql: column("code_reviews", "queued_at"),
   },
+  {
+    // Per-chapter partner (sponsor) showcase token + settings, in a separate
+    // admin-only table (no anon read) mirroring chapter_walk_in (00054).
+    prefix: "00060",
+    label: "chapter_partner_showcase",
+    sql: table("chapter_partner_showcase"),
+  },
 ];
 
 /**
