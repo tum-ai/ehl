@@ -97,8 +97,12 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
     };
   }).filter((a): a is ShowcaseApplicant => a !== null);
 
-  // Ranking: published scores for the chapter, joined to team names. getScores
-  // returns unpublished rows too, so we filter to published and resolve names.
+  // Ranking: only PUBLISHED scores may reach a sponsor. getScoresForChapter uses
+  // the anon Supabase client, so the "Public read published scores" RLS policy
+  // (published = true) filters unpublished/draft rows server-side before they
+  // ever reach this code. The showcase must NOT switch this to the admin client
+  // without adding an explicit .eq("published", true) filter, or draft rankings
+  // would leak.
   const scores = await getScoresForChapter(chapterId);
   const teamIds = scores.map((s) => s.teamId);
   const teamNames = new Map<string, string>();
@@ -213,9 +217,12 @@ export async function getShowcaseCvFileId(
     .select("cv_url, consent_sponsor_data, consent_recruiting")
     .eq("id", applicationId)
     .eq("chapter_id", chapterId) // IDOR guard: the id must belong to THIS chapter
+    .or(SPONSOR_CONSENT_OR_FILTER) // consent gate at the DB layer (same as the list)
     .maybeSingle();
 
   if (!row?.cv_url) return null;
+  // Defence in depth: re-assert consent in code so a query mistake cannot leak a
+  // CV even if the .or() filter above were ever weakened.
   const consented = hasSponsorConsent({
     consentSponsorData: row.consent_sponsor_data as boolean | null,
     consentRecruiting: row.consent_recruiting as boolean | null,

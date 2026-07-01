@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { headers } from "next/headers";
 import { logEvent } from "@/lib/event-log";
 import { checkRateLimit, errorReportLimiter } from "@/lib/ratelimit";
+import { redactSecretTokens } from "@/lib/utils";
 
 export async function POST(request: Request) {
   // Rate limit by IP
@@ -23,10 +24,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const message = typeof body.message === "string" ? body.message.slice(0, 500) : "Unknown error";
-  const stack = typeof body.stack === "string" ? body.stack.slice(0, 2000) : undefined;
+  // Redact secret path tokens (e.g. /showcase/<token>, /walk-in/<token>) before
+  // persisting: a crash on a token-gated page would otherwise write the live
+  // bearer token into the append-only event_log (and any Sentry sink).
+  const message = typeof body.message === "string" ? redactSecretTokens(body.message.slice(0, 500)) : "Unknown error";
+  const stack = typeof body.stack === "string" ? redactSecretTokens(body.stack.slice(0, 2000)) : undefined;
   const digest = typeof body.digest === "string" ? body.digest.slice(0, 100) : undefined;
-  const url = typeof body.url === "string" ? body.url.slice(0, 500) : "unknown";
+  const url = typeof body.url === "string" ? redactSecretTokens(body.url.slice(0, 500)) : "unknown";
   const userAgent = typeof body.userAgent === "string" ? body.userAgent.slice(0, 200) : undefined;
 
   logEvent({

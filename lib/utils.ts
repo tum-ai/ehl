@@ -2,6 +2,32 @@ import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 
 /**
+ * Redact secret bearer tokens that appear in a URL or free-text string (e.g. a
+ * stack trace) before it is persisted or sent to a third party.
+ *
+ * Several routes carry an unguessable token IN THE PATH as the sole
+ * authorization: /walk-in/<token>, /showcase/<token>, and
+ * /api/showcase/<token>/cv/<applicationId>. If such a URL is logged verbatim
+ * (e.g. a client-error report writing window.location.href to event_log, or a
+ * stack trace containing the request URL), the live token leaks into durable
+ * storage and anyone with log access could reuse it. Replace the token segment
+ * with "<redacted>" while keeping the route recognizable for debugging.
+ */
+export function redactSecretTokens(input: string): string {
+  return input
+    // /api/showcase/<token>/... — redact the token, keep the trailing path shape.
+    .replace(
+      /(\/api\/showcase\/)[^/\s?#]+/g,
+      "$1<redacted>"
+    )
+    // /showcase/<token> and /walk-in/<token> — path-final token.
+    .replace(
+      /(\/(?:showcase|walk-in)\/)[^/\s?#]+/g,
+      "$1<redacted>"
+    );
+}
+
+/**
  * Returns the base site URL. Uses NEXT_PUBLIC_SITE_URL env var,
  * falls back to the deployment's own URL on Vercel preview deployments
  * (so auth links in emails stay on the preview instead of pointing at

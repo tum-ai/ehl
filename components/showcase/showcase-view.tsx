@@ -289,6 +289,19 @@ function FilterPill({
   );
 }
 
+// Applicant-supplied profile URLs are free text. Only render them as links when
+// they are http(s) — never javascript:/data:/other schemes (stored-XSS guard).
+// Returns a safe href or null.
+function safeHttpUrl(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw.trim());
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
 const statusLabels: Record<ShowcaseApplicant["status"], { label: string; className: string }> = {
   participated: { label: "Participated", className: "border-emerald-500/30 bg-emerald-500/10 text-emerald-300" },
   accepted: { label: "Accepted", className: "border-purple/30 bg-purple/10 text-purple-light" },
@@ -305,8 +318,10 @@ function ApplicantCard({
   showCvs: boolean;
 }) {
   const badge = statusLabels[applicant.status];
-  const linkedInUser = applicant.linkedIn ? extractLinkedInUsername(applicant.linkedIn) : null;
-  const githubUser = applicant.github ? extractGitHubUsername(applicant.github) : null;
+  const linkedInHref = safeHttpUrl(applicant.linkedIn);
+  const githubHref = safeHttpUrl(applicant.github);
+  const linkedInUser = linkedInHref ? extractLinkedInUsername(linkedInHref) : null;
+  const githubUser = githubHref ? extractGitHubUsername(githubHref) : null;
   const cvHref = `/api/showcase/${encodeURIComponent(token)}/cv/${encodeURIComponent(applicant.id)}`;
 
   return (
@@ -321,9 +336,9 @@ function ApplicantCard({
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
-        {applicant.linkedIn && (
+        {linkedInHref && (
           <a
-            href={applicant.linkedIn}
+            href={linkedInHref}
             target="_blank"
             rel="noreferrer noopener"
             referrerPolicy="no-referrer"
@@ -333,9 +348,9 @@ function ApplicantCard({
             {linkedInUser ? `/${linkedInUser}` : "LinkedIn"}
           </a>
         )}
-        {applicant.github && (
+        {githubHref && (
           <a
-            href={applicant.github}
+            href={githubHref}
             target="_blank"
             rel="noreferrer noopener"
             referrerPolicy="no-referrer"

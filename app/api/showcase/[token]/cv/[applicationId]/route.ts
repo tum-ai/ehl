@@ -18,10 +18,13 @@ import { checkRateLimit, showcaseLimiter } from "@/lib/ratelimit";
 // The CV is streamed with no-store + noindex + no-referrer so it is never cached
 // by a CDN/browser and the token can't leak via referrer.
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ token: string; applicationId: string }> }
 ) {
   const { token, applicationId } = await params;
+  // ?download=1 forces a save dialog (Content-Disposition: attachment); default
+  // is inline so "View CV" previews in the browser.
+  const download = new URL(request.url).searchParams.get("download") === "1";
 
   const notFound = () =>
     NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -46,7 +49,7 @@ export async function GET(
     return new NextResponse(new Uint8Array(buffer), {
       headers: {
         "Content-Type": mimeType,
-        "Content-Disposition": "inline",
+        "Content-Disposition": download ? "attachment" : "inline",
         // Sponsor CVs are personal data behind a bearer link: never let a shared
         // cache/CDN or the browser retain a copy, and keep them out of any index.
         "Cache-Control": "no-store, max-age=0",
