@@ -5,7 +5,7 @@ export interface StatusCheck {
   passed: boolean;
 }
 
-const STATUS_FLOW: ChapterStatus[] = [
+export const STATUS_FLOW: ChapterStatus[] = [
   "draft",
   "announced",
   "applications_open",

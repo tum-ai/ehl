@@ -17,7 +17,7 @@ import {
   getTeamMatchHistory,
 } from "@/lib/queries";
 import { redirect } from "next/navigation";
-import { formatDateRange } from "@/lib/utils";
+import { formatDate, formatDateRange } from "@/lib/utils";
 import { TeamManagement } from "@/components/dashboard/team-management";
 import { TeamlessView } from "@/components/dashboard/teamless-view";
 import { createClient } from "@/lib/supabase/server";
@@ -301,7 +301,7 @@ export default async function ParticipantDashboard() {
                       {entry.chapter.name}
                     </Link>
                     <p className="text-xs text-text-muted mt-0.5">
-                      {entry.chapter.city}{entry.chapter.date ? ` \u00b7 ${new Date(entry.chapter.date).toLocaleDateString()}` : ""}
+                      {entry.chapter.city}{entry.chapter.date ? ` \u00b7 ${formatDate(entry.chapter.date)}` : ""}
                     </p>
                   </div>
                   {entry.score && (

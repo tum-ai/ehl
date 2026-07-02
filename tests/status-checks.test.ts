@@ -393,3 +393,18 @@ describe("getStatusChecksForTarget", () => {
     expect(reviewCheck?.label).toContain("Sponsor Challenge");
   });
 });
+
+// ─── Admin status-control UI flow stays in sync ─────────────
+
+describe("admin status-control STATUS_FLOW", () => {
+  it("lists every ChapterStatus in canonical flow order", async () => {
+    // A missing entry (hacking was absent) makes currentIndex -1 for chapters
+    // in that status, and the quick-advance button then renders
+    // "Advance to: Draft" — one click sends a live chapter back to draft.
+    const { STATUS_FLOW: uiFlow } = await import(
+      "@/app/admin/(dashboard)/chapters/[id]/status-flow"
+    );
+    const { STATUS_FLOW: canonicalFlow } = await import("@/lib/chapter-validation");
+    expect(uiFlow.map((s) => s.value)).toEqual(canonicalFlow);
+  });
+});

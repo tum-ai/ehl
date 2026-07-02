@@ -23,11 +23,24 @@ export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
+/**
+ * Parse a DB date value. Date-only strings get T00:00:00 appended (avoids the
+ * UTC-midnight timezone shift); full timestamps (timestamptz columns like
+ * submitted_at) are parsed as-is — appending would produce Invalid Date.
+ */
+function parseDbDate(date: string): Date {
+  return new Date(date.includes("T") ? date : date + "T00:00:00");
+}
+
+/** The "day 1 = approximate month" convention only applies to date-only values. */
+function isApproximateMonth(date: string, d: Date): boolean {
+  return !date.includes("T") && d.getDate() === 1;
+}
+
 export function formatDate(date: string | null): string {
   if (!date) return "TBA";
-  const d = new Date(date + "T00:00:00");
-  // If day is 1, treat as "month only" (approximate date)
-  if (d.getDate() === 1) {
+  const d = parseDbDate(date);
+  if (isApproximateMonth(date, d)) {
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }
   return d.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
@@ -35,15 +48,14 @@ export function formatDate(date: string | null): string {
 
 export function formatDateRange(date: string | null, dateEnd: string | null): string {
   if (!date) return "TBA";
-  const d = new Date(date + "T00:00:00");
-  // If day is 1, treat as approximate month
-  if (d.getDate() === 1) {
+  const d = parseDbDate(date);
+  if (isApproximateMonth(date, d)) {
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }
   if (!dateEnd) {
     return d.toLocaleDateString("en-US", { day: "numeric", month: "long", year: "numeric" });
   }
-  const dEnd = new Date(dateEnd + "T00:00:00");
+  const dEnd = parseDbDate(dateEnd);
   // Cross-month / cross-year ranges must name both months (and both years)
   // rather than collapsing to the start month, e.g. "30 May - 1 June 2026".
   if (d.getMonth() !== dEnd.getMonth() || d.getFullYear() !== dEnd.getFullYear()) {
@@ -68,8 +80,8 @@ function formatDayMonth(d: Date, dEnd: Date): string {
 
 export function formatDateFull(date: string | null, dateEnd?: string | null): string {
   if (!date) return "TBA";
-  const d = new Date(date + "T00:00:00");
-  if (d.getDate() === 1) {
+  const d = parseDbDate(date);
+  if (isApproximateMonth(date, d)) {
     return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
   }
   if (!dateEnd) {
@@ -79,7 +91,7 @@ export function formatDateFull(date: string | null, dateEnd?: string | null): st
       year: "numeric",
     });
   }
-  const dEnd = new Date(dateEnd + "T00:00:00");
+  const dEnd = parseDbDate(dateEnd);
   if (d.getMonth() !== dEnd.getMonth() || d.getFullYear() !== dEnd.getFullYear()) {
     return `${formatDayMonth(d, dEnd)} ${dEnd.getFullYear()}`;
   }
@@ -122,7 +134,14 @@ export function slugify(name: string): string {
 export function getSafeRedirect(redirectTo: string | undefined | null): string | null {
   if (!redirectTo) return null;
   // Decode to catch URL-encoded bypasses like %2F%2Fevil.com
-  const decoded = decodeURIComponent(redirectTo);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(redirectTo);
+  } catch {
+    // Malformed percent-encoding (e.g. a lone "%") must not throw — this runs
+    // on the auth callback and would 500 the login instead of falling back.
+    return null;
+  }
   // Must start with / and not start with // or /\ (protocol-relative or backslash tricks)
   if (!decoded.startsWith("/") || decoded.startsWith("//") || decoded.startsWith("/\\")) {
     return null;
