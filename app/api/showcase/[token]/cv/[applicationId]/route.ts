@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { headers } from "next/headers";
 import { downloadFile } from "@/lib/gdrive";
 import { getShowcaseByToken } from "@/lib/actions/showcase";
 import { getShowcaseCvFileId } from "@/lib/queries/showcase";
-import { checkRateLimit, showcaseLimiter } from "@/lib/ratelimit";
 
 // Token-gated CV proxy for the partner showcase.
 //
@@ -15,6 +13,13 @@ import { checkRateLimit, showcaseLimiter } from "@/lib/ratelimit";
 //   3. the application id belongs to THAT chapter (IDOR guard) and passes the
 //      sponsor consent gate — enforced in getShowcaseCvFileId().
 // Any failure returns a uniform 404 so the route is not an existence oracle.
+//
+// Rate limiting lives INSIDE getShowcaseByToken (per IP), so every consumer of
+// the resolver shares one bucket: a scripted mass-download or application-id
+// enumeration burns the same limit as any other resolver traffic, and a request
+// is never double-charged. When limited the resolver returns null and this
+// route answers the uniform 404 (no rate-limit oracle either).
+//
 // The CV is streamed with no-store + noindex + no-referrer so it is never cached
 // by a CDN/browser and the token can't leak via referrer.
 export async function GET(
@@ -28,14 +33,6 @@ export async function GET(
 
   const notFound = () =>
     NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  // Per-IP rate limit first: blunts scripted mass-download of a leaked link and
-  // brute-force enumeration of application ids.
-  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const rl = await checkRateLimit(showcaseLimiter, ip, "showcase-cv");
-  if (rl.limited) {
-    return NextResponse.json({ error: rl.error ?? "Rate limited" }, { status: 429 });
-  }
 
   const showcase = await getShowcaseByToken(token);
   if (!showcase) return notFound();

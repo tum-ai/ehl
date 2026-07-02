@@ -11,12 +11,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // disabled/expired token must never stream anything. Every failure is a uniform
 // 404 (no existence oracle).
 
+// Rate limiting is NOT mocked here because the route does not rate-limit
+// itself: the per-IP limiter lives inside getShowcaseByToken (mocked below),
+// shared by every resolver consumer — see tests/showcase-resolver.test.ts.
 const mocks = vi.hoisted(() => ({
   getShowcaseByToken: vi.fn(),
   getShowcaseCvFileId: vi.fn(),
   downloadFile: vi.fn(),
-  checkRateLimit: vi.fn(),
-  headers: vi.fn(),
 }));
 
 vi.mock("@/lib/actions/showcase", () => ({
@@ -27,13 +28,6 @@ vi.mock("@/lib/queries/showcase", () => ({
 }));
 vi.mock("@/lib/gdrive", () => ({
   downloadFile: mocks.downloadFile,
-}));
-vi.mock("@/lib/ratelimit", () => ({
-  checkRateLimit: mocks.checkRateLimit,
-  showcaseLimiter: { prefix: "rl:showcase" },
-}));
-vi.mock("next/headers", () => ({
-  headers: mocks.headers,
 }));
 
 import { GET } from "@/app/api/showcase/[token]/cv/[applicationId]/route";
@@ -50,8 +44,6 @@ function paramsFor(token: string, applicationId: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.headers.mockResolvedValue(new Map([["x-forwarded-for", "1.2.3.4"]]));
-  mocks.checkRateLimit.mockResolvedValue({ limited: false });
   // Default: token A resolves to a live showcase for chapter A with CVs enabled.
   mocks.getShowcaseByToken.mockResolvedValue({ chapterId: CHAPTER_A, showCvs: true });
   // Default: only APP_IN_A belongs to chapter A and is consented -> yields FILE_A.
@@ -117,13 +109,26 @@ describe("GET /api/showcase/[token]/cv/[applicationId]", () => {
     expect(mocks.downloadFile).not.toHaveBeenCalled();
   });
 
-  it("rate-limits per IP before doing any token/DB/Drive work", async () => {
-    mocks.checkRateLimit.mockResolvedValue({ limited: true, error: "Too many requests" });
+  it("honors ?download=1 with an attachment disposition (inline otherwise)", async () => {
+    const res = await GET(
+      new Request("http://t/cv?download=1"),
+      paramsFor(TOKEN_A, APP_IN_A)
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Disposition")).toBe("attachment");
+  });
+
+  it("answers the uniform 404 when the resolver rate-limits (null), never streaming", async () => {
+    // Rate limiting lives inside getShowcaseByToken (shared per-IP bucket for
+    // every resolver consumer); a limited resolver returns null and the route
+    // must map that to the same 404 as any other miss (no rate-limit oracle).
+    mocks.getShowcaseByToken.mockResolvedValue(null);
 
     const res = await GET(new Request("http://t/"), paramsFor(TOKEN_A, APP_IN_A));
 
-    expect(res.status).toBe(429);
-    expect(mocks.getShowcaseByToken).not.toHaveBeenCalled();
+    expect(res.status).toBe(404);
+    expect(mocks.getShowcaseCvFileId).not.toHaveBeenCalled();
     expect(mocks.downloadFile).not.toHaveBeenCalled();
   });
 });

@@ -409,6 +409,12 @@ test.describe.serial("Hackathon Lifecycle", () => {
   test("2.2 Create chapter via API", async () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 30);
+    // isDateExact() treats the 1st of a month as an approximate placeholder
+    // ("sometime in August"), which fails the applications_open readiness check
+    // and disables the advance button. today+30 lands on a month's 1st about a
+    // dozen days a year (e.g. Jul 2 -> Aug 1), so skip to the 2nd to keep the
+    // test date exact on every calendar day.
+    if (tomorrow.getDate() === 1) tomorrow.setDate(2);
     const dayAfter = new Date(tomorrow);
     dayAfter.setDate(dayAfter.getDate() + 2);
 

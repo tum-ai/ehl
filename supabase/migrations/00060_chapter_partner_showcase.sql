@@ -27,6 +27,10 @@
 -- The consent/status filtering of WHICH applicants appear is enforced in the
 -- query layer (consent_sponsor_data OR consent_recruiting), not here.
 
+-- rotated_by is ON DELETE SET NULL: a plain FK to profiles would make any user
+-- who ever rotated a token undeletable (the auth.users -> profiles cascade
+-- aborts on a restricting FK). That exact bug shipped once already on
+-- event_log.actor_id and was fixed in 00058 — don't reintroduce it here.
 create table if not exists chapter_partner_showcase (
   chapter_id      uuid primary key references chapters(id) on delete cascade,
   showcase_token  uuid not null default uuid_generate_v4(),
@@ -34,8 +38,19 @@ create table if not exists chapter_partner_showcase (
   show_cvs        boolean not null default false,
   expires_at      timestamptz,
   rotated_at      timestamptz default now(),
-  rotated_by      uuid references profiles(id)
+  rotated_by      uuid references profiles(id) on delete set null
 );
+
+-- Retrofit the same fix onto chapter_walk_in (00054), which shipped with the
+-- pre-00058 gap: its rotated_by FK had no ON DELETE clause, so a chapter admin
+-- who rotated a walk-in token (and was later downgraded to participant) could
+-- not be GDPR-deleted. Same remedy as 00058: SET NULL keeps the row, drops the
+-- person.
+alter table chapter_walk_in
+  drop constraint if exists chapter_walk_in_rotated_by_fkey;
+alter table chapter_walk_in
+  add constraint chapter_walk_in_rotated_by_fkey
+  foreign key (rotated_by) references profiles(id) on delete set null;
 
 -- The token is looked up by value on every showcase page hit, and must be
 -- globally unique so a lookup resolves to exactly one chapter.

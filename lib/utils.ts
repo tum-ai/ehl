@@ -6,25 +6,42 @@ import { twMerge } from "tailwind-merge";
  * stack trace) before it is persisted or sent to a third party.
  *
  * Several routes carry an unguessable token IN THE PATH as the sole
- * authorization: /walk-in/<token>, /showcase/<token>, and
- * /api/showcase/<token>/cv/<applicationId>. If such a URL is logged verbatim
- * (e.g. a client-error report writing window.location.href to event_log, or a
- * stack trace containing the request URL), the live token leaks into durable
- * storage and anyone with log access could reuse it. Replace the token segment
- * with "<redacted>" while keeping the route recognizable for debugging.
+ * authorization: /walk-in/<token>, /showcase/<token>, /invite/<token> (a team
+ * invite is joinable by token alone, no email match), and
+ * /api/showcase/<token>/cv/<applicationId>. Secrets also ride in QUERY PARAMS
+ * (?token=, ?token_hash=, ?code=, ?invite=). If such a URL is logged verbatim
+ * (e.g. a client-error report writing window.location.href to the append-only
+ * event_log, or a stack trace containing the request URL), the live credential
+ * leaks into durable storage and anyone with log access could reuse it. Replace
+ * the secret segment with "<redacted>" while keeping the route recognizable for
+ * debugging.
+ *
+ * Adding a new token-in-path route? Add its segment to SECRET_PATH_SEGMENTS —
+ * tests/utils.test.ts pins the covered set.
  */
+const SECRET_PATH_SEGMENTS = ["showcase", "walk-in", "invite"] as const;
+const SECRET_QUERY_PARAMS = [
+  "token",
+  "token_hash",
+  "code",
+  "invite",
+  "access_token",
+  "refresh_token",
+] as const;
+
+const SECRET_PATH_RE = new RegExp(
+  `(\\/(?:api\\/)?(?:${SECRET_PATH_SEGMENTS.join("|")})\\/)[^/\\s?#]+`,
+  "g"
+);
+const SECRET_QUERY_RE = new RegExp(
+  `([?&#](?:${SECRET_QUERY_PARAMS.join("|")})=)[^&#\\s]+`,
+  "gi"
+);
+
 export function redactSecretTokens(input: string): string {
   return input
-    // /api/showcase/<token>/... — redact the token, keep the trailing path shape.
-    .replace(
-      /(\/api\/showcase\/)[^/\s?#]+/g,
-      "$1<redacted>"
-    )
-    // /showcase/<token> and /walk-in/<token> — path-final token.
-    .replace(
-      /(\/(?:showcase|walk-in)\/)[^/\s?#]+/g,
-      "$1<redacted>"
-    );
+    .replace(SECRET_PATH_RE, "$1<redacted>")
+    .replace(SECRET_QUERY_RE, "$1<redacted>");
 }
 
 /**

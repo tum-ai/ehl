@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { reportClientError } from "@/lib/report-client-error";
 
 export default function GlobalError({
   error,
@@ -10,24 +11,10 @@ export default function GlobalError({
   reset: () => void;
 }) {
   useEffect(() => {
-    // Report to Sentry when available
-    if (typeof window !== "undefined" && (window as unknown as { Sentry?: { captureException: (e: Error) => void } }).Sentry) {
-      (window as unknown as { Sentry: { captureException: (e: Error) => void } }).Sentry.captureException(error);
+    // Shared reporter: redacts secret URL tokens BEFORE Sentry/console/fetch.
+    if (typeof window !== "undefined") {
+      reportClientError(error, "GlobalError");
     }
-    console.error("[GlobalError]", error);
-
-    // Report to event log (best-effort, silent on failure)
-    fetch("/api/errors", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: error.message,
-        stack: error.stack,
-        digest: error.digest,
-        url: typeof window !== "undefined" ? window.location.href : "unknown",
-        userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unknown",
-      }),
-    }).catch(() => {});
   }, [error]);
 
   return (

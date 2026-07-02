@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { reportClientError } from "@/lib/report-client-error";
 
 export default function Error({
   error,
@@ -11,23 +12,8 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    if (typeof window !== "undefined" && (window as unknown as { Sentry?: { captureException: (e: Error) => void } }).Sentry) {
-      (window as unknown as { Sentry: { captureException: (e: Error) => void } }).Sentry.captureException(error);
-    }
-    console.error("[RouteError]", error);
-
-    // Report to event log (best-effort, silent on failure)
-    fetch("/api/errors", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        message: error.message,
-        stack: error.stack,
-        digest: error.digest,
-        url: window.location.href,
-        userAgent: navigator.userAgent,
-      }),
-    }).catch(() => {});
+    // Shared reporter: redacts secret URL tokens BEFORE Sentry/console/fetch.
+    reportClientError(error, "RouteError");
   }, [error]);
 
   return (

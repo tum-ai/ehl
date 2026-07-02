@@ -79,7 +79,7 @@ view, nor edit chapter settings, publish scores, or delete.
 - **OpenRouter** (`lib/code-review/`): Multi-agent code review pipeline (tech desc, code quality, highlights, originality, coordinator)
 - **Email** (`lib/email.ts` + `lib/emails/`): SMTP with inline EHL logo, React Email templates for all transactional emails
 - **Turnstile** (`lib/turnstile.ts`): CAPTCHA verification on all public forms
-- **Rate Limiting** (`lib/ratelimit.ts`): 8 limiters via Upstash Redis, in-memory fallback when Redis unavailable
+- **Rate Limiting** (`lib/ratelimit.ts`): 12 limiters via Upstash Redis, in-memory fallback when Redis unavailable
 
 ### Chapter Status Flow
 ```
@@ -174,8 +174,8 @@ server at the printed local URL/keys, and run `pnpm test:e2e:lifecycle`. See `do
 ## Project Structure
 ```
 lib/
-  actions/              — Server actions (registration, teams, submissions, jury, admin, applications, event, auth, screening, flags, communications)
-  queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles)
+  actions/              — Server actions (registration, teams, submissions, jury, admin, applications, event, auth, screening, flags, communications, showcase)
+  queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles, showcase)
   emails/               — React Email templates (layout.tsx shared, individual templates, text-block.ts for safe plain-text rendering)
   certificates/         — PDF certificate template (@react-pdf/renderer)
   code-review/          — AI review pipeline (ingest, openrouter, pipeline, prompts)
@@ -185,11 +185,14 @@ lib/
   github.ts             — GitHub API integration
   gdrive.ts             — Google Drive API integration
   turnstile.ts          — Cloudflare Turnstile CAPTCHA verification
-  ratelimit.ts          — Upstash Redis rate limiters (8 limiters) + in-memory fallback
+  ratelimit.ts          — Upstash Redis rate limiters (12 limiters) + in-memory fallback
   flag-utils.ts         — LinkedIn/GitHub username extraction, name normalization for flag matching
   scoring.ts            — Point calculations
+  showcase-shared.ts    — Partner-showcase consent predicate + derived SQL filter + types
+  drive-urls.ts         — Client-safe Google Drive photo URL builders (thumbnail, viewer)
+  report-client-error.ts — Shared error-boundary reporter (redacts secret URL tokens before any sink)
   types.ts              — All domain types
-  utils.ts              — cn(), formatDate(), slugify(), getPlacementLabel()
+  utils.ts              — cn(), formatDate(), slugify(), getPlacementLabel(), redactSecretTokens()
 
 components/
   ui/                   — Primitives: Button, Card, Badge, Section, Toggle, Accordion, BracketCard, LimitBanner
@@ -201,6 +204,7 @@ components/
   event/                — EventHub, TeamSelector, ChallengeSelector, JoinRequestManager
   submission/           — SubmissionForm, DeadlineCountdown
   code-review/          — ReportCard
+  showcase/             — Partner showcase view (token-gated sponsor page)
   admin/                — Sidebar, LimitBanner (light theme)
 
 public/

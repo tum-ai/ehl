@@ -23,6 +23,15 @@
 // Status is NOT a gate: the product wants all applicants (applied, accepted,
 // even rejected) visible, with actual participants (checked_in) badged. Status
 // only drives the visible label, not visibility.
+// The consent columns, in one place: hasSponsorConsent() ORs their camelCase
+// twins and SPONSOR_CONSENT_OR_FILTER is DERIVED from this list, so the TS
+// predicate and the SQL filter cannot drift apart (a test pins the derived
+// string exactly).
+export const SPONSOR_CONSENT_COLUMNS = [
+  "consent_sponsor_data",
+  "consent_recruiting",
+] as const;
+
 export function hasSponsorConsent(a: {
   consentSponsorData?: boolean | null;
   consentRecruiting?: boolean | null;
@@ -30,11 +39,40 @@ export function hasSponsorConsent(a: {
   return Boolean(a.consentSponsorData) || Boolean(a.consentRecruiting);
 }
 
-// The equivalent PostgREST/SQL filter, applied server-side so unconsented rows
-// never leave the database. Kept next to hasSponsorConsent() so the two cannot
-// drift.
-export const SPONSOR_CONSENT_OR_FILTER =
-  "consent_sponsor_data.eq.true,consent_recruiting.eq.true";
+// Adapter for raw Supabase rows (snake_case), so call sites don't hand-roll the
+// column-to-field mapping — a transposed field there would silently weaken the
+// consent gate.
+export function rowHasSponsorConsent(row: {
+  consent_sponsor_data?: unknown;
+  consent_recruiting?: unknown;
+}): boolean {
+  return hasSponsorConsent({
+    consentSponsorData: (row.consent_sponsor_data as boolean | null) ?? null,
+    consentRecruiting: (row.consent_recruiting as boolean | null) ?? null,
+  });
+}
+
+// The equivalent PostgREST .or() filter, applied server-side so unconsented
+// rows never leave the database.
+export const SPONSOR_CONSENT_OR_FILTER = SPONSOR_CONSENT_COLUMNS.map(
+  (c) => `${c}.eq.true`
+).join(",");
+
+// ─── Podium eligibility ──────────────────────────────────────
+//
+// Placements are assigned PER CHALLENGE (finalizeChallengeScores gives each
+// challenge its own 1..5), so a multi-challenge chapter legitimately holds
+// several placement=1 rows. A 3-pillar podium can only represent UNIQUE top-3
+// placements — keying by placement would silently drop a winning team from a
+// sponsor-facing ranking. When this returns false, the view must render every
+// placed row as a (challenge-labeled) list instead.
+export function rankingSupportsPodium(
+  rows: Array<{ placement: number | null }>
+): boolean {
+  const top3 = rows.filter((r) => r.placement !== null && r.placement <= 3);
+  if (top3.length === 0) return false;
+  return new Set(top3.map((r) => r.placement)).size === top3.length;
+}
 
 // ─── Showcase domain types ───────────────────────────────────
 

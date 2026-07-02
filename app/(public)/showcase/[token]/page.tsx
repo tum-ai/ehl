@@ -40,10 +40,11 @@ export default async function ShowcasePage({ params }: PageProps) {
       chapter={data.chapter}
       applicants={data.applicants}
       applicantsTruncated={data.applicantsTruncated}
-      participantCount={data.participantCount}
       ranking={data.ranking}
+      rankingTruncated={data.rankingTruncated}
       photos={data.photos}
       photosTruncated={data.photosTruncated}
+      limits={data.limits}
     />
   );
 }

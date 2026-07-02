@@ -24,13 +24,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // Redact secret path tokens (e.g. /showcase/<token>, /walk-in/<token>) before
+  // Redact secret URL tokens (e.g. /showcase/<token>, /invite/<token>) before
   // persisting: a crash on a token-gated page would otherwise write the live
-  // bearer token into the append-only event_log (and any Sentry sink).
-  const message = typeof body.message === "string" ? redactSecretTokens(body.message.slice(0, 500)) : "Unknown error";
-  const stack = typeof body.stack === "string" ? redactSecretTokens(body.stack.slice(0, 2000)) : undefined;
+  // bearer token into the append-only event_log. This is the SECOND layer —
+  // the error boundaries already redact client-side via reportClientError()
+  // (which is what keeps tokens out of Sentry/console); this guards any caller
+  // that posts here directly.
+  // Redact BEFORE truncating: slicing first could cut a token in half and let
+  // the surviving fragment (still a secret prefix) slip past the pattern match.
+  const message = typeof body.message === "string" ? redactSecretTokens(body.message).slice(0, 500) : "Unknown error";
+  const stack = typeof body.stack === "string" ? redactSecretTokens(body.stack).slice(0, 2000) : undefined;
   const digest = typeof body.digest === "string" ? body.digest.slice(0, 100) : undefined;
-  const url = typeof body.url === "string" ? redactSecretTokens(body.url.slice(0, 500)) : "unknown";
+  const url = typeof body.url === "string" ? redactSecretTokens(body.url).slice(0, 500) : "unknown";
   const userAgent = typeof body.userAgent === "string" ? body.userAgent.slice(0, 200) : undefined;
 
   logEvent({

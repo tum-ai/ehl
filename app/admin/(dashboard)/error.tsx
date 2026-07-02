@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { describeError, isLikelyStaleBundleError } from "@/lib/error-report";
+import { redactSecretTokens } from "@/lib/utils";
 
 /**
  * Admin-scoped error boundary — DIAGNOSTIC, not friendly.
@@ -45,16 +46,19 @@ export default function AdminError({
     const when = new Date().toISOString();
     setMeta({ url, ua, when });
 
-    console.error("[AdminRouteError]", error);
+    // Redacted console line (a token-bearing URL/stack must not reach ANY log
+    // sink raw); the on-screen report keeps the raw values, since the admin
+    // viewing their own URL is not a leak.
+    console.error("[AdminRouteError]", info.name, redactSecretTokens(info.message));
     // Report to the event log so it's also captured server-side (best-effort).
     fetch("/api/errors", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        message: info.message,
-        stack: info.stack,
+        message: redactSecretTokens(info.message),
+        stack: info.stack ? redactSecretTokens(info.stack) : info.stack,
         digest: error?.digest,
-        url,
+        url: redactSecretTokens(url),
         userAgent: ua,
       }),
     }).catch(() => {});

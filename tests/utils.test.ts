@@ -288,8 +288,25 @@ describe("redactSecretTokens", () => {
     expect(out).toContain("/showcase/<redacted>");
   });
 
+  it("redacts an /invite/<token> path (team-join bearer link)", () => {
+    expect(redactSecretTokens("https://ehl.gg/invite/3f9a-team-invite")).toBe(
+      "https://ehl.gg/invite/<redacted>"
+    );
+  });
+
+  it("redacts secret query params (token, token_hash, code, invite)", () => {
+    expect(redactSecretTokens("/register?invite=abc123")).toBe("/register?invite=<redacted>");
+    expect(
+      redactSecretTokens("/auth/callback?token_hash=xyz&type=magiclink&next=/dashboard")
+    ).toBe("/auth/callback?token_hash=<redacted>&type=magiclink&next=/dashboard");
+    expect(redactSecretTokens("/auth/callback?code=pkce-code-value")).toBe(
+      "/auth/callback?code=<redacted>"
+    );
+  });
+
   it("leaves URLs without a secret token untouched", () => {
     expect(redactSecretTokens("https://ehl.gg/leaderboard")).toBe("https://ehl.gg/leaderboard");
     expect(redactSecretTokens("/matches/munich-1")).toBe("/matches/munich-1");
+    expect(redactSecretTokens("/matches/munich-1?tab=results")).toBe("/matches/munich-1?tab=results");
   });
 });

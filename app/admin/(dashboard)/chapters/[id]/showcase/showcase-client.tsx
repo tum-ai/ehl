@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
+import { Toggle } from "@/components/ui/toggle";
 import { rotateShowcaseToken, setShowcaseSettings } from "@/lib/actions/showcase";
 import type { ShowcaseCounts } from "@/lib/queries/showcase";
 
@@ -17,10 +19,16 @@ interface Props {
 }
 
 // Turn a stored ISO timestamp into the value an <input type="date"> expects
-// (yyyy-mm-dd), or "" when there is no expiry.
+// (yyyy-mm-dd, in LOCAL time to match how the expiry is stored), or "" when
+// there is no expiry.
 function toDateInput(iso: string | null): string {
   if (!iso) return "";
-  return iso.slice(0, 10);
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 export function ShowcaseAdminClient({
@@ -32,13 +40,13 @@ export function ShowcaseAdminClient({
   expiresAt: initialExpiresAt,
   counts,
 }: Props) {
+  const router = useRouter();
   const baseUrl = showcaseUrl.replace(/[^/]+$/, "");
   const [url, setUrl] = useState(showcaseUrl);
   const [enabled, setEnabled] = useState(initialEnabled);
   const [showCvs, setShowCvs] = useState(initialShowCvs);
   const [expiryDate, setExpiryDate] = useState(toDateInput(initialExpiresAt));
   const [copied, setCopied] = useState(false);
-  const [rotating, setRotating] = useState(false);
   const [pending, startTransition] = useTransition();
   const [status, setStatus] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -52,54 +60,79 @@ export function ShowcaseAdminClient({
     }
   }
 
-  function persist(next: { isEnabled?: boolean; showCvs?: boolean; expiresAt?: string | null }) {
+  // Persist a settings change. `revert` runs when the server rejects the
+  // change: these switches control whether applicant PII/CVs are live, so the
+  // UI must never keep showing a state the DB refused — an admin who "turned
+  // the showcase off" and got a silent failure would believe a live link is
+  // dead. On success, router.refresh() re-syncs the server-rendered props.
+  function persist(
+    next: { isEnabled?: boolean; showCvs?: boolean; expiresAt?: string | null },
+    revert: () => void
+  ) {
     startTransition(async () => {
       setStatus(null);
       const result = await setShowcaseSettings(chapterId, next);
       if ("error" in result) {
+        revert();
         setStatus({ ok: false, text: result.error });
         return;
       }
       setStatus({ ok: true, text: "Saved." });
+      router.refresh();
     });
   }
 
   function handleToggleEnabled() {
+    const prev = enabled;
     const next = !enabled;
     setEnabled(next);
-    persist({ isEnabled: next });
+    persist({ isEnabled: next }, () => setEnabled(prev));
   }
 
   function handleToggleCvs() {
+    const prev = showCvs;
     const next = !showCvs;
     setShowCvs(next);
-    persist({ showCvs: next });
+    persist({ showCvs: next }, () => setShowCvs(prev));
   }
 
   function handleExpiryChange(value: string) {
+    const prev = expiryDate;
     setExpiryDate(value);
-    // Store as end-of-day UTC so the whole chosen day stays valid; empty clears it.
-    const iso = value ? new Date(`${value}T23:59:59Z`).toISOString() : null;
-    persist({ expiresAt: iso });
+    // End of the chosen day in the ADMIN'S LOCAL time (repo convention: date
+    // strings are parsed as local, never bare/UTC), so "expires July 10" means
+    // the whole of July 10 where the admin sits. Guard against non-date input
+    // (degraded date fields submit free text) instead of throwing.
+    let iso: string | null = null;
+    if (value) {
+      const d = new Date(`${value}T23:59:59`);
+      if (Number.isNaN(d.getTime())) {
+        setStatus({ ok: false, text: "Invalid date. Use the date picker or yyyy-mm-dd." });
+        setExpiryDate(prev);
+        return;
+      }
+      iso = d.toISOString();
+    }
+    persist({ expiresAt: iso }, () => setExpiryDate(prev));
   }
 
-  async function handleRotate() {
+  function handleRotate() {
     const confirmed = window.confirm(
       "Rotate the showcase link? The current link will stop working immediately and you will need to reshare the new one with partners."
     );
     if (!confirmed) return;
 
-    setRotating(true);
-    setStatus(null);
-    const result = await rotateShowcaseToken(chapterId);
-    if ("error" in result) {
-      setStatus({ ok: false, text: result.error });
-      setRotating(false);
-      return;
-    }
-    setUrl(`${baseUrl}${result.token}`);
-    setStatus({ ok: true, text: "Link rotated. Reshare the new link." });
-    setRotating(false);
+    startTransition(async () => {
+      setStatus(null);
+      const result = await rotateShowcaseToken(chapterId);
+      if ("error" in result) {
+        setStatus({ ok: false, text: result.error });
+        return;
+      }
+      setUrl(`${baseUrl}${result.token}`);
+      setStatus({ ok: true, text: "Link rotated. Reshare the new link." });
+      router.refresh();
+    });
   }
 
   return (
@@ -158,34 +191,35 @@ export function ShowcaseAdminClient({
           <button
             type="button"
             onClick={handleRotate}
-            disabled={rotating}
+            disabled={pending}
             className="rounded-lg border border-error/30 px-6 py-3 text-sm font-bold text-error transition-colors hover:bg-error/5 disabled:opacity-40"
           >
-            {rotating ? "Rotating..." : "Rotate link"}
+            {pending ? "Working..." : "Rotate link"}
           </button>
         </div>
 
-        <div className="mt-6 space-y-4 border-t ad-border pt-6">
-          <ToggleRow
-            label="Enable showcase"
-            hint="Off by default. While off, the link returns a 404 for everyone."
+        <div className="mt-6 space-y-5 border-t ad-border pt-6">
+          <Toggle
             checked={enabled}
-            disabled={pending}
             onChange={handleToggleEnabled}
-          />
-          <ToggleRow
-            label="Show CVs"
-            hint="Allow partners to view and download applicant CVs. Off by default."
-            checked={showCvs}
             disabled={pending}
+            label="Enable showcase"
+            description="Off by default. While off, the link returns a 404 for everyone."
+          />
+          <Toggle
+            checked={showCvs}
             onChange={handleToggleCvs}
+            disabled={pending}
+            label="Show CVs"
+            description="Allow partners to view and download applicant CVs. Off by default."
           />
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium ad-heading" htmlFor="showcase-expiry">
               Link expiry
             </label>
             <p className="text-xs ad-text-muted">
-              Optional. After this date the link stops working. Leave empty for no expiry.
+              Optional. The link stops working at the end of this day (your local
+              time). Leave empty for no expiry.
             </p>
             <input
               id="showcase-expiry"
@@ -212,6 +246,8 @@ export function ShowcaseAdminClient({
   );
 }
 
+// Lightweight inline stat for use INSIDE a Card (the shared StatCard wraps its
+// own Card, which would double-border here).
 function Metric({
   value,
   label,
@@ -227,46 +263,6 @@ function Metric({
         {value}
       </p>
       <p className="mt-0.5 text-xs ad-text-muted">{label}</p>
-    </div>
-  );
-}
-
-function ToggleRow({
-  label,
-  hint,
-  checked,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  hint: string;
-  checked: boolean;
-  disabled: boolean;
-  onChange: () => void;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div>
-        <p className="text-sm font-medium ad-heading">{label}</p>
-        <p className="text-xs ad-text-muted">{hint}</p>
-      </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={onChange}
-        className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 ${
-          checked ? "bg-success" : "ad-bg-input border ad-border"
-        }`}
-      >
-        <span
-          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-            checked ? "translate-x-5" : "translate-x-0.5"
-          }`}
-        />
-      </button>
     </div>
   );
 }

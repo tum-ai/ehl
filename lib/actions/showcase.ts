@@ -1,10 +1,16 @@
 "use server";
 
+import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireChapterAdminAction } from "@/lib/admin-auth";
 import { getSession } from "@/lib/actions/auth";
 import { logEvent } from "@/lib/event-log";
+import { checkRateLimit, showcaseLimiter } from "@/lib/ratelimit";
 import type { ResolvedShowcase, ShowcaseSettings } from "@/lib/showcase-shared";
+
+// One place for the settings-row projection so the four queries below cannot
+// drift apart.
+const SHOWCASE_COLUMNS = "showcase_token, is_enabled, show_cvs, expires_at, rotated_at";
 
 // ─── Resolve a chapter from a showcase token ─────────────────
 //
@@ -14,18 +20,31 @@ import type { ResolvedShowcase, ShowcaseSettings } from "@/lib/showcase-shared";
 // service-role client. We look a chapter up BY token and never expose the token
 // list. A miss returns null UNIFORMLY (no oracle distinguishing "no such token"
 // from "disabled" from "expired" from "token maps to a missing chapter").
+//
+// Every consumer inherits two protections enforced HERE, not per call site:
+// - per-IP rate limiting, so the resolver can't be used as an unthrottled
+//   token-validity oracle / DB-load amplifier;
+// - a real DB error THROWS (into the error boundary) instead of collapsing to
+//   null — a Supabase outage must not make every shared partner link look
+//   permanently revoked.
 export async function getShowcaseByToken(
   token: string
 ): Promise<ResolvedShowcase | null> {
   if (!token) return null;
 
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const rl = await checkRateLimit(showcaseLimiter, ip, "showcase");
+  if (rl.limited) return null;
+
   const adminClient = createAdminClient();
 
-  const { data: row } = await adminClient
+  const { data: row, error } = await adminClient
     .from("chapter_partner_showcase")
     .select("chapter_id, is_enabled, show_cvs, expires_at")
     .eq("showcase_token", token)
     .maybeSingle();
+
+  if (error) throw error;
 
   if (!row?.chapter_id) return null;
   if (!row.is_enabled) return null;
@@ -44,6 +63,11 @@ export async function getShowcaseByToken(
 // Used by the admin showcase page to display the current link + toggles. Lazily
 // creates the row (with a fresh uuid via the column default, disabled by
 // default) on first view. Guarded to the chapter's admins.
+//
+// A single upsert (not select-then-insert): two concurrent first visits — e.g.
+// Link prefetch racing the navigation render — must both succeed instead of the
+// loser 500ing on the chapter_id primary-key conflict. On conflict the upsert
+// no-op-updates chapter_id and returns the existing row, defaults intact.
 export async function getOrCreateShowcase(
   chapterId: string
 ): Promise<{ error: string } | ShowcaseSettings> {
@@ -52,27 +76,17 @@ export async function getOrCreateShowcase(
 
   const adminClient = createAdminClient();
 
-  const { data: existing } = await adminClient
+  const { data: row, error } = await adminClient
     .from("chapter_partner_showcase")
-    .select("showcase_token, is_enabled, show_cvs, expires_at, rotated_at")
-    .eq("chapter_id", chapterId)
-    .maybeSingle();
-
-  if (existing?.showcase_token) {
-    return toSettings(chapterId, existing);
-  }
-
-  const { data: created, error } = await adminClient
-    .from("chapter_partner_showcase")
-    .insert({ chapter_id: chapterId })
-    .select("showcase_token, is_enabled, show_cvs, expires_at, rotated_at")
+    .upsert({ chapter_id: chapterId }, { onConflict: "chapter_id" })
+    .select(SHOWCASE_COLUMNS)
     .single();
 
-  if (error || !created) {
+  if (error || !row) {
     return { error: error?.message || "Failed to create showcase." };
   }
 
-  return toSettings(chapterId, created);
+  return toSettings(chapterId, row);
 }
 
 // ─── Admin: rotate a chapter's showcase token ────────────────
@@ -144,7 +158,7 @@ export async function setShowcaseSettings(
   const { data, error } = await adminClient
     .from("chapter_partner_showcase")
     .upsert(patch, { onConflict: "chapter_id" })
-    .select("showcase_token, is_enabled, show_cvs, expires_at, rotated_at")
+    .select(SHOWCASE_COLUMNS)
     .single();
 
   if (error || !data) {

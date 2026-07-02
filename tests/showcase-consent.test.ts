@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { hasSponsorConsent, SPONSOR_CONSENT_OR_FILTER } from "@/lib/showcase-shared";
+import {
+  hasSponsorConsent,
+  rowHasSponsorConsent,
+  rankingSupportsPodium,
+  SPONSOR_CONSENT_OR_FILTER,
+} from "@/lib/showcase-shared";
 
 // The partner showcase exposes applicant profiles + CVs to sponsors behind an
 // unguessable link. WHO appears is gated by a single consent predicate, shared
@@ -38,10 +43,66 @@ describe("hasSponsorConsent (showcase visibility gate)", () => {
     expect(src).not.toMatch(/privacy/i);
   });
 
-  it("the SQL filter ORs exactly the same two consent columns", () => {
-    // The DB-level .or() filter and the in-code predicate must stay in lockstep.
-    expect(SPONSOR_CONSENT_OR_FILTER).toContain("consent_sponsor_data.eq.true");
-    expect(SPONSOR_CONSENT_OR_FILTER).toContain("consent_recruiting.eq.true");
-    expect(SPONSOR_CONSENT_OR_FILTER).not.toMatch(/privacy|attendance|media|ip_transfer|newsletter/);
+  it("the SQL filter is EXACTLY the OR of the same two consent columns", () => {
+    // Pinned with toBe, not toContain: a refactor that wrapped the fragments in
+    // and(...) or appended a third condition would pass a substring check while
+    // silently changing the gate's semantics (e.g. hiding pre-00034 legacy
+    // opt-ins). Supabase's .or() ORs exactly this comma-separated list.
+    expect(SPONSOR_CONSENT_OR_FILTER).toBe(
+      "consent_sponsor_data.eq.true,consent_recruiting.eq.true"
+    );
+  });
+});
+
+describe("rowHasSponsorConsent (raw snake_case row adapter)", () => {
+  it("matches hasSponsorConsent semantics on raw rows", () => {
+    expect(rowHasSponsorConsent({ consent_sponsor_data: true, consent_recruiting: false })).toBe(true);
+    expect(rowHasSponsorConsent({ consent_sponsor_data: false, consent_recruiting: true })).toBe(true);
+    expect(rowHasSponsorConsent({ consent_sponsor_data: false, consent_recruiting: false })).toBe(false);
+  });
+
+  it("fails closed on missing/null columns", () => {
+    expect(rowHasSponsorConsent({})).toBe(false);
+    expect(rowHasSponsorConsent({ consent_sponsor_data: null, consent_recruiting: null })).toBe(false);
+  });
+});
+
+// ─── rankingSupportsPodium() ────────────────────────────────
+
+describe("rankingSupportsPodium (duplicate-placement regression)", () => {
+  it("allows the podium for a single-challenge chapter (unique 1-2-3)", () => {
+    expect(
+      rankingSupportsPodium([{ placement: 1 }, { placement: 2 }, { placement: 3 }])
+    ).toBe(true);
+  });
+
+  it("REFUSES the podium when two challenges both have a 1st place", () => {
+    // Placements are per challenge: a 2-challenge chapter has two placement=1
+    // rows. A podium keyed by placement would silently drop one WINNING team
+    // from the sponsor-facing ranking — the exact bug this helper prevents.
+    expect(
+      rankingSupportsPodium([
+        { placement: 1 }, // challenge A winner
+        { placement: 1 }, // challenge B winner
+        { placement: 2 },
+      ])
+    ).toBe(false);
+  });
+
+  it("refuses the podium when there are no placed rows", () => {
+    expect(rankingSupportsPodium([])).toBe(false);
+    expect(rankingSupportsPodium([{ placement: null }])).toBe(false);
+  });
+
+  it("ignores 4th/5th duplicates (they render as a list either way)", () => {
+    expect(
+      rankingSupportsPodium([
+        { placement: 1 },
+        { placement: 2 },
+        { placement: 3 },
+        { placement: 4 },
+        { placement: 4 },
+      ])
+    ).toBe(true);
   });
 });
