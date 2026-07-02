@@ -23,7 +23,7 @@ function ScoreBar({
   rationale?: string;
   light?: boolean;
 }) {
-  const pct = (score / max) * 100;
+  const pct = max > 0 ? (score / max) * 100 : 0;
   return (
     <div>
       <div className="flex justify-between text-xs">
@@ -105,7 +105,7 @@ function V1ReportCard({ content }: { content: CodeReviewContent }) {
     <div className="space-y-3">
       <p className="text-sm text-text-secondary">{content.summary}</p>
       <div className="space-y-2">
-        {Object.entries(content.scores).map(([key, val]) => (
+        {Object.entries(content.scores ?? {}).map(([key, val]) => (
           <ScoreBar key={key} label={key} score={val.score} max={val.max} />
         ))}
       </div>
@@ -165,7 +165,7 @@ function V2ReportCard({
       {/* Weighted Total */}
       <div className={`flex items-center gap-3 rounded-lg ${bgDeep} px-4 py-3`}>
         <span className={`font-mono text-3xl font-bold ${gold}`}>
-          {content.weighted_total.toFixed(1)}
+          {(content.weighted_total ?? 0).toFixed(1)}
         </span>
         <span className={`text-sm ${muted}`}>/ 10 weighted total</span>
       </div>
@@ -176,7 +176,7 @@ function V2ReportCard({
           Scores
         </p>
         <div className="mt-2 space-y-2.5">
-          {Object.entries(content.scores).map(([key, val]) => (
+          {Object.entries(content.scores ?? {}).map(([key, val]) => (
             <ScoreBar
               key={key}
               label={key}

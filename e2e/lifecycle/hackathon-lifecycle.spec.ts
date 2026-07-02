@@ -409,6 +409,11 @@ test.describe.serial("Hackathon Lifecycle", () => {
   test("2.2 Create chapter via API", async () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 30);
+    // A start date on the 1st of a month means "approximate month" by
+    // convention (isDateExact), which fails the applications_open readiness
+    // check and blocks test 2.3. Skip to the 2nd on runs where today+30
+    // lands on a month's 1st (UTC, matching the toISOString() below).
+    if (tomorrow.getUTCDate() === 1) tomorrow.setUTCDate(2);
     const dayAfter = new Date(tomorrow);
     dayAfter.setDate(dayAfter.getDate() + 2);
 

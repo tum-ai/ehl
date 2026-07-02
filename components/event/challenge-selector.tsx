@@ -46,12 +46,23 @@ export function ChallengeSelector({
         fetch(`/api/chapters/${chapterId}/challenges`).then((r) => r.json()).catch(() => []),
         fetch(`/api/teams/${teamId}/members?chapterId=${chapterId}`).then((r) => r.json()).catch(() => []),
       ]);
-      setChallenges(challengeRes);
-      setTeamMembers(memberRes);
+      // Error responses ({error: ...}, e.g. 429 behind a shared venue IP)
+      // parse as JSON too — guard so we never crash or hang on "Loading...".
+      const challengeList = Array.isArray(challengeRes) ? (challengeRes as Challenge[]) : [];
+      const memberList = Array.isArray(memberRes) ? (memberRes as TeamMemberInfo[]) : [];
+      if (!Array.isArray(challengeRes) || !Array.isArray(memberRes)) {
+        setError(
+          (challengeRes as { error?: string })?.error ??
+            (memberRes as { error?: string })?.error ??
+            "Failed to load challenges. Please reload the page."
+        );
+      }
+      setChallenges(challengeList);
+      setTeamMembers(memberList);
 
       // Auto-include only checked-in members in roster (president always included)
       const checkedInIds = new Set<string>(
-        (memberRes as TeamMemberInfo[])
+        memberList
           .filter((m) => m.checkedIn)
           .map((m) => m.userId)
       );
@@ -113,6 +124,15 @@ export function ChallengeSelector({
   }
 
   if (challenges.length === 0) {
+    // A load error must win over the empty state — with a failed fetch the
+    // list is empty too, and "No challenges available yet." would hide it.
+    if (error) {
+      return (
+        <div className="rounded-lg border border-error/20 bg-error/5 p-3">
+          <p className="text-sm text-error">{error}</p>
+        </div>
+      );
+    }
     return <p className="text-sm text-text-secondary">No challenges available yet.</p>;
   }
 

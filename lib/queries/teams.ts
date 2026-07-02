@@ -171,7 +171,9 @@ export async function getTeamsLookingForMembers(): Promise<TeamLookingForMembers
 export async function getPendingInvitesForTeam(
   teamId: string
 ): Promise<TeamInvite[]> {
-  const supabase = getClient();
+  // Must be the authenticated client: team_invites RLS only grants reads to
+  // the president/invitee/admin (auth.uid()), so the anon client sees 0 rows.
+  const supabase = await createServerClient();
   const { data } = await supabase
     .from("team_invites")
     .select("*")
@@ -280,7 +282,7 @@ export async function getTeamMatchHistory(teamId: string): Promise<TeamMatchHist
   ] = await Promise.all([
     adminClient.from("challenge_registrations").select("chapter_id, challenge_id, team_id, roster, registered_at").eq("team_id", teamId),
     adminClient.from("scores").select("chapter_id, team_id, challenge_name, placement, points").eq("team_id", teamId),
-    adminClient.from("submissions").select("challenge_id, team_id, project_name, created_at").eq("team_id", teamId),
+    adminClient.from("submissions").select("challenge_id, team_id, project_name, submitted_at").eq("team_id", teamId),
     adminClient.from("chapters").select("id, name, slug, date, city, status").neq("status", "draft"),
     adminClient.from("challenges").select("id, title, chapter_id"),
   ]);
@@ -311,7 +313,7 @@ export async function getTeamMatchHistory(teamId: string): Promise<TeamMatchHist
       },
       challenge: challenge ? { id: challenge.id as string, title: challenge.title as string } : null,
       registration: { roster: (reg.roster as string[]) ?? [], registeredAt: reg.registered_at as string },
-      submission: submission ? { projectName: submission.project_name as string, createdAt: submission.created_at as string } : null,
+      submission: submission ? { projectName: submission.project_name as string, createdAt: submission.submitted_at as string } : null,
       score: score ? { placement: (score.placement as number) ?? null, points: (score.points as number) ?? 0, challengeName: (score.challenge_name as string) ?? "" } : null,
     });
   }
@@ -391,7 +393,9 @@ export async function getAllParticipantsWithTeams(
   }
 
   return profiles.map((p) => {
-    const email = (p.email as string).toLowerCase();
+    // profiles.email is nullable: the 00055 trigger inserts a profile without
+    // an email on UNIQUE collision, so guard against null here.
+    const email = ((p.email as string) ?? "").toLowerCase();
     const membership = memberMap.get(p.id as string);
     return {
       id: p.id as string,

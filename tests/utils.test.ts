@@ -52,6 +52,22 @@ describe("formatDate", () => {
     expect(result).toContain("2026");
     expect(result).toContain("15");
   });
+
+  it("formats full timestamps (timestamptz columns) instead of 'Invalid Date'", () => {
+    // Appending T00:00:00 to an ISO timestamp produced an Invalid Date, which
+    // rendered literally on the admin submissions/communications pages.
+    const result = formatDate("2026-06-14T12:34:56.789+00:00");
+    expect(result).not.toContain("Invalid");
+    expect(result).toContain("June");
+    expect(result).toContain("2026");
+  });
+
+  it("does not treat a timestamp on a month's 1st as approximate", () => {
+    const result = formatDate("2026-06-01T12:00:00+00:00");
+    expect(result).not.toContain("Invalid");
+    // The date-only value IS approximate ("June 2026"); the timestamp is not.
+    expect(result).not.toBe(formatDate("2026-06-01"));
+  });
 });
 
 // ─── formatDateRange() ─────────────────────────────────────
@@ -258,5 +274,13 @@ describe("getSafeRedirect", () => {
 
   it("rejects an embedded scheme like /javascript:", () => {
     expect(getSafeRedirect("/javascript:alert(1)")).toBeNull();
+  });
+
+  it("returns null instead of throwing on malformed percent-encoding", () => {
+    // decodeURIComponent throws URIError on these; an uncaught throw 500s the
+    // auth callback (the single handoff for all three login flows).
+    expect(getSafeRedirect("%")).toBeNull();
+    expect(getSafeRedirect("/dashboard%")).toBeNull();
+    expect(getSafeRedirect("/%E0%A4%A")).toBeNull();
   });
 });

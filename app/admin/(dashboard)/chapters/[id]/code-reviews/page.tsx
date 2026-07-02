@@ -920,7 +920,8 @@ export default function AdminCodeReviewsPage({
                           <details className="mt-3 border-t ad-border pt-3">
                             <summary className="cursor-pointer text-sm font-medium ad-text-link">
                               View Review
-                              {"weighted_total" in review.reviewContent && (
+                              {"weighted_total" in review.reviewContent &&
+                                typeof (review.reviewContent as { weighted_total?: unknown }).weighted_total === "number" && (
                                 <span className="ml-2 font-mono ad-text-gold">
                                   {(review.reviewContent as { weighted_total: number }).weighted_total.toFixed(1)}/10
                                 </span>

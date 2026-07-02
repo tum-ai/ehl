@@ -335,8 +335,10 @@ export async function runCodeReviewPipeline(params: {
     summary: techParsed.project_summary ?? coordParsed.executive_summary,
     tech_stack_detected: techParsed.tech_stack ?? metadata.frameworks_detected,
     architecture_pattern: techParsed.architecture_pattern ?? "Unknown",
-    scores: coordParsed.scores,
-    weighted_total: coordParsed.weighted_total,
+    // The coordinator can return syntactically valid JSON that still omits
+    // fields; fall back so stored reviews never crash the report pages.
+    scores: coordParsed.scores ?? {},
+    weighted_total: coordParsed.weighted_total ?? 0,
     highlights: coordParsed.highlights ?? [],
     concerns: coordParsed.concerns ?? [],
     would_it_run: highlightsParsed.would_it_run ?? { verdict: "unknown", reasoning: "Could not assess" },
