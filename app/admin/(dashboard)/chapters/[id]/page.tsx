@@ -66,6 +66,13 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
           <span>Walk-In Registration</span>
           <span className="ad-text-muted">&rarr;</span>
         </Link>
+        <Link
+          href={`/admin/chapters/${chapter.id}/showcase`}
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Partner Showcase</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
         {isGlobalAdmin && (
           <Link
             href={`/admin/chapters/${chapter.id}/challenges`}

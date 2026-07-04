@@ -140,6 +140,32 @@ Available to participants who are checked in at an event.
 - Roles: anyone with the link can register a walk-in; the admin page is available to global
   and chapter admins of that chapter.
 
+### Partner Showcase (`/showcase/<token>`)
+- A read-only, token-gated page an admin shares with a match's sponsors. It shows, for that
+  chapter: the applicants who consented to sponsor sharing (name, LinkedIn, GitHub), a badge
+  marking who actually participated (checked in), the teams and final published ranking, and
+  the event photo gallery. When enabled, each applicant's CV can be viewed/downloaded.
+- Consent is the hard gate: an applicant appears ONLY if they opted into sharing their
+  profile with recruiters/sponsors (`consent_sponsor_data` OR `consent_recruiting`, the OR
+  covering pre-migration-00034 opt-ins). Application status is not a gate: all statuses are
+  shown, with `checked_in` applicants badged "Participated"; internal decisions like
+  "rejected" are collapsed to the neutral "Applied" label so a sponsor never sees them.
+- Admin/chapter-admin side: `/admin/chapters/<id>/showcase` shows the copyable link, a
+  "Rotate link" action, an enable toggle (off by default: an unshared showcase 404s), a
+  "Show CVs" toggle (off by default), an optional expiry date, and live counters (visible /
+  hidden-due-to-consent / participants / CVs available) so the operator sees exactly what a
+  sponsor will see before sharing.
+- The showcase token is an unguessable per-chapter UUID stored in the admin-only
+  `chapter_partner_showcase` table (never on the public `chapters` row). The public page
+  resolves the chapter from the token via a service-role server action; a
+  rotated/invalid/disabled/expired token 404s.
+- CVs are served through a token-gated proxy (`/api/showcase/<token>/cv/<applicationId>`)
+  keyed by application id (Drive file ids stay server-side). It re-checks the token, the
+  `show_cvs` toggle, chapter ownership, and consent before streaming, with `no-store` +
+  `noindex` + `no-referrer` headers and per-IP rate limiting.
+- Roles: anyone with the link can view the showcase; the admin page is available to global
+  and chapter admins of that chapter.
+
 ### Challenge Selection
 - After check-in, teams browse available challenges
 - Each challenge shows: sponsor, description, prize, judging criteria, brief PDF

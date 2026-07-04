@@ -8,6 +8,7 @@ import {
   getPlacementColor,
   slugify,
   getSafeRedirect,
+  redactSecretTokens,
 } from "@/lib/utils";
 
 // ─── cn() ───────────────────────────────────────────────────
@@ -258,5 +259,54 @@ describe("getSafeRedirect", () => {
 
   it("rejects an embedded scheme like /javascript:", () => {
     expect(getSafeRedirect("/javascript:alert(1)")).toBeNull();
+  });
+});
+
+// ─── redactSecretTokens() ───────────────────────────────────
+
+describe("redactSecretTokens", () => {
+  it("redacts a /showcase/<token> path so the bearer token is not logged", () => {
+    expect(
+      redactSecretTokens("https://ehl.gg/showcase/11111111-2222-3333-4444-555555555555")
+    ).toBe("https://ehl.gg/showcase/<redacted>");
+  });
+
+  it("redacts a /walk-in/<token> path", () => {
+    expect(redactSecretTokens("/walk-in/abc-secret-token")).toBe("/walk-in/<redacted>");
+  });
+
+  it("redacts the token in an /api/showcase/<token>/cv/<id> path but keeps the rest", () => {
+    expect(
+      redactSecretTokens("/api/showcase/secret-token/cv/app-123")
+    ).toBe("/api/showcase/<redacted>/cv/app-123");
+  });
+
+  it("redacts a token embedded inside a longer string (e.g. a stack trace)", () => {
+    const stack = "Error at /showcase/deadbeef-token\n  at renderPage (/showcase/deadbeef-token:1:1)";
+    const out = redactSecretTokens(stack);
+    expect(out).not.toContain("deadbeef-token");
+    expect(out).toContain("/showcase/<redacted>");
+  });
+
+  it("redacts an /invite/<token> path (team-join bearer link)", () => {
+    expect(redactSecretTokens("https://ehl.gg/invite/3f9a-team-invite")).toBe(
+      "https://ehl.gg/invite/<redacted>"
+    );
+  });
+
+  it("redacts secret query params (token, token_hash, code, invite)", () => {
+    expect(redactSecretTokens("/register?invite=abc123")).toBe("/register?invite=<redacted>");
+    expect(
+      redactSecretTokens("/auth/callback?token_hash=xyz&type=magiclink&next=/dashboard")
+    ).toBe("/auth/callback?token_hash=<redacted>&type=magiclink&next=/dashboard");
+    expect(redactSecretTokens("/auth/callback?code=pkce-code-value")).toBe(
+      "/auth/callback?code=<redacted>"
+    );
+  });
+
+  it("leaves URLs without a secret token untouched", () => {
+    expect(redactSecretTokens("https://ehl.gg/leaderboard")).toBe("https://ehl.gg/leaderboard");
+    expect(redactSecretTokens("/matches/munich-1")).toBe("/matches/munich-1");
+    expect(redactSecretTokens("/matches/munich-1?tab=results")).toBe("/matches/munich-1?tab=results");
   });
 });

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDateFull, getPlacementLabel } from "@/lib/utils";
+import { driveThumbnailUrl, drivePhotoViewUrl } from "@/lib/drive-urls";
 import type { Chapter, Score, Team, Partner, MediaItem } from "@/lib/types";
 
 interface ChapterCompletedProps {
@@ -241,14 +242,14 @@ export function ChapterCompleted({ chapter, scores, teams, partners, photos = []
             {photos.map((photo) => (
               <a
                 key={photo.id}
-                href={`https://drive.google.com/file/d/${photo.url}/view`}
+                href={drivePhotoViewUrl(photo.url)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="group relative aspect-square overflow-hidden rounded-xl border border-white/[0.06] transition-all duration-300 hover:border-purple/20 hover:shadow-[0_0_20px_rgba(154,100,217,0.1)]"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={`https://lh3.googleusercontent.com/d/${photo.url}=w400`}
+                  src={driveThumbnailUrl(photo.url)}
                   alt={photo.caption || "Match photo"}
                   className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                   loading="lazy"

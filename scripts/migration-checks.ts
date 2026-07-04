@@ -283,6 +283,36 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
     label: "code_review_queued_at",
     sql: column("code_reviews", "queued_at"),
   },
+  {
+    // Per-chapter partner (sponsor) showcase token + settings, in a separate
+    // admin-only table (no anon read) mirroring chapter_walk_in (00054). The
+    // migration also retrofits ON DELETE SET NULL onto chapter_walk_in's
+    // rotated_by FK (the 00058 user-deletion fix), so the probe asserts all
+    // three artifacts: the new table exists AND both rotated_by FKs are
+    // confdeltype 'n' (SET NULL).
+    prefix: "00060",
+    label: "chapter_partner_showcase",
+    sql: `select (
+       exists (
+         select 1 from information_schema.tables
+         where table_schema = 'public' and table_name = 'chapter_partner_showcase'
+       )
+       and exists (
+         select 1 from pg_constraint c
+         where c.conrelid = 'public.chapter_partner_showcase'::regclass
+           and c.conname = 'chapter_partner_showcase_rotated_by_fkey'
+           and c.contype = 'f'
+           and c.confdeltype = 'n'
+       )
+       and exists (
+         select 1 from pg_constraint c
+         where c.conrelid = 'public.chapter_walk_in'::regclass
+           and c.conname = 'chapter_walk_in_rotated_by_fkey'
+           and c.contype = 'f'
+           and c.confdeltype = 'n'
+       )
+     ) as present`,
+  },
 ];
 
 /**
