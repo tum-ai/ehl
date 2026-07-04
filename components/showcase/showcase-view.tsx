@@ -96,7 +96,6 @@ export function ShowcaseView({
         className="glow-blob glow-blob-purple animate-glow-pulse pointer-events-none absolute -left-40 top-1/3 h-[400px] w-[400px] opacity-20"
         style={{ animationDelay: "2s" }}
       />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-px animate-scan-line bg-gradient-to-r from-transparent via-gold/20 to-transparent" />
 
       <div className="relative mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
         {/* ── Hero ──────────────────────────────────────────── */}
