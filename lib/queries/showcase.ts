@@ -358,3 +358,52 @@ export async function getShowcaseCvFileId(
   if (!rowHasSponsorConsent(row)) return null;
   return row.cv_url as string;
 }
+
+// ─── Bulk photo list (used by the photo ZIP download) ────────
+//
+// Every gallery photo of the chapter, in the same order the showcase renders
+// them (featured first). No consent gate: these are event photos, not personal
+// documents. The Drive fileId is `url` (media rows store the bare id). Capped at
+// the same media limit as the page so the ZIP and the visible gallery agree.
+export interface ShowcasePhotoEntry {
+  fileId: string;
+  caption: string | null;
+}
+
+export async function getShowcasePhotoList(chapterId: string): Promise<ShowcasePhotoEntry[]> {
+  const anon = getClient();
+  const { data, error } = await anon
+    .from("media")
+    .select("url, caption, type")
+    .eq("chapter_id", chapterId)
+    .eq("type", "photo")
+    .order("featured", { ascending: false })
+    .limit(QUERY_LIMITS.media);
+  if (error) throw error;
+
+  return (data ?? [])
+    .filter((row) => row.type === "photo" && Boolean(row.url))
+    .map((row) => ({
+      fileId: row.url as string,
+      caption: (row.caption as string | null) ?? null,
+    }));
+}
+
+// ─── Photo fileId validation (used by the photo ZIP for a selection) ──
+//
+// Return the set of the requested fileIds that are genuinely gallery photos of
+// THIS chapter. The client sends a caller-controlled list of ids to download;
+// without this filter it could smuggle any Drive id (e.g. a CV) into the photo
+// ZIP. We resolve the chapter's real photo ids server-side and intersect, so an
+// id that is not a photo of this chapter is silently dropped, never fetched.
+export async function filterChapterPhotoFileIds(
+  chapterId: string,
+  requestedFileIds: string[]
+): Promise<string[]> {
+  if (requestedFileIds.length === 0) return [];
+  const requested = new Set(requestedFileIds);
+  const photos = await getShowcasePhotoList(chapterId);
+  const valid = new Set(photos.map((p) => p.fileId));
+  // Preserve the chapter's gallery order (featured first), not the request order.
+  return photos.map((p) => p.fileId).filter((id) => requested.has(id) && valid.has(id));
+}
