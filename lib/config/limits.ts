@@ -33,6 +33,10 @@ export const QUERY_LIMITS = {
   codeReviewsPerChallenge: envInt("LIMIT_CODE_REVIEWS_PER_CHALLENGE", 200),
   chapterUnlocks: envInt("LIMIT_CHAPTER_UNLOCKS", 500),
   challengeRegistrations: envInt("LIMIT_CHALLENGE_REGISTRATIONS", 500),
+  // Hard cap for the showcase bulk-CV ZIP. downloadFile makes TWO Drive calls
+  // per CV (metadata + media) at roughly 1s each, so 100 CVs is ~200s against
+  // the route's 300s maxDuration: real headroom, not exact-budget roulette.
+  showcaseCvZip: envInt("LIMIT_SHOWCASE_CV_ZIP", 100),
   usersLookingForTeam: envInt("LIMIT_USERS_LOOKING_FOR_TEAM", 500),
   codeReviewQueueDepth: envInt("LIMIT_CODE_REVIEW_QUEUE_DEPTH", 200),
   adminStatsApplications: envInt("LIMIT_ADMIN_STATS_APPLICATIONS", 10000),

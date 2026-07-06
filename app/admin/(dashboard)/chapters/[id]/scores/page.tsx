@@ -11,6 +11,7 @@ import {
   getPublishReadiness,
   getPendingJuryTeamIds,
   getJudgedUnscoredChallenges,
+  findDuplicatePlacements,
 } from "@/lib/scoring";
 import { publishScores, sendCertificateEmails } from "@/lib/actions/admin";
 
@@ -59,6 +60,12 @@ interface ScoreOverride {
   teamId: string;
   placement: number | null;
   points: number;
+  challengeId: string | null;
+}
+
+interface Registration {
+  teamId: string;
+  challengeId: string | null;
 }
 
 export default function AdminScoresPage({
@@ -72,7 +79,12 @@ export default function AdminScoresPage({
   const [challenges, setChallenges] = useState<Challenge[]>([]);
   const [juryData, setJuryData] = useState<Record<string, ChallengeJuryData>>({});
   const [scores, setScores] = useState<Score[]>([]);
+  const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [overrides, setOverrides] = useState<Record<string, ScoreOverride>>({});
+  // Challenge picks made before (or without) a placement pick. Kept separate
+  // from `overrides` so changing only the challenge of a score-less team does
+  // NOT fabricate a pending participation score.
+  const [challengeChoices, setChallengeChoices] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [sendingCerts, setSendingCerts] = useState(false);
@@ -84,14 +96,16 @@ export default function AdminScoresPage({
     params.then(async ({ id }) => {
       setChapterId(id);
 
-      const [teamsRes, challengesRes, chapterRes] = await Promise.all([
+      const [teamsRes, challengesRes, chapterRes, registrationsRes] = await Promise.all([
         fetch("/api/admin/teams").then((r) => r.json()),
         fetch(`/api/admin/chapters/${id}/challenges`).then((r) => r.json()),
         fetch(`/api/admin/chapters/${id}/details`).then((r) => r.json()).catch(() => null),
+        fetch(`/api/admin/chapters/${id}/registrations`).then((r) => r.json()).catch(() => []),
       ]);
 
       setTeams(teamsRes);
       setChallenges(challengesRes);
+      setRegistrations(Array.isArray(registrationsRes) ? registrationsRes : []);
       if (chapterRes) {
         setChapter(chapterRes);
       }
@@ -130,18 +144,82 @@ export default function AdminScoresPage({
     return getPendingJuryTeamIds(challenges, aggregated);
   }
 
+  // The challenge a team's score should be attributed to, in priority order:
+  // pending override edit > explicit dropdown pick > existing score (INCLUDING
+  // an explicit null, which must not be masked by the registration) > the
+  // team's chapter registration.
+  function challengeIdForTeam(teamId: string): string | null {
+    const override = overrides[teamId];
+    if (override !== undefined) return override.challengeId;
+    if (teamId in challengeChoices) return challengeChoices[teamId];
+    const score = getScoreForTeam(teamId);
+    if (score) return score.challengeId;
+    return registrations.find((r) => r.teamId === teamId)?.challengeId ?? null;
+  }
+
   function handleOverride(teamId: string, placement: string) {
-    const placeNum = placement === "" ? null : parseInt(placement);
+    // "Keep current" (empty value) clears a pending override instead of
+    // recording a participation score.
+    if (placement === "") {
+      setOverrides((prev) => {
+        const next = { ...prev };
+        delete next[teamId];
+        return next;
+      });
+      return;
+    }
+    const placeNum = placement === "participation" ? null : parseInt(placement);
     const points = placeNum ? (PLACEMENT_POINTS[placeNum] ?? 0) : PARTICIPATION_POINTS;
 
     setOverrides((prev) => ({
       ...prev,
-      [teamId]: { teamId, placement: placeNum, points },
+      [teamId]: {
+        teamId,
+        placement: placeNum,
+        points,
+        challengeId: prev[teamId]?.challengeId ?? challengeIdForTeam(teamId),
+      },
     }));
+  }
+
+  function handleOverrideChallenge(teamId: string, challengeId: string) {
+    const value = challengeId || null;
+    // Remember the pick without fabricating a score; if a placement override is
+    // already pending, update it in place.
+    setChallengeChoices((prev) => ({ ...prev, [teamId]: value }));
+    setOverrides((prev) =>
+      prev[teamId] ? { ...prev, [teamId]: { ...prev[teamId], challengeId: value } } : prev
+    );
   }
 
   async function handleSaveOverrides() {
     if (Object.keys(overrides).length === 0) return;
+
+    // Soft duplicate-placement check (findDuplicatePlacements, unit-tested):
+    // legitimate ties exist, so this warns instead of blocking — but silent
+    // double-1st entries within one challenge (the usual manual-entry slip)
+    // must never happen unnoticed.
+    const finalRows = new Map<string, { teamId: string; placement: number | null; challengeId: string | null }>();
+    for (const s of scores) {
+      finalRows.set(s.teamId, { teamId: s.teamId, placement: s.placement, challengeId: s.challengeId });
+    }
+    for (const o of Object.values(overrides)) {
+      finalRows.set(o.teamId, { teamId: o.teamId, placement: o.placement, challengeId: o.challengeId });
+    }
+    const dupes = findDuplicatePlacements([...finalRows.values()]);
+    if (dupes.length > 0) {
+      const lines = dupes
+        .map((d) => `#${d.placement}: ${d.teamIds.map(getTeamName).join(", ")}`)
+        .join("\n");
+      if (
+        !confirm(
+          `Warning: multiple teams share the same placement within one challenge:\n${lines}\n\nSave anyway (e.g. intentional tie)?`
+        )
+      ) {
+        return;
+      }
+    }
+
     setSaving(true);
     setError(null);
 
@@ -385,10 +463,17 @@ export default function AdminScoresPage({
       )}
 
       {!hasJuryRankings && (
-        <Card className="mt-8">
-          <p className="ad-text-muted">
-            No jury rankings submitted yet. Rankings will appear here once jury
-            members submit their decisions.
+        <Card className="mt-8 border-amber-400 bg-amber-50">
+          <p className="text-sm font-bold text-amber-900">
+            Manual results mode: no jury votes recorded for this chapter.
+          </p>
+          <p className="mt-1 text-sm text-amber-800">
+            You can enter the final ranking by hand in the table below (e.g. when
+            scoring happened on paper at the event). Pick each team&apos;s placement
+            and challenge, save, then publish. Every entry is recorded as an admin
+            override in the audit log. If the jury is still going to vote digitally,
+            do NOT enter scores here: finalized jury rankings would be mixed with
+            or overwritten by your manual entries.
           </p>
         </Card>
       )}
@@ -408,7 +493,9 @@ export default function AdminScoresPage({
           )}
         </div>
         <p className="mt-1 text-sm ad-text-muted">
-          Override individual team scores if needed. Changes are tracked as admin overrides.
+          {hasJuryRankings
+            ? "Override individual team scores if needed. Changes are tracked as admin overrides."
+            : "Enter each registered team's final placement and challenge. Changes are tracked as admin overrides."}
         </p>
 
         <div className="mt-4 overflow-x-auto">
@@ -419,18 +506,23 @@ export default function AdminScoresPage({
                 <th className="pb-3 pr-4 font-medium">Current Placement</th>
                 <th className="pb-3 pr-4 font-medium">Points</th>
                 <th className="pb-3 pr-4 font-medium">Source</th>
+                <th className="pb-3 pr-4 font-medium">Challenge</th>
                 <th className="pb-3 font-medium">Override</th>
               </tr>
             </thead>
             <tbody>
               {teams
                 .filter((team) => {
-                  // Only show teams that have scores or jury rankings
+                  // Teams with scores or jury rankings, PLUS every team
+                  // registered for this chapter — otherwise a no-jury chapter
+                  // (paper scoring at the event) renders an empty table and a
+                  // manual ranking can never be entered from scratch.
                   const hasScore = getScoreForTeam(team.id);
                   const inJuryRanking = Object.values(juryData).some(
                     (d) => team.id in d.aggregated
                   );
-                  return hasScore || inJuryRanking;
+                  const isRegistered = registrations.some((r) => r.teamId === team.id);
+                  return hasScore || inJuryRanking || isRegistered;
                 })
                 .map((team) => {
                   const score = getScoreForTeam(team.id);
@@ -466,6 +558,23 @@ export default function AdminScoresPage({
                         ) : score ? (
                           <Badge variant="default" light>Admin</Badge>
                         ) : null}
+                      </td>
+                      <td className="py-3 pr-4">
+                        <select
+                          value={challengeIdForTeam(team.id) ?? ""}
+                          onChange={(e) =>
+                            handleOverrideChallenge(team.id, e.target.value)
+                          }
+                          className="max-w-[180px] rounded-lg border ad-border ad-bg-input px-3 py-1.5 text-sm ad-text focus:outline-none"
+                          disabled={isPublished}
+                        >
+                          <option value="">No challenge</option>
+                          {challenges.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.title}
+                            </option>
+                          ))}
+                        </select>
                       </td>
                       <td className="py-3">
                         <select

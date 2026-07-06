@@ -68,6 +68,7 @@ test.describe("Admin scores", () => {
           "Current Placement",
           "Points",
           "Source",
+          "Challenge",
           "Override",
         ];
 
@@ -188,10 +189,11 @@ test.describe("Admin scores", () => {
       const isVisible = await heading.isVisible().catch(() => false);
 
       if (isVisible) {
-        // Should show either "Jury Rankings" heading or the "no rankings" message
+        // Should show either "Jury Rankings" heading or the manual-results
+        // banner (shown whenever no jury votes exist for the chapter).
         const juryHeading = page.getByText("Jury Rankings");
         const noRankings = page.getByText(
-          /no jury rankings submitted yet/i
+          /manual results mode: no jury votes recorded/i
         );
 
         const hasJuryHeading = await juryHeading

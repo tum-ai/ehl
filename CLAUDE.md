@@ -79,7 +79,7 @@ view, nor edit chapter settings, publish scores, or delete.
 - **OpenRouter** (`lib/code-review/`): Multi-agent code review pipeline (tech desc, code quality, highlights, originality, coordinator)
 - **Email** (`lib/email.ts` + `lib/emails/`): SMTP with inline EHL logo, React Email templates for all transactional emails
 - **Turnstile** (`lib/turnstile.ts`): CAPTCHA verification on all public forms
-- **Rate Limiting** (`lib/ratelimit.ts`): 12 limiters via Upstash Redis, in-memory fallback when Redis unavailable
+- **Rate Limiting** (`lib/ratelimit.ts`): 13 limiters via Upstash Redis, in-memory fallback when Redis unavailable
 
 ### Chapter Status Flow
 ```
@@ -185,7 +185,7 @@ lib/
   github.ts             — GitHub API integration
   gdrive.ts             — Google Drive API integration
   turnstile.ts          — Cloudflare Turnstile CAPTCHA verification
-  ratelimit.ts          — Upstash Redis rate limiters (12 limiters) + in-memory fallback
+  ratelimit.ts          — Upstash Redis rate limiters (13 limiters) + in-memory fallback
   flag-utils.ts         — LinkedIn/GitHub username extraction, name normalization for flag matching
   scoring.ts            — Point calculations
   showcase-shared.ts    — Partner-showcase consent predicate + derived SQL filter + types

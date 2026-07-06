@@ -159,6 +159,12 @@ Available to participants who are checked in at an event.
   `chapter_partner_showcase` table (never on the public `chapters` row). The public page
   resolves the chapter from the token via a service-role server action; a
   rotated/invalid/disabled/expired token 404s.
+- Each applicant card shows the team the person actually played on at this event
+  (resolved from the chapter's challenge registrations, not their current global team);
+  the search box also matches team names.
+- "Download all CVs" streams one ZIP of every consented, visible CV (same consent gate
+  as the list; capped, rate-limited 3/10min per IP, failed fetches listed in a manifest
+  instead of a corrupt archive).
 - CVs are served through a token-gated proxy (`/api/showcase/<token>/cv/<applicationId>`)
   keyed by application id (Drive file ids stay server-side). It re-checks the token, the
   `show_cvs` toggle, chapter ownership, and consent before streaming, with `no-store` +
@@ -387,7 +393,14 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 ### Score Management (`/admin/chapters/<id>/scores`)
 - View aggregated jury rankings per challenge
 - Individual juror vote inspection
-- Manual score overrides (any placement or participation)
+- Manual score overrides (any placement or participation), attributable to a real
+  challenge of the chapter (the challenge name is resolved server-side; without one
+  the legacy "Manual Override" label is used)
+- **Manual results mode**: when no jury votes exist (e.g. paper scoring at the event),
+  the table lists every team registered for the chapter, pre-filled with each team's
+  registered challenge, so a full final ranking can be entered from scratch. A clear
+  warning banner explains that entries are admin overrides tracked in the audit log.
+  Saving warns (soft confirm) when two teams share a placement within one challenge.
 - Publish results (makes scores public, sets chapter to completed)
 - Pre-publish consistency check: only finalized scores in the `scores` table are
   published (and surfaced on the public leaderboard). The page warns when jury

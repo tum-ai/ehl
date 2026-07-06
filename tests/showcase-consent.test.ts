@@ -106,3 +106,47 @@ describe("rankingSupportsPodium (duplicate-placement regression)", () => {
     ).toBe(true);
   });
 });
+
+// ─── buildTeamNameByEmail() ─────────────────────────────────
+
+import { buildTeamNameByEmail } from "@/lib/showcase-shared";
+
+describe("buildTeamNameByEmail (applicant -> event team)", () => {
+  it("maps roster members to their team via profile email, lowercased", () => {
+    const map = buildTeamNameByEmail(
+      [
+        { teamName: "Alpha", roster: ["u1", "u2"] },
+        { teamName: "Beta", roster: ["u3"] },
+      ],
+      [
+        { id: "u1", email: "Ada@Example.com" },
+        { id: "u2", email: "alan@example.com" },
+        { id: "u3", email: "grace@example.com" },
+      ]
+    );
+    expect(map.get("ada@example.com")).toBe("Alpha");
+    expect(map.get("alan@example.com")).toBe("Alpha");
+    expect(map.get("grace@example.com")).toBe("Beta");
+  });
+
+  it("ignores profiles not on any roster and roster ids without a profile", () => {
+    const map = buildTeamNameByEmail(
+      [{ teamName: "Alpha", roster: ["u1", "ghost-user"] }],
+      [
+        { id: "u1", email: "ada@example.com" },
+        { id: "u9", email: "bystander@example.com" },
+      ]
+    );
+    expect(map.get("ada@example.com")).toBe("Alpha");
+    expect(map.has("bystander@example.com")).toBe(false);
+    expect(map.size).toBe(1);
+  });
+
+  it("skips profiles without an email (no crash, no bogus key)", () => {
+    const map = buildTeamNameByEmail(
+      [{ teamName: "Alpha", roster: ["u1"] }],
+      [{ id: "u1", email: null }]
+    );
+    expect(map.size).toBe(0);
+  });
+});

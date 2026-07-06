@@ -419,6 +419,7 @@ All query limits have sensible defaults. Override via env vars if you need highe
 | `LIMIT_SCORES` | 1000 | Max scores loaded |
 | `LIMIT_LEADERBOARD` | 500 | Max leaderboard entries |
 | `LIMIT_MEDIA` | 200 | Max media items |
+| `LIMIT_SHOWCASE_CV_ZIP` | 100 | Max CVs in one showcase bulk-download ZIP (413 above; 2 Drive calls/CV against the route's 300s budget) |
 | `LIMIT_SUBMISSIONS_PER_CHALLENGE` | 200 | Max submissions per challenge |
 | `LIMIT_CODE_REVIEWS_PER_CHALLENGE` | 200 | Max code reviews per challenge |
 | `LIMIT_CHAPTER_UNLOCKS` | 500 | Max chapter unlocks |

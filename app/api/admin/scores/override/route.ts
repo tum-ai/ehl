@@ -16,6 +16,11 @@ export async function POST(request: Request) {
       teamId: string;
       placement: number | null;
       points: number;
+      // Optional: assign the score to a real challenge. The NAME is resolved
+      // server-side from the id — never trusted from the client — so the
+      // sponsor-facing "Results by Challenge" shows the actual challenge
+      // instead of a hardcoded "Manual Override" label.
+      challengeId?: string | null;
     }>;
   };
 
@@ -46,7 +51,40 @@ export async function POST(request: Request) {
 
   const adminClient = createAdminClient();
 
+  // Resolve challenge names for any referenced challenge ids, scoped to THIS
+  // chapter: a challenge id from another chapter is rejected, not silently
+  // written.
+  const challengeIds = [
+    ...new Set(
+      overrides
+        .map((o) => o.challengeId)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    ),
+  ];
+  const challengeNames = new Map<string, string>();
+  if (challengeIds.length > 0) {
+    const { data: challengeRows, error: challengeError } = await adminClient
+      .from("challenges")
+      .select("id, title")
+      .eq("chapter_id", chapterId)
+      .in("id", challengeIds);
+    if (challengeError) {
+      return NextResponse.json({ error: challengeError.message }, { status: 500 });
+    }
+    for (const c of challengeRows ?? []) {
+      challengeNames.set(c.id as string, c.title as string);
+    }
+    const unknown = challengeIds.filter((id) => !challengeNames.has(id));
+    if (unknown.length > 0) {
+      return NextResponse.json(
+        { error: "Challenge does not belong to this chapter" },
+        { status: 400 }
+      );
+    }
+  }
+
   for (const override of overrides) {
+    const challengeId = override.challengeId ?? null;
     const { error: upsertError } = await adminClient.from("scores").upsert(
       {
         chapter_id: chapterId,
@@ -54,7 +92,10 @@ export async function POST(request: Request) {
         placement: override.placement,
         points: override.points,
         source: "admin_override",
-        challenge_name: "Manual Override",
+        challenge_id: challengeId,
+        challenge_name: challengeId
+          ? challengeNames.get(challengeId)!
+          : "Manual Override",
         published: false,
       },
       { onConflict: "chapter_id,team_id" }
@@ -80,6 +121,10 @@ export async function POST(request: Request) {
         team_id: override.teamId,
         placement: { to: override.placement },
         points: { to: override.points },
+        challenge_id: { to: challengeId },
+        challenge_name: {
+          to: challengeId ? challengeNames.get(challengeId)! : "Manual Override",
+        },
       },
     });
   }

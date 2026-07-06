@@ -125,3 +125,93 @@ describe("POST /api/admin/scores/override", () => {
     expect(mocks.logEventStrict).not.toHaveBeenCalled();
   });
 });
+
+// ─── Challenge assignment (manual results mode) ─────────────
+//
+// Manual entry must attribute scores to REAL challenges: the name is resolved
+// server-side from the id (never trusted from the client), a foreign chapter's
+// challenge id is rejected, and without a challengeId the legacy label stays.
+
+function makeChallengeAwareClient(opts: {
+  chapterChallenges: Record<string, string>; // id -> title (this chapter's)
+  upserts: Array<Record<string, unknown>>;
+}) {
+  return {
+    from: (table: string) => {
+      if (table === "challenges") {
+        const builder = {
+          select: () => builder,
+          eq: () => builder,
+          in: (_col: string, ids: string[]) =>
+            Promise.resolve({
+              data: ids
+                .filter((id) => id in opts.chapterChallenges)
+                .map((id) => ({ id, title: opts.chapterChallenges[id] })),
+              error: null,
+            }),
+        };
+        return builder;
+      }
+      return {
+        upsert: (payload: Record<string, unknown>) => {
+          opts.upserts.push(payload);
+          return Promise.resolve({ error: null });
+        },
+      };
+    },
+  };
+}
+
+describe("POST /api/admin/scores/override (challenge assignment)", () => {
+  it("resolves the challenge name server-side from the id", async () => {
+    const upserts: Array<Record<string, unknown>> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeChallengeAwareClient({ chapterChallenges: { ch1: "AI for Good" }, upserts })
+    );
+
+    const res = await POST(
+      makeRequest({
+        chapterId: "c1",
+        overrides: [{ teamId: "t1", placement: 1, points: 8, challengeId: "ch1" }],
+      })
+    );
+
+    expect(res.status).toBe(200);
+    expect(upserts).toHaveLength(1);
+    expect(upserts[0].challenge_id).toBe("ch1");
+    expect(upserts[0].challenge_name).toBe("AI for Good");
+  });
+
+  it("rejects a challenge id that does not belong to the chapter (400, no write)", async () => {
+    const upserts: Array<Record<string, unknown>> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeChallengeAwareClient({ chapterChallenges: { ch1: "AI for Good" }, upserts })
+    );
+
+    const res = await POST(
+      makeRequest({
+        chapterId: "c1",
+        overrides: [{ teamId: "t1", placement: 1, points: 8, challengeId: "other-chapters-challenge" }],
+      })
+    );
+
+    expect(res.status).toBe(400);
+    expect(upserts).toEqual([]);
+    expect(mocks.logEventStrict).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the legacy 'Manual Override' label without a challengeId", async () => {
+    const upserts: Array<Record<string, unknown>> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeChallengeAwareClient({ chapterChallenges: {}, upserts })
+    );
+
+    const res = await POST(
+      makeRequest({ chapterId: "c1", overrides: [{ teamId: "t1", placement: 1, points: 8 }] })
+    );
+
+    expect(res.status).toBe(200);
+    expect(upserts[0].challenge_id).toBeNull();
+    expect(upserts[0].challenge_name).toBe("Manual Override");
+  });
+});

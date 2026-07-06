@@ -80,6 +80,10 @@ export const walkInTokenLimiter = makeLimiter("rl:walkin-token", 60, "60 s", { l
 // leak, so cap CV fetches per IP to blunt scripted mass-download of a leaked link
 // and to slow brute-force enumeration of application ids. 120 per 60s per IP.
 export const showcaseLimiter = makeLimiter("rl:showcase", 120, "60 s", { limit: 120, windowMs: 60_000 });
+// Bulk CV ZIP: ONE request fans out to up to 2 Drive API calls per CV, so the
+// general showcase limiter is far too generous. 3 archives per 10 minutes per
+// IP is plenty for a sponsor and starves a scripted mass-exfiltration loop.
+export const showcaseZipLimiter = makeLimiter("rl:showcase-zip", 3, "600 s", { limit: 3, windowMs: 600_000 });
 // File upload: 50 per hour per user (fallback tighter: 10/min)
 export const uploadLimiter = makeLimiter("rl:upload", 50, "3600 s", { limit: 10, windowMs: 60_000 });
 // General API: 1000 per 60s per IP (fallback 200/min)
