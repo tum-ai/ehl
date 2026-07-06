@@ -150,10 +150,10 @@ Available to participants who are checked in at an event.
   covering pre-migration-00034 opt-ins). Application status is not a gate: all statuses are
   shown, with `checked_in` applicants badged "Participated"; internal decisions like
   "rejected" are collapsed to the neutral "Applied" label so a sponsor never sees them.
-- The showcase admin page also embeds the chapter's photo management (global admins):
-  upload/feature/delete the photos partners see, right where the sponsor link is managed.
-  The same manager remains available at `/admin/chapters/<id>/photos` (now linked from the
-  chapter Manage card).
+- Photos are ONE per-chapter pool (shown in the showcase gallery and on the public chapter
+  page once completed) and are managed in ONE place: the Photos page
+  (`/admin/chapters/<id>/photos`, linked from the chapter Manage card). The showcase admin
+  page shows the current photo count and links there (global admins).
 - Admin/chapter-admin side: `/admin/chapters/<id>/showcase` shows the copyable link, a
   "Rotate link" action, an enable toggle (off by default: an unshared showcase 404s), a
   "Show CVs" toggle (off by default), an optional expiry date, and live counters (visible /
