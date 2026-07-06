@@ -1,0 +1,157 @@
+import { NextResponse } from "next/server";
+import { headers } from "next/headers";
+import { Zip, ZipPassThrough } from "fflate";
+import { downloadFile } from "@/lib/gdrive";
+import { getShowcaseByToken } from "@/lib/actions/showcase";
+import { getShowcaseCvList } from "@/lib/queries/showcase";
+import { checkRateLimit, showcaseZipLimiter } from "@/lib/ratelimit";
+import { QUERY_LIMITS } from "@/lib/config/limits";
+import { slugify } from "@/lib/utils";
+
+// Sequential Drive fetches at ~1s each: 150 CVs needs far more than the 60s
+// default. Vercel Pro allows per-route overrides up to 300s (same as the cron
+// route).
+export const maxDuration = 300;
+
+// Bulk CV download for the partner showcase: one ZIP with every consented,
+// visible CV of the chapter.
+//
+// Gating chain is IDENTICAL to the single-CV proxy: live token (enabled,
+// unexpired; per-IP rate limit inside the resolver) -> show_cvs on ->
+// getShowcaseCvList(), which applies the same consent .or() filter + in-code
+// re-check as the list, so the archive can never contain a CV the page hides.
+// On top, a dedicated tight limiter (3/10min per IP): one ZIP fans out to two
+// Drive API calls per CV, and a leaked link must not become a mass-exfil loop.
+//
+// Memory: one CV buffered at a time (<=10MB), zipped with STORE (level 0 —
+// PDFs are already compressed) through a ReadableStream. Failures mid-stream
+// cannot change the committed 200 status, so failed CVs are skipped and listed
+// in a _MANIFEST.txt as the final entry — never a silently corrupt or silently
+// incomplete archive.
+export async function GET(
+  _request: Request,
+  { params }: { params: Promise<{ token: string }> }
+) {
+  const { token } = await params;
+
+  const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
+  const rl = await checkRateLimit(showcaseZipLimiter, ip, "showcase-zip");
+  if (rl.limited) {
+    return NextResponse.json(
+      { error: rl.error ?? "Too many downloads. Try again in a few minutes." },
+      { status: 429 }
+    );
+  }
+
+  const showcase = await getShowcaseByToken(token);
+  if (!showcase) return notFound();
+  if (!showcase.showCvs) return notFound();
+
+  const cvs = await getShowcaseCvList(showcase.chapterId);
+  if (cvs.length === 0) {
+    return NextResponse.json({ error: "No CVs available" }, { status: 404 });
+  }
+  if (cvs.length > QUERY_LIMITS.showcaseCvZip) {
+    // Refuse loudly BEFORE any bytes stream: a silently truncated archive would
+    // read as "all CVs" to a sponsor.
+    return NextResponse.json(
+      {
+        error: `${cvs.length} CVs exceed the bulk-download limit of ${QUERY_LIMITS.showcaseCvZip}. Download CVs individually instead.`,
+      },
+      { status: 413 }
+    );
+  }
+
+  // Unique, filesystem-safe entry names: Lovelace_Ada_CV.pdf, _2 on collision.
+  const usedNames = new Set<string>();
+  const entryName = (first: string, last: string): string => {
+    const base = `${slugify(last) || "cv"}_${slugify(first) || "applicant"}_CV`;
+    let name = `${base}.pdf`;
+    for (let i = 2; usedNames.has(name); i++) name = `${base}_${i}.pdf`;
+    usedNames.add(name);
+    return name;
+  };
+
+  // PULL-based stream: one CV is fetched and zipped per pull() call, so a slow
+  // or stalled client applies real backpressure (memory stays at ~one CV, never
+  // the whole archive), and cancel() stops fetching the moment the client
+  // disconnects instead of burning Drive quota into the void. fflate's ondata
+  // is synchronous per push, so each pull enqueues that CV's chunks and returns.
+  let index = 0;
+  let cancelled = false;
+  const included: string[] = [];
+  const failed: string[] = [];
+  let zip: Zip;
+
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      zip = new Zip((err, chunk, final) => {
+        if (err) {
+          controller.error(err);
+          return;
+        }
+        controller.enqueue(chunk);
+        if (final) controller.close();
+      });
+    },
+    async pull() {
+      // Each pull zips exactly ONE fetched CV (skipping failures until one
+      // succeeds or the list is exhausted), so chunks are only produced when
+      // the consumer asks for more.
+      while (!cancelled && index < cvs.length) {
+        const cv = cvs[index++];
+        const displayName = `${cv.firstName} ${cv.lastName}`;
+        try {
+          const { buffer } = await downloadFile(cv.fileId);
+          if (cancelled) return;
+          const entry = new ZipPassThrough(entryName(cv.firstName, cv.lastName));
+          zip.add(entry);
+          entry.push(new Uint8Array(buffer), true);
+          included.push(displayName);
+          return;
+        } catch (err) {
+          console.error(`Showcase CV zip: failed to fetch CV for ${displayName}:`, err);
+          failed.push(displayName);
+        }
+      }
+      if (cancelled) return;
+      // All CVs handled: write the manifest (a partially failed run is
+      // self-describing) and finish the archive.
+      const manifest = [
+        `EHL Partner Showcase - CV archive`,
+        `Included: ${included.length}`,
+        ...included.map((n) => `  + ${n}`),
+        ...(failed.length > 0
+          ? [
+              ``,
+              `FAILED to fetch (retry later or download individually): ${failed.length}`,
+              ...failed.map((n) => `  ! ${n}`),
+            ]
+          : []),
+        ``,
+      ].join("\n");
+      const manifestEntry = new ZipPassThrough("_MANIFEST.txt");
+      zip.add(manifestEntry);
+      manifestEntry.push(new TextEncoder().encode(manifest), true);
+      zip.end();
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "application/zip",
+      "Content-Disposition": 'attachment; filename="ehl-cvs.zip"',
+      // Personal data behind a bearer link: never cache, never index, never
+      // leak the token via referrer — same hygiene as the single-CV proxy.
+      "Cache-Control": "no-store, max-age=0",
+      "X-Content-Type-Options": "nosniff",
+      "X-Robots-Tag": "noindex, nofollow, noarchive",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
+}

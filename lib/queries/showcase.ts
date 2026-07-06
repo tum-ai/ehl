@@ -2,7 +2,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { getClient } from "@/lib/queries/client";
 import { toChapter, toMediaItem, toScore } from "@/lib/queries/mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
-import { rowHasSponsorConsent, SPONSOR_CONSENT_OR_FILTER } from "@/lib/showcase-shared";
+import {
+  buildTeamNameByEmail,
+  rowHasSponsorConsent,
+  SPONSOR_CONSENT_OR_FILTER,
+} from "@/lib/showcase-shared";
 import type { ApplicationStatus, Chapter, MediaItem } from "@/lib/types";
 
 // ─── Sponsor-facing view of a chapter ────────────────────────
@@ -24,6 +28,11 @@ export interface ShowcaseApplicant {
   hasCv: boolean;
   status: ShowcaseApplicantStatus;
   checkedIn: boolean;
+  // The team this person PLAYED ON at this chapter, resolved from
+  // challenge_registrations.roster (chapter-scoped, written from real checked-in
+  // members). null = never on a registered team at this event. Deliberately NOT
+  // the person's current global team, which may pre/post-date the event.
+  teamName: string | null;
 }
 
 export interface ShowcaseRankingRow {
@@ -101,7 +110,9 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
     supabase
       .from("applications")
       .select(
-        "id, first_name, last_name, status, cv_url, checked_in_at, consent_sponsor_data, consent_recruiting, linkedIn:form_data->>linkedIn, github:form_data->>github"
+        // email is used ONLY server-side to bridge to the roster (below); it is
+        // never put on ShowcaseApplicant and never reaches the sponsor.
+        "id, email, first_name, last_name, status, cv_url, checked_in_at, consent_sponsor_data, consent_recruiting, linkedIn:form_data->>linkedIn, github:form_data->>github"
       )
       .eq("chapter_id", chapterId)
       .or(SPONSOR_CONSENT_OR_FILTER)
@@ -132,6 +143,39 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
   const allMedia = (mediaResult.data ?? []).map(toMediaItem);
   const chapter = chapterResult.data ? toChapter(chapterResult.data) : null;
 
+  // Applicant -> event team, via challenge_registrations.roster (profile ids of
+  // the members who actually played) -> profiles.email -> applications.email.
+  // Two batched queries; roster ids are bounded by this chapter's registrations
+  // (~5 per team), so the .in() stays tiny. Applicants without an account, a
+  // team, or a registration naturally resolve to null.
+  const { data: regs, error: regError } = await supabase
+    .from("challenge_registrations")
+    .select("team_id, roster, teams!inner(name)")
+    .eq("chapter_id", chapterId)
+    .limit(QUERY_LIMITS.challengeRegistrations);
+  if (regError) throw regError;
+
+  const rosterRegs = (regs ?? []).map((reg) => ({
+    teamName: (reg.teams as unknown as { name: string }).name,
+    roster: ((reg.roster as string[]) ?? []).filter((v) => typeof v === "string"),
+  }));
+  const rosterUserIds = [...new Set(rosterRegs.flatMap((r) => r.roster))];
+  // Chunked .in(): PostgREST filters ride in the GET URL, and at the
+  // registration cap the roster set could reach thousands of UUIDs — far past
+  // safe URL length. 200 ids/request keeps each URL ~7KB.
+  const profileRows: Array<{ id: string; email: string | null }> = [];
+  for (let i = 0; i < rosterUserIds.length; i += 200) {
+    const { data: profs, error: profError } = await supabase
+      .from("profiles")
+      .select("id, email")
+      .in("id", rosterUserIds.slice(i, i + 200));
+    if (profError) throw profError;
+    for (const p of profs ?? []) {
+      profileRows.push({ id: p.id as string, email: (p.email as string) ?? null });
+    }
+  }
+  const teamNameByEmail = buildTeamNameByEmail(rosterRegs, profileRows);
+
   const rows = appResult.data ?? [];
   const applicantsTruncated = rows.length > appLimit;
   const applicants: ShowcaseApplicant[] = rows
@@ -149,6 +193,8 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
         hasCv: Boolean(row.cv_url),
         status: labelFor(row.status as ApplicationStatus),
         checkedIn: Boolean(row.checked_in_at),
+        teamName:
+          teamNameByEmail.get(((row.email as string) ?? "").toLowerCase()) ?? null,
       };
     })
     .filter((a): a is ShowcaseApplicant => a !== null);
@@ -245,6 +291,38 @@ export async function getShowcaseCounts(chapterId: string): Promise<ShowcaseCoun
     participants: participantsRes.count ?? 0,
     cvsAvailable: cvsRes.count ?? 0,
   };
+}
+
+// ─── Bulk CV list (used by the ZIP download) ─────────────────
+//
+// Every consented applicant of the chapter who has a CV — the EXACT same
+// consent gate as the list and the single-CV proxy (DB .or() filter plus the
+// in-code re-check), so the ZIP can never contain a CV the page would hide.
+export interface ShowcaseCvEntry {
+  firstName: string;
+  lastName: string;
+  fileId: string;
+}
+
+export async function getShowcaseCvList(chapterId: string): Promise<ShowcaseCvEntry[]> {
+  const supabase = createAdminClient();
+  const { data, error } = await supabase
+    .from("applications")
+    .select("first_name, last_name, cv_url, consent_sponsor_data, consent_recruiting")
+    .eq("chapter_id", chapterId)
+    .or(SPONSOR_CONSENT_OR_FILTER)
+    .not("cv_url", "is", null)
+    .order("last_name", { ascending: true })
+    .limit(QUERY_LIMITS.applicationsPerChapter);
+  if (error) throw error;
+
+  return (data ?? [])
+    .filter((row) => rowHasSponsorConsent(row))
+    .map((row) => ({
+      firstName: row.first_name as string,
+      lastName: row.last_name as string,
+      fileId: row.cv_url as string,
+    }));
 }
 
 // ─── CV access check (used by the CV proxy) ──────────────────

@@ -58,6 +58,33 @@ export const SPONSOR_CONSENT_OR_FILTER = SPONSOR_CONSENT_COLUMNS.map(
   (c) => `${c}.eq.true`
 ).join(",");
 
+// ─── Applicant -> event-team mapping ─────────────────────────
+//
+// Pure core of the showcase's team resolution: challenge_registrations.roster
+// holds the profile ids of the members who ACTUALLY played at this chapter, so
+// roster -> profile.email -> applications.email is the authoritative bridge
+// (a person's global team may pre/post-date the event). Emails are lowercased
+// on both sides defensively, matching lib/queries/teams.ts.
+export function buildTeamNameByEmail(
+  registrations: Array<{ teamName: string; roster: string[] }>,
+  profiles: Array<{ id: string; email: string | null }>
+): Map<string, string> {
+  const teamNameByUserId = new Map<string, string>();
+  for (const reg of registrations) {
+    for (const uid of reg.roster) {
+      teamNameByUserId.set(uid, reg.teamName);
+    }
+  }
+  const teamNameByEmail = new Map<string, string>();
+  for (const p of profiles) {
+    const teamName = teamNameByUserId.get(p.id);
+    if (teamName && p.email) {
+      teamNameByEmail.set(p.email.toLowerCase(), teamName);
+    }
+  }
+  return teamNameByEmail;
+}
+
 // ─── Podium eligibility ──────────────────────────────────────
 //
 // Placements are assigned PER CHALLENGE (finalizeChallengeScores gives each

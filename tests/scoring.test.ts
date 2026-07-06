@@ -521,3 +521,47 @@ describe("getJudgedUnscoredChallenges", () => {
     expect(getJudgedUnscoredChallenges(challenges, { ch1: { t1: 8 } })).toEqual([]);
   });
 });
+
+// ─── findDuplicatePlacements() ──────────────────────────────
+
+import { findDuplicatePlacements } from "@/lib/scoring";
+
+describe("findDuplicatePlacements (manual score entry guard)", () => {
+  it("flags two teams sharing a placement within one challenge", () => {
+    const dupes = findDuplicatePlacements([
+      { teamId: "a", placement: 1, challengeId: "ch1" },
+      { teamId: "b", placement: 1, challengeId: "ch1" },
+      { teamId: "c", placement: 2, challengeId: "ch1" },
+    ]);
+    expect(dupes).toEqual([
+      { challengeId: "ch1", placement: 1, teamIds: ["a", "b"] },
+    ]);
+  });
+
+  it("does NOT flag the same placement across different challenges", () => {
+    expect(
+      findDuplicatePlacements([
+        { teamId: "a", placement: 1, challengeId: "ch1" },
+        { teamId: "b", placement: 1, challengeId: "ch2" },
+      ])
+    ).toEqual([]);
+  });
+
+  it("groups null challengeIds together (unassigned scores share one bucket)", () => {
+    const dupes = findDuplicatePlacements([
+      { teamId: "a", placement: 1, challengeId: null },
+      { teamId: "b", placement: 1, challengeId: null },
+    ]);
+    expect(dupes).toHaveLength(1);
+    expect(dupes[0].teamIds).toEqual(["a", "b"]);
+  });
+
+  it("ignores participation rows (placement null)", () => {
+    expect(
+      findDuplicatePlacements([
+        { teamId: "a", placement: null, challengeId: "ch1" },
+        { teamId: "b", placement: null, challengeId: "ch1" },
+      ])
+    ).toEqual([]);
+  });
+});

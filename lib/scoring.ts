@@ -170,3 +170,29 @@ export function calculateLeaderboard(
 
   return entries;
 }
+
+// ─── Duplicate-placement detection (manual score entry) ──────
+//
+// After applying pending override edits on the admin scores page, would two
+// teams IN THE SAME CHALLENGE share a placement? Placements are per challenge,
+// so cross-challenge repeats (two 1st places in two challenges) are fine.
+// Legitimate ties exist, so callers WARN on this instead of blocking — but a
+// silent double-1st within one challenge (the classic manual-entry slip) must
+// never go unnoticed. Pure so the scores page's confirm logic is unit-testable.
+export function findDuplicatePlacements(
+  rows: Array<{ teamId: string; placement: number | null; challengeId: string | null }>
+): Array<{ challengeId: string | null; placement: number; teamIds: string[] }> {
+  const seen = new Map<string, { challengeId: string | null; placement: number; teamIds: string[] }>();
+  for (const row of rows) {
+    if (row.placement === null) continue;
+    const key = `${row.challengeId ?? "none"}:${row.placement}`;
+    const entry = seen.get(key) ?? {
+      challengeId: row.challengeId,
+      placement: row.placement,
+      teamIds: [],
+    };
+    entry.teamIds.push(row.teamId);
+    seen.set(key, entry);
+  }
+  return [...seen.values()].filter((e) => e.teamIds.length > 1);
+}
