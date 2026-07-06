@@ -39,6 +39,12 @@ export const QUERY_LIMITS = {
   // per CV (metadata + media) at roughly 1s each, so 100 CVs is ~200s against
   // the route's 300s maxDuration: real headroom, not exact-budget roulette.
   showcaseCvZip: envInt("LIMIT_SHOWCASE_CV_ZIP", 100),
+  // Hard cap for the showcase bulk-photo ZIP. Like the CV ZIP, downloadFile
+  // makes two Drive calls per photo (~1s each); at 150 that is ~300s, matching
+  // the route's maxDuration. Photos are STORE-zipped (already-compressed JPEGs)
+  // one at a time, so memory stays flat. A selection larger than this is refused
+  // loudly before any bytes stream (never a silently truncated album).
+  showcasePhotoZip: envInt("LIMIT_SHOWCASE_PHOTO_ZIP", 150),
   usersLookingForTeam: envInt("LIMIT_USERS_LOOKING_FOR_TEAM", 500),
   codeReviewQueueDepth: envInt("LIMIT_CODE_REVIEW_QUEUE_DEPTH", 200),
   adminStatsApplications: envInt("LIMIT_ADMIN_STATS_APPLICATIONS", 10000),

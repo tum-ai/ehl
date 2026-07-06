@@ -154,6 +154,18 @@ Available to participants who are checked in at an event.
   page once completed) and are managed in ONE place: the Photos page
   (`/admin/chapters/<id>/photos`, linked from the chapter Manage card). The showcase admin
   page shows the current photo count and links there (global admins).
+- Photo download (showcase gallery): a "Download all" button, and a "Select" mode with a
+  checkbox per photo plus "Select all" / "Download selected". Both produce ZIP(s) of the
+  full-resolution Drive originals via `POST /api/showcase/<token>/photos`. The route never
+  trusts the client's selection: it intersects the requested fileIds with the chapter's real
+  photos (so a smuggled Drive id, e.g. a CV, is dropped, never fetched), and it is gated by
+  the live token + a dedicated per-IP photo-ZIP rate limiter (12/10min, separate from the
+  stricter 3/10min CV limiter so a legitimate multi-batch "download all" is not throttled).
+  Albums larger than one batch are downloaded as several sequential ZIPs client-side
+  (`ehl-photos-1.zip`, `-2.zip`, ...) so no single request risks the function timeout; if a
+  batch fails mid-run the user is told how many ZIPs they already got. A single request over
+  the per-ZIP cap (`LIMIT_SHOWCASE_PHOTO_ZIP`, default 150) is refused loudly (413), never
+  silently truncated.
 - Admin/chapter-admin side: `/admin/chapters/<id>/showcase` shows the copyable link, a
   "Rotate link" action, an enable toggle (off by default: an unshared showcase 404s), a
   "Show CVs" toggle (off by default), an optional expiry date, and live counters (visible /

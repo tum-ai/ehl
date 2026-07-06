@@ -84,6 +84,14 @@ export const showcaseLimiter = makeLimiter("rl:showcase", 120, "60 s", { limit: 
 // general showcase limiter is far too generous. 3 archives per 10 minutes per
 // IP is plenty for a sponsor and starves a scripted mass-exfiltration loop.
 export const showcaseZipLimiter = makeLimiter("rl:showcase-zip", 3, "600 s", { limit: 3, windowMs: 600_000 });
+// Bulk PHOTO ZIP: like the CV ZIP, one request fans out to ~2 Drive calls per
+// photo, but photos are event images (not personal documents) AND "download all"
+// is intentionally split into sequential batches client-side (100 photos each).
+// A full-size album (LIMIT_MEDIA=400) is 4 batches, so the CV limiter's 3/10min
+// would 429 a legitimate "download all" mid-run. 12 per 10 minutes per IP covers
+// the largest album plus retries and a concurrent CV download, while still
+// starving a scripted mass-exfil loop.
+export const showcasePhotoZipLimiter = makeLimiter("rl:showcase-photo-zip", 12, "600 s", { limit: 12, windowMs: 600_000 });
 // File upload: 50 per hour per user (fallback tighter: 10/min)
 export const uploadLimiter = makeLimiter("rl:upload", 50, "3600 s", { limit: 10, windowMs: 60_000 });
 // General API: 1000 per 60s per IP (fallback 200/min)

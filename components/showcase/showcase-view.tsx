@@ -56,6 +56,101 @@ export function ShowcaseView({
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
 
+  // Photo selection: a set of selected Drive fileIds (photo.url). Empty set =
+  // nothing selected; the "Download all" button downloads the whole gallery,
+  // "Download selected" downloads the chosen ids. Selection mode is off until
+  // the user turns it on, so the gallery stays a clean lightbox grid by default.
+  const [selecting, setSelecting] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<string | null>(null);
+
+  const togglePhoto = (fileId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId);
+      else next.add(fileId);
+      return next;
+    });
+  };
+
+  // Max photos per ZIP request. A full-resolution photo takes ~1.35s to fetch
+  // from Drive; the route's timeout is 300s, so 100 per batch (~135s) leaves
+  // comfortable headroom. Larger albums are downloaded as several sequential
+  // ZIPs (see downloadPhotos), so "Download all" works at any album size.
+  const PHOTO_BATCH_SIZE = 100;
+
+  // Fetch one ZIP for an explicit list of fileIds and trigger a save. The route
+  // is POST (it takes a body of fileIds) and returns a validated archive, so it
+  // can't be a plain <a href>. Returns true on success. suffix distinguishes the
+  // files when an album is split across batches (ehl-photos-1.zip, -2.zip).
+  // Returns null on success, or the error message on failure (so the caller can
+  // compose a multi-batch message without reading back React state mid-loop).
+  const fetchPhotoZip = async (fileIds: string[], suffix: string): Promise<string | null> => {
+    const res = await fetch(`/api/showcase/${encodeURIComponent(token)}/photos`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      referrerPolicy: "no-referrer",
+      body: JSON.stringify({ fileIds }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      return data?.error || "Download failed. Please try again.";
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ehl-photos${suffix}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return null;
+  };
+
+  // Download the given photos as ZIP(s). An album larger than one batch is split
+  // into several sequential ZIPs so no single request risks the function
+  // timeout; the user gets one file per batch. Progress is surfaced so a
+  // multi-file download never looks stuck.
+  const downloadPhotos = async (fileIds: string[]) => {
+    if (downloading || fileIds.length === 0) return;
+    setDownloading(true);
+    setDownloadError(null);
+    setDownloadProgress(null);
+    try {
+      const batches: string[][] = [];
+      for (let i = 0; i < fileIds.length; i += PHOTO_BATCH_SIZE) {
+        batches.push(fileIds.slice(i, i + PHOTO_BATCH_SIZE));
+      }
+      for (let b = 0; b < batches.length; b++) {
+        if (batches.length > 1) setDownloadProgress(`Preparing ZIP ${b + 1} of ${batches.length}...`);
+        const suffix = batches.length > 1 ? `-${b + 1}` : "";
+        const err = await fetchPhotoZip(batches[b], suffix);
+        if (err) {
+          // For a multi-batch run, tell the user which parts they DID get so a
+          // partial download isn't mistaken for a total failure.
+          setDownloadError(
+            batches.length > 1 && b > 0
+              ? `Downloaded ${b} of ${batches.length} ZIP files, then stopped: ${err} You can retry to get the rest.`
+              : err
+          );
+          return;
+        }
+      }
+    } catch {
+      setDownloadError("Download failed. Please check your connection and try again.");
+    } finally {
+      setDownloading(false);
+      setDownloadProgress(null);
+    }
+  };
+
+  // "Download all" sends every visible photo's fileId (batched by downloadPhotos),
+  // so it works regardless of album size instead of hitting the route's per-ZIP cap.
+  const allFileIds = useMemo(() => photos.map((p) => p.url), [photos]);
+
   const participantCount = useMemo(
     () => applicants.filter((a) => a.checkedIn).length,
     [applicants]
@@ -310,27 +405,96 @@ export function ShowcaseView({
         {/* ── Photos ────────────────────────────────────────── */}
         {photos.length > 0 && (
           <section className="mt-16">
-            <SectionTitle align="left">Photos</SectionTitle>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <SectionTitle align="left">Photos</SectionTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                {selecting ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSelected((prev) =>
+                          prev.size === photos.length
+                            ? new Set()
+                            : new Set(photos.map((p) => p.url))
+                        )
+                      }
+                      className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-text-secondary transition-all hover:border-white/20 hover:text-white"
+                    >
+                      {selected.size === photos.length ? "Deselect all" : "Select all"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={downloading || selected.size === 0}
+                      onClick={() =>
+                        downloadPhotos(photos.map((p) => p.url).filter((id) => selected.has(id)))
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-xs font-semibold text-gold transition-all hover:bg-gold/20 hover:shadow-[0_0_12px_rgba(255,204,106,0.15)] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <DownloadIcon />
+                      {downloading
+                        ? downloadProgress ?? "Preparing..."
+                        : `Download selected (${selected.size})`}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelecting(false);
+                        setSelected(new Set());
+                        setDownloadError(null);
+                      }}
+                      className="rounded-lg px-3 py-2 text-xs font-semibold text-text-muted transition-colors hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setSelecting(true)}
+                      className="rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-xs font-semibold text-text-secondary transition-all hover:border-white/20 hover:text-white"
+                    >
+                      Select
+                    </button>
+                    <button
+                      type="button"
+                      disabled={downloading}
+                      onClick={() => downloadPhotos(allFileIds)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-xs font-semibold text-gold transition-all hover:bg-gold/20 hover:shadow-[0_0_12px_rgba(255,204,106,0.15)] disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      <DownloadIcon />
+                      {downloading
+                        ? downloadProgress ?? "Preparing..."
+                        : `Download all (${photos.length})`}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+            {downloadError && (
+              <p className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+                {downloadError}
+              </p>
+            )}
             {photosTruncated && (
-              <div className="mb-4">
+              <div className="mb-4 mt-4">
                 <LimitBanner count={limits.photos} limit={limits.photos} label="photos" />
               </div>
             )}
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 [grid-auto-flow:dense]">
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 [grid-auto-flow:dense]">
               {photos.map((photo, i) => {
                 const feature = i === 0 && photo.featured;
-                return (
-                  <a
-                    key={photo.id}
-                    href={drivePhotoViewUrl(photo.url)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    referrerPolicy="no-referrer"
-                    className={cn(
-                      "group relative overflow-hidden rounded-xl border border-white/[0.06] transition-all duration-300 hover:border-purple/25 hover:shadow-[0_0_24px_rgba(154,100,217,0.15)]",
-                      feature ? "col-span-2 row-span-2 aspect-square sm:aspect-auto" : "aspect-square"
-                    )}
-                  >
+                const isSelected = selected.has(photo.url);
+                const commonClass = cn(
+                  "group relative block overflow-hidden rounded-xl border transition-all duration-300",
+                  isSelected
+                    ? "border-gold/60 shadow-[0_0_20px_rgba(255,204,106,0.25)]"
+                    : "border-white/[0.06] hover:border-purple/25 hover:shadow-[0_0_24px_rgba(154,100,217,0.15)]",
+                  feature ? "col-span-2 row-span-2 aspect-square sm:aspect-auto" : "aspect-square"
+                );
+                const inner = (
+                  <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
                       src={driveThumbnailUrl(photo.url, feature ? 800 : 400)}
@@ -338,11 +502,52 @@ export function ShowcaseView({
                       className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
                       loading="lazy"
                     />
-                    {photo.caption && (
+                    {selecting && (
+                      <span
+                        aria-hidden
+                        className={cn(
+                          "absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-md border-2 transition-all",
+                          isSelected
+                            ? "border-gold bg-gold text-surface-deep"
+                            : "border-white/70 bg-black/40 text-transparent"
+                        )}
+                      >
+                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                        </svg>
+                      </span>
+                    )}
+                    {photo.caption && !selecting && (
                       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 to-transparent p-3 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
                         <p className="text-xs text-white">{photo.caption}</p>
                       </div>
                     )}
+                  </>
+                );
+
+                // In selection mode the tile is a toggle button (aria-pressed);
+                // otherwise it is a link that opens the full photo in a new tab.
+                return selecting ? (
+                  <button
+                    key={photo.id}
+                    type="button"
+                    aria-pressed={isSelected}
+                    aria-label={isSelected ? "Deselect photo" : "Select photo"}
+                    onClick={() => togglePhoto(photo.url)}
+                    className={cn(commonClass, "cursor-pointer text-left")}
+                  >
+                    {inner}
+                  </button>
+                ) : (
+                  <a
+                    key={photo.id}
+                    href={drivePhotoViewUrl(photo.url)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    referrerPolicy="no-referrer"
+                    className={commonClass}
+                  >
+                    {inner}
                   </a>
                 );
               })}
@@ -356,6 +561,14 @@ export function ShowcaseView({
         </footer>
       </div>
     </div>
+  );
+}
+
+function DownloadIcon() {
+  return (
+    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+    </svg>
   );
 }
 
