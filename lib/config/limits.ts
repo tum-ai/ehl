@@ -27,7 +27,9 @@ export const QUERY_LIMITS = {
   screeningScores: envInt("LIMIT_SCREENING_SCORES", 5000),
   scores: envInt("LIMIT_SCORES", 1000),
   leaderboard: envInt("LIMIT_LEADERBOARD", 500),
-  media: envInt("LIMIT_MEDIA", 200),
+  // 400: a real event produces 200-300 curated gallery photos (Paris: 223) and
+  // they render as lazy-loaded w400 thumbnails, so the page stays light.
+  media: envInt("LIMIT_MEDIA", 400),
   submissionsPerChallenge: envInt("LIMIT_SUBMISSIONS_PER_CHALLENGE", 200),
   submissionsAll: envInt("LIMIT_SUBMISSIONS_ALL", 1000),
   codeReviewsPerChallenge: envInt("LIMIT_CODE_REVIEWS_PER_CHALLENGE", 200),

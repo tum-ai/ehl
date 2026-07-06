@@ -164,7 +164,9 @@ export async function uploadFile(
  * Grant "anyone with the link" read access to a Drive file.
  *
  * Use ONLY for files that are meant to be viewable by people without a Google
- * account / Drive access — currently submission artifacts (e.g. pitch decks),
+ * account / Drive access — currently submission artifacts (e.g. pitch decks)
+ * and gallery photos (media rows render lh3.googleusercontent.com thumbnails,
+ * which only work for link-readable files; addChapterPhoto grants this),
  * which the jury opens via an embedded Drive preview. Files created by uploadFile
  * are private by default (only the service account can read them), which is
  * correct for CVs and admin uploads — do NOT call this for those.
@@ -240,6 +242,25 @@ export async function ensureFileLinkReadable(fileId: string): Promise<boolean> {
       err
     );
     return false;
+  }
+}
+
+/**
+ * MIME type of a Drive file (null when unreadable). Used for server-side
+ * provenance checks before granting public visibility: gallery photos must be
+ * images, so a PDF (e.g. a CV's fileId smuggled into the photo action) is
+ * refused before any permission change.
+ */
+export async function getFileMimeType(fileId: string): Promise<string | null> {
+  try {
+    const drive = getDrive();
+    const meta = await drive.files.get(
+      { fileId, fields: "mimeType", supportsAllDrives: true },
+      { timeout: DRIVE_TIMEOUT_MS }
+    );
+    return meta.data.mimeType ?? null;
+  } catch {
+    return null;
   }
 }
 

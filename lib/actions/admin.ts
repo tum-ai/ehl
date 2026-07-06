@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { ensureFileLinkReadable, getFileMimeType } from "@/lib/gdrive";
 import { requireAdminAction, requireChapterAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
@@ -943,6 +944,42 @@ export async function publishScores(chapterId: string) {
 export async function addChapterPhoto(chapterId: string, fileId: string, caption?: string) {
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
+
+  // Photos are displayed via lh3.googleusercontent.com thumbnails, which only
+  // work for link-readable Drive files - uploadFile() creates PRIVATE files
+  // (correct for CVs, wrong for gallery photos). Without this grant the photo
+  // row is created but every thumbnail renders broken (Drive serves a sign-in
+  // page instead of the image). Fail loudly, not with a broken gallery.
+  //
+  // PROVENANCE GUARD before making anything public: the fileId is
+  // caller-supplied, and this action must never be usable to publicize a
+  // non-photo file (e.g. a CV's Drive id). Two independent checks:
+  // 1. the Drive file must be an image;
+  // 2. the fileId must not be referenced as any application's CV.
+  const mimeType = await getFileMimeType(fileId);
+  if (!mimeType || !mimeType.startsWith("image/")) {
+    return { error: "Only image files can be added as photos." };
+  }
+  const provenanceClient = createAdminClient();
+  const { data: cvOwner, error: cvCheckError } = await provenanceClient
+    .from("applications")
+    .select("id")
+    .eq("cv_url", fileId)
+    .limit(1)
+    .maybeSingle();
+  if (cvCheckError) return { error: cvCheckError.message };
+  if (cvOwner) {
+    return { error: "This file is a CV and cannot be published as a photo." };
+  }
+
+  const readable = await ensureFileLinkReadable(fileId);
+  if (!readable) {
+    return {
+      error:
+        "Photo uploaded to Drive but could not be made publicly viewable. It would render as a broken image, so it was not added. Try again.",
+    };
+  }
+
   const adminClient = createAdminClient();
   const { data: inserted, error } = await adminClient.from("media").insert({
     chapter_id: chapterId,

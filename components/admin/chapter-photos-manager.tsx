@@ -79,8 +79,14 @@ export function ChapterPhotosManager({
           continue;
         }
 
-        // Save to media table with GDrive file ID
-        await addChapterPhoto(chapterId, result.fileId);
+        // Save to media table with GDrive file ID. addChapterPhoto also makes
+        // the file publicly viewable (thumbnails need it) and refuses non-photo
+        // files - surface that instead of silently counting it as uploaded.
+        const added = await addChapterPhoto(chapterId, result.fileId);
+        if (added?.error) {
+          setError(`${file.name}: ${added.error}`);
+          continue;
+        }
         setUploadCount(i + 1);
       } catch {
         setError(`Failed to upload ${file.name}.`);
