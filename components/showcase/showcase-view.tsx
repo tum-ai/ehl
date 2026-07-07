@@ -160,6 +160,99 @@ export function ShowcaseView({
     [applicants]
   );
 
+  // ── Bulk CV download ─────────────────────────────────────────
+  // CVs behave like photos: a full-res CV is ~2s to fetch and a full chapter has
+  // hundreds, so a single ZIP of everything would exceed the function timeout.
+  // The CV route (GET, ?offset=) serves ONE server-capped batch per request and
+  // reports the authoritative consented total + this window's size in headers.
+  // The client pages by those headers (NOT by cvCount or a hardcoded batch size,
+  // either of which could diverge from the server's list and silently skip CVs):
+  // it advances offset by the returned window until offset reaches the total.
+  const [cvDownloading, setCvDownloading] = useState(false);
+  const [cvDownloadError, setCvDownloadError] = useState<string | null>(null);
+  const [cvDownloadProgress, setCvDownloadProgress] = useState<string | null>(null);
+
+  // Fetch one CV batch ZIP at `offset` and trigger a save. Omits `limit` so the
+  // server applies its own per-ZIP cap. Returns { total, window } on success, or
+  // { error } on failure. `suffix` distinguishes multi-batch files.
+  const fetchCvZip = async (
+    offset: number,
+    suffix: string
+  ): Promise<{ error?: string; total?: number; window?: number }> => {
+    const qs = new URLSearchParams({ offset: String(offset) });
+    const res = await fetch(
+      `/api/showcase/${encodeURIComponent(token)}/cvs?${qs.toString()}`,
+      { referrerPolicy: "no-referrer" }
+    );
+    if (!res.ok) {
+      const data = await res.json().catch(() => null);
+      return { error: data?.error || "Download failed. Please try again." };
+    }
+    const total = Number(res.headers.get("X-CV-Total"));
+    const window = Number(res.headers.get("X-CV-Window"));
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `ehl-cvs${suffix}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return {
+      total: Number.isFinite(total) ? total : undefined,
+      window: Number.isFinite(window) && window > 0 ? window : undefined,
+    };
+  };
+
+  // Download all consented CVs as one or more sequential ZIPs. Paging is driven
+  // by the server's X-CV-Total / X-CV-Window headers, so it downloads exactly
+  // the consented CVs the server has at any chapter size, never 413-ing and
+  // never silently skipping CVs when a client-side count would disagree.
+  const downloadAllCvs = async () => {
+    if (cvDownloading || cvCount === 0) return;
+    setCvDownloading(true);
+    setCvDownloadError(null);
+    setCvDownloadProgress(null);
+    try {
+      let offset = 0;
+      let batchIndex = 0;
+      let total: number | undefined;
+      // Hard ceiling on iterations so a malformed/missing header can never spin
+      // forever: even one CV per batch tops out at the applications-per-chapter
+      // scale; 1000 batches is far beyond any real chapter.
+      const MAX_BATCHES = 1000;
+      do {
+        const suffix = batchIndex > 0 ? `-${batchIndex + 1}` : "";
+        const result = await fetchCvZip(offset, suffix);
+        if (result.error) {
+          setCvDownloadError(
+            batchIndex > 0
+              ? `Downloaded ${batchIndex} ZIP file(s), then stopped: ${result.error} You can retry to get the rest.`
+              : result.error
+          );
+          return;
+        }
+        // Advance by the window the server actually served. If the header is
+        // missing/zero (old server, or a stray empty batch), stop rather than
+        // loop forever or skip.
+        if (!result.window || result.window <= 0) break;
+        total = result.total ?? total;
+        offset += result.window;
+        batchIndex += 1;
+        if (total !== undefined && offset < total) {
+          const totalBatches = Math.ceil(total / result.window);
+          setCvDownloadProgress(`Preparing ZIP ${batchIndex + 1} of ${totalBatches}...`);
+        }
+      } while (total !== undefined && offset < total && batchIndex < MAX_BATCHES);
+    } catch {
+      setCvDownloadError("Download failed. Please check your connection and try again.");
+    } finally {
+      setCvDownloading(false);
+      setCvDownloadProgress(null);
+    }
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return applicants.filter((a) => {
@@ -355,19 +448,26 @@ export function ShowcaseView({
                 </FilterPill>
               )}
               {showCvs && cvCount > 0 && (
-                <a
-                  href={`/api/showcase/${encodeURIComponent(token)}/cvs`}
-                  referrerPolicy="no-referrer"
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-xs font-semibold text-gold transition-all hover:bg-gold/20 hover:shadow-[0_0_12px_rgba(255,204,106,0.15)]"
+                <button
+                  type="button"
+                  disabled={cvDownloading}
+                  onClick={downloadAllCvs}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gold/30 bg-gold/10 px-3 py-2 text-xs font-semibold text-gold transition-all hover:bg-gold/20 hover:shadow-[0_0_12px_rgba(255,204,106,0.15)] disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
-                  </svg>
-                  Download all CVs ({cvCount})
-                </a>
+                  <DownloadIcon />
+                  {cvDownloading
+                    ? cvDownloadProgress ?? "Preparing..."
+                    : `Download all CVs (${cvCount})`}
+                </button>
               )}
             </div>
           </div>
+
+          {cvDownloadError && (
+            <p className="mb-4 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {cvDownloadError}
+            </p>
+          )}
 
           {applicantsTruncated && (
             <div className="mb-4">

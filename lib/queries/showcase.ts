@@ -308,11 +308,18 @@ export async function getShowcaseCvList(chapterId: string): Promise<ShowcaseCvEn
   const supabase = createAdminClient();
   const { data, error } = await supabase
     .from("applications")
-    .select("first_name, last_name, cv_url, consent_sponsor_data, consent_recruiting")
+    .select("id, first_name, last_name, cv_url, consent_sponsor_data, consent_recruiting")
     .eq("chapter_id", chapterId)
     .or(SPONSOR_CONSENT_OR_FILTER)
     .not("cv_url", "is", null)
+    // FULLY deterministic order (last_name is not unique). The bulk download
+    // pages this list across SEPARATE requests via offset/limit; without a
+    // stable total order, Postgres may return same-last_name rows in a different
+    // order per request, so a batch boundary could skip or duplicate a CV. The
+    // id tie-breaker guarantees the same order every time.
     .order("last_name", { ascending: true })
+    .order("first_name", { ascending: true })
+    .order("id", { ascending: true })
     .limit(QUERY_LIMITS.applicationsPerChapter);
   if (error) throw error;
 

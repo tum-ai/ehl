@@ -80,10 +80,15 @@ export const walkInTokenLimiter = makeLimiter("rl:walkin-token", 60, "60 s", { l
 // leak, so cap CV fetches per IP to blunt scripted mass-download of a leaked link
 // and to slow brute-force enumeration of application ids. 120 per 60s per IP.
 export const showcaseLimiter = makeLimiter("rl:showcase", 120, "60 s", { limit: 120, windowMs: 60_000 });
-// Bulk CV ZIP: ONE request fans out to up to 2 Drive API calls per CV, so the
-// general showcase limiter is far too generous. 3 archives per 10 minutes per
-// IP is plenty for a sponsor and starves a scripted mass-exfiltration loop.
-export const showcaseZipLimiter = makeLimiter("rl:showcase-zip", 3, "600 s", { limit: 3, windowMs: 600_000 });
+// Bulk CV ZIP: ONE request fans out to ~2 Drive API calls per CV, so the general
+// showcase limiter is far too generous. "Download all CVs" is split into
+// sequential batches client-side (100 CVs each), so a full-size chapter
+// (LIMIT_SHOWCASE_CV_ZIP window; a real chapter had 159 CVs = 2 batches) needs
+// several archives in a row. 12 per 10 minutes per IP covers the largest chapter
+// plus retries and a concurrent photo download, while still starving a scripted
+// mass-exfiltration loop on a leaked link. (Was 3/10min, which 413'd/429'd a
+// legitimate large "download all".)
+export const showcaseCvZipLimiter = makeLimiter("rl:showcase-cv-zip", 12, "600 s", { limit: 12, windowMs: 600_000 });
 // Bulk PHOTO ZIP: like the CV ZIP, one request fans out to ~2 Drive calls per
 // photo, but photos are event images (not personal documents) AND "download all"
 // is intentionally split into sequential batches client-side (100 photos each).

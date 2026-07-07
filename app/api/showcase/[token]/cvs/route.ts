@@ -4,24 +4,33 @@ import { Zip, ZipPassThrough } from "fflate";
 import { downloadFile } from "@/lib/gdrive";
 import { getShowcaseByToken } from "@/lib/actions/showcase";
 import { getShowcaseCvList } from "@/lib/queries/showcase";
-import { checkRateLimit, showcaseZipLimiter } from "@/lib/ratelimit";
+import { checkRateLimit, showcaseCvZipLimiter } from "@/lib/ratelimit";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 import { slugify } from "@/lib/utils";
 
-// Sequential Drive fetches at ~1s each: 150 CVs needs far more than the 60s
-// default. Vercel Pro allows per-route overrides up to 300s (same as the cron
-// route).
+// Sequential Drive fetches at ~2s each (metadata + media call per CV): even one
+// batch of 100 CVs needs far more than the 60s default. Vercel Pro allows
+// per-route overrides up to 300s (same as the cron route).
 export const maxDuration = 300;
 
-// Bulk CV download for the partner showcase: one ZIP with every consented,
-// visible CV of the chapter.
+// Bulk CV download for the partner showcase: a ZIP of the consented, visible
+// CVs of the chapter.
+//
+// BATCHING: a full-size chapter can have hundreds of CVs, and one full-res CV
+// takes ~2s to fetch from Drive, so a single ZIP of everything would exceed the
+// 300s function timeout (a real 159-CV chapter did: it 413'd and a partner saw
+// no working download). Each request serves ONE server-capped window (?offset=,
+// optional ?limit=) and reports the consented total + this window's size in
+// X-CV-Total / X-CV-Window headers; the client pages by those headers, saving
+// one sequential ZIP per window (ehl-cvs.zip, then ehl-cvs-2.zip, -3.zip, ...).
+// Each request stays well under the timeout.
 //
 // Gating chain is IDENTICAL to the single-CV proxy: live token (enabled,
-// unexpired; per-IP rate limit inside the resolver) -> show_cvs on ->
-// getShowcaseCvList(), which applies the same consent .or() filter + in-code
-// re-check as the list, so the archive can never contain a CV the page hides.
-// On top, a dedicated tight limiter (3/10min per IP): one ZIP fans out to two
-// Drive API calls per CV, and a leaked link must not become a mass-exfil loop.
+// unexpired) -> show_cvs on -> getShowcaseCvList(), which applies the same
+// consent .or() filter + in-code re-check as the list, so the archive can never
+// contain a CV the page hides. The batch window is applied AFTER that gate, so
+// no offset/limit can ever reach a non-consented CV. On top, a dedicated per-IP
+// limiter sized for the batched download starves a leaked-link mass-exfil loop.
 //
 // Memory: one CV buffered at a time (<=10MB), zipped with STORE (level 0 —
 // PDFs are already compressed) through a ReadableStream. Failures mid-stream
@@ -29,7 +38,7 @@ export const maxDuration = 300;
 // in a _MANIFEST.txt as the final entry — never a silently corrupt or silently
 // incomplete archive.
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ token: string }> }
 ) {
   const { token } = await params;
@@ -37,7 +46,7 @@ export async function GET(
   const notFound = () => NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-  const rl = await checkRateLimit(showcaseZipLimiter, ip, "showcase-zip");
+  const rl = await checkRateLimit(showcaseCvZipLimiter, ip, "showcase-cv-zip");
   if (rl.limited) {
     return NextResponse.json(
       { error: rl.error ?? "Too many downloads. Try again in a few minutes." },
@@ -49,16 +58,43 @@ export async function GET(
   if (!showcase) return notFound();
   if (!showcase.showCvs) return notFound();
 
-  const cvs = await getShowcaseCvList(showcase.chapterId);
-  if (cvs.length === 0) {
+  const allCvs = await getShowcaseCvList(showcase.chapterId);
+  if (allCvs.length === 0) {
     return NextResponse.json({ error: "No CVs available" }, { status: 404 });
   }
+
+  // Optional batch window (?offset=&limit=), applied AFTER the consent gate. A
+  // missing/invalid value means "from the start" / "the per-ZIP cap", so an old
+  // client with no params still gets a valid first ZIP. offset past the end
+  // yields an empty window -> 404 (nothing to download), never a 200 empty zip.
+  const url = new URL(request.url);
+  const parseNonNeg = (v: string | null): number | null => {
+    if (v === null) return null;
+    const n = Number(v);
+    return Number.isInteger(n) && n >= 0 ? n : null;
+  };
+  const offset = parseNonNeg(url.searchParams.get("offset")) ?? 0;
+  const reqLimit = parseNonNeg(url.searchParams.get("limit"));
+  // The window is capped at the server's per-ZIP limit regardless of what the
+  // client asks. A missing OR zero limit means "use the server cap" (a literal
+  // limit=0 must never stream an empty archive), so the client never needs to
+  // know the cap: it can omit limit entirely and page by the returned count.
+  const windowLimit =
+    reqLimit && reqLimit > 0
+      ? Math.min(reqLimit, QUERY_LIMITS.showcaseCvZip)
+      : QUERY_LIMITS.showcaseCvZip;
+
+  if (offset >= allCvs.length) {
+    return NextResponse.json({ error: "No CVs in this range" }, { status: 404 });
+  }
+  const cvs = allCvs.slice(offset, offset + windowLimit);
   if (cvs.length > QUERY_LIMITS.showcaseCvZip) {
     // Refuse loudly BEFORE any bytes stream: a silently truncated archive would
-    // read as "all CVs" to a sponsor.
+    // read as "all CVs" to a sponsor. (Unreachable given the slice above, but a
+    // defensive guard so no future change can stream an oversized batch.)
     return NextResponse.json(
       {
-        error: `${cvs.length} CVs exceed the bulk-download limit of ${QUERY_LIMITS.showcaseCvZip}. Download CVs individually instead.`,
+        error: `${cvs.length} CVs exceed the per-download limit of ${QUERY_LIMITS.showcaseCvZip}.`,
       },
       { status: 413 }
     );
@@ -142,10 +178,22 @@ export async function GET(
     },
   });
 
+  // Distinct filename per batch so sequential ZIPs never overwrite each other in
+  // the browser's downloads folder (ehl-cvs.zip for the whole set / a single
+  // batch, ehl-cvs-2.zip, -3.zip, ... for later batches).
+  const batchNo = Math.floor(offset / QUERY_LIMITS.showcaseCvZip) + 1;
+  const filename = offset > 0 ? `ehl-cvs-${batchNo}.zip` : "ehl-cvs.zip";
+
   return new Response(stream, {
     headers: {
       "Content-Type": "application/zip",
-      "Content-Disposition": 'attachment; filename="ehl-cvs.zip"',
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      // Paging metadata so the client can loop offset by the CONSENTED total
+      // (the server's own list length) instead of a client-side count that may
+      // diverge from it — X-CV-Total is the authoritative CV count for this
+      // chapter, X-CV-Window is how many this response covers.
+      "X-CV-Total": String(allCvs.length),
+      "X-CV-Window": String(cvs.length),
       // Personal data behind a bearer link: never cache, never index, never
       // leak the token via referrer — same hygiene as the single-CV proxy.
       "Cache-Control": "no-store, max-age=0",
