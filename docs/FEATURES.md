@@ -178,9 +178,15 @@ Available to participants who are checked in at an event.
 - Each applicant card shows the team the person actually played on at this event
   (resolved from the chapter's challenge registrations, not their current global team);
   the search box also matches team names.
-- "Download all CVs" streams one ZIP of every consented, visible CV (same consent gate
-  as the list; capped, rate-limited 3/10min per IP, failed fetches listed in a manifest
-  instead of a corrupt archive).
+- "Download all CVs" downloads every consented, visible CV (same consent gate as the list;
+  failed fetches listed in a manifest instead of a corrupt archive). Because a full-res CV
+  is ~2s to fetch from Drive and a chapter can have hundreds, a single ZIP of everything
+  would exceed the 300s function timeout (a real 159-CV chapter hit this and a partner saw
+  no working download). The route serves a batch window (`GET ...?offset=&limit=`, applied
+  AFTER the consent gate so no offset can reach a non-consented CV, each window capped at
+  `LIMIT_SHOWCASE_CV_ZIP`); the client requests the batches sequentially, one ZIP each
+  (`ehl-cvs.zip`, `ehl-cvs-2.zip`, ...), so the download works at any chapter size. A
+  dedicated per-IP CV-ZIP limiter (12/10min) covers the largest chapter plus retries.
 - CVs are served through a token-gated proxy (`/api/showcase/<token>/cv/<applicationId>`)
   keyed by application id (Drive file ids stay server-side). It re-checks the token, the
   `show_cvs` toggle, chapter ownership, and consent before streaming, with `no-store` +

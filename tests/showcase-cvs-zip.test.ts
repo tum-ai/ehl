@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // The bulk-CV ZIP endpoint must enforce the exact gating chain of the single-CV
-// proxy (live token -> show_cvs on -> consent-gated CV list), refuse loudly
-// above the cap (413, never a silently truncated archive), rate-limit before
-// any work, and keep streaming past individual Drive failures (skipped CVs are
-// listed in the manifest instead of corrupting the archive).
+// proxy (live token -> show_cvs on -> consent-gated CV list), serve a batch
+// window (?offset=&limit=) so a large chapter downloads as several sequential
+// ZIPs (the batch is applied AFTER the consent gate, so no offset can reach a
+// non-consented CV), rate-limit before any work, and keep streaming past
+// individual Drive failures (skipped CVs are listed in the manifest instead of
+// corrupting the archive).
 
 const mocks = vi.hoisted(() => ({
   getShowcaseByToken: vi.fn(),
@@ -23,7 +25,7 @@ vi.mock("@/lib/queries/showcase", () => ({
 vi.mock("@/lib/gdrive", () => ({ downloadFile: mocks.downloadFile }));
 vi.mock("@/lib/ratelimit", () => ({
   checkRateLimit: mocks.checkRateLimit,
-  showcaseZipLimiter: { prefix: "rl:showcase-zip" },
+  showcaseCvZipLimiter: { prefix: "rl:showcase-cv-zip" },
 }));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 
@@ -91,19 +93,122 @@ describe("GET /api/showcase/[token]/cvs", () => {
     expect(mocks.getShowcaseCvList).not.toHaveBeenCalled();
   });
 
-  it("refuses with 413 BEFORE streaming when the CV count exceeds the cap", async () => {
+  it("serves ONLY the requested batch window (offset+limit), so a large chapter is downloadable", async () => {
+    // 250 consented CVs, far above the per-ZIP cap. The client asks for the
+    // second window; the route must serve exactly those, not 413 the whole set.
     mocks.getShowcaseCvList.mockResolvedValue(
-      Array.from({ length: QUERY_LIMITS.showcaseCvZip + 1 }, (_, i) => ({
+      Array.from({ length: 250 }, (_, i) => ({
         firstName: `F${i}`,
         lastName: `L${i}`,
         fileId: `f${i}`,
       }))
     );
 
-    const res = await GET(new Request("http://t/"), paramsFor(TOKEN));
+    const res = await GET(
+      new Request("http://t/?offset=100&limit=100"),
+      paramsFor(TOKEN)
+    );
 
-    expect(res.status).toBe(413);
+    expect(res.status).toBe(200);
+    await res.arrayBuffer();
+    // Exactly the 100 CVs of the window were fetched (f100..f199), not all 250.
+    expect(mocks.downloadFile).toHaveBeenCalledTimes(100);
+    expect(mocks.downloadFile).toHaveBeenCalledWith("f100");
+    expect(mocks.downloadFile).toHaveBeenCalledWith("f199");
+    expect(mocks.downloadFile).not.toHaveBeenCalledWith("f99");
+    expect(mocks.downloadFile).not.toHaveBeenCalledWith("f200");
+  });
+
+  it("caps the window at the per-ZIP limit even if a larger ?limit= is requested", async () => {
+    mocks.getShowcaseCvList.mockResolvedValue(
+      Array.from({ length: 500 }, (_, i) => ({
+        firstName: `F${i}`,
+        lastName: `L${i}`,
+        fileId: `f${i}`,
+      }))
+    );
+
+    const res = await GET(new Request("http://t/?offset=0&limit=999"), paramsFor(TOKEN));
+
+    expect(res.status).toBe(200);
+    await res.arrayBuffer();
+    // Never streams more than the cap in one request, whatever the client asks.
+    expect(mocks.downloadFile).toHaveBeenCalledTimes(QUERY_LIMITS.showcaseCvZip);
+  });
+
+  it("names later batches distinctly so sequential ZIPs do not overwrite", async () => {
+    mocks.getShowcaseCvList.mockResolvedValue(
+      Array.from({ length: 250 }, (_, i) => ({
+        firstName: `F${i}`,
+        lastName: `L${i}`,
+        fileId: `f${i}`,
+      }))
+    );
+
+    const first = await GET(new Request("http://t/?offset=0&limit=100"), paramsFor(TOKEN));
+    const second = await GET(new Request("http://t/?offset=100&limit=100"), paramsFor(TOKEN));
+    await first.arrayBuffer();
+    await second.arrayBuffer();
+
+    expect(first.headers.get("Content-Disposition")).toContain("ehl-cvs.zip");
+    expect(second.headers.get("Content-Disposition")).toContain("ehl-cvs-2.zip");
+  });
+
+  it("404s when the offset is past the end (no empty 200 zip)", async () => {
+    mocks.getShowcaseCvList.mockResolvedValue([
+      { firstName: "Ada", lastName: "Lovelace", fileId: "f1" },
+    ]);
+
+    const res = await GET(new Request("http://t/?offset=100&limit=100"), paramsFor(TOKEN));
+
+    expect(res.status).toBe(404);
     expect(mocks.downloadFile).not.toHaveBeenCalled();
+  });
+
+  it("treats limit=0 as the server cap, not an empty archive", async () => {
+    mocks.getShowcaseCvList.mockResolvedValue([
+      { firstName: "Ada", lastName: "Lovelace", fileId: "f1" },
+      { firstName: "Alan", lastName: "Turing", fileId: "f2" },
+    ]);
+
+    const res = await GET(new Request("http://t/?offset=0&limit=0"), paramsFor(TOKEN));
+
+    expect(res.status).toBe(200);
+    await res.arrayBuffer();
+    // Both CVs streamed, not an empty (manifest-only) zip.
+    expect(mocks.downloadFile).toHaveBeenCalledTimes(2);
+  });
+
+  it("exposes X-CV-Total (authoritative consented count) and X-CV-Window (this batch) so the client can page", async () => {
+    mocks.getShowcaseCvList.mockResolvedValue(
+      Array.from({ length: 250 }, (_, i) => ({
+        firstName: `F${i}`,
+        lastName: `L${i}`,
+        fileId: `f${i}`,
+      }))
+    );
+
+    const res = await GET(new Request("http://t/?offset=200"), paramsFor(TOKEN));
+    await res.arrayBuffer();
+
+    // Total is the full consented list; the last window is the remainder (50),
+    // capped at the per-ZIP limit for earlier windows.
+    expect(res.headers.get("X-CV-Total")).toBe("250");
+    expect(res.headers.get("X-CV-Window")).toBe("50");
+  });
+
+  it("ignores negative/non-numeric offset and limit (falls back to a valid first batch)", async () => {
+    mocks.getShowcaseCvList.mockResolvedValue([
+      { firstName: "Ada", lastName: "Lovelace", fileId: "f1" },
+      { firstName: "Alan", lastName: "Turing", fileId: "f2" },
+    ]);
+
+    const res = await GET(new Request("http://t/?offset=-5&limit=abc"), paramsFor(TOKEN));
+
+    expect(res.status).toBe(200);
+    await res.arrayBuffer();
+    expect(mocks.downloadFile).toHaveBeenCalledTimes(2);
+    expect(res.headers.get("Content-Disposition")).toContain("ehl-cvs.zip");
   });
 
   it("rate-limits with 429 before any token/DB/Drive work", async () => {
