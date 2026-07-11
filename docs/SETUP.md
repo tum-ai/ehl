@@ -96,6 +96,11 @@ From **Settings > API**:
 
 Create a public bucket called `partners` under **Storage**. This is used for partner logo uploads.
 
+Two more buckets are created lazily by the app on first use, so no manual step is
+needed: `partner-logos` / `hero-images` / `sponsor-logos` (public, admin uploads) and
+`certificate-backgrounds` (PRIVATE, custom certificate designs; must never be made
+public since designs can reveal sponsor branding before an event).
+
 ---
 
 ## 3. Google Cloud (OAuth + Drive)

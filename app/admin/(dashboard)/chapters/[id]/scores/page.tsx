@@ -294,7 +294,7 @@ export default function AdminScoresPage({
   }
 
   async function handleSendCertificates() {
-    if (!confirm("Send certificate emails to all teams with published scores? Each team member will receive an email with a download link.")) {
+    if (!confirm("Send certificate emails to all teams with published scores? Each team member will receive their own email with personal and team certificate links.")) {
       return;
     }
     setSendingCerts(true);
@@ -304,7 +304,7 @@ export default function AdminScoresPage({
     if (result.error) {
       setError(result.error);
     } else {
-      setSuccess(`Certificates sent to ${result.sent} team(s).${result.failed ? ` ${result.failed} failed.` : ""}`);
+      setSuccess(`Certificate emails sent to ${result.sent} member(s).${result.failed ? ` ${result.failed} failed.` : ""}`);
     }
     setSendingCerts(false);
   }

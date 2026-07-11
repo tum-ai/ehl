@@ -2,9 +2,15 @@ import { NextResponse } from "next/server";
 import ReactPDF from "@react-pdf/renderer";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { CertificateDocument } from "@/lib/certificates/template";
+import { getCertificateBackgroundDataUri } from "@/lib/certificates/designs";
 import { checkRateLimit, certLimiter } from "@/lib/ratelimit";
 import { getSession } from "@/lib/actions/auth";
-import { verifyCertificateToken } from "@/lib/certificate-token";
+import {
+  verifyCertificateToken,
+  verifyCertificateTokenV2,
+  type CertificateVariant,
+} from "@/lib/certificate-token";
+import { isPlacedPlacement } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +20,7 @@ export async function GET(
 ) {
   const { chapterId, teamId } = await params;
 
-  // Rate limit FIRST: PDF generation is CPU-intensive and the route is now
+  // Rate limit FIRST: PDF generation is CPU-intensive and the route is
   // reachable unauthenticated via a capability token, so the limit must apply to
   // every path (token, session, or no-auth) before any expensive work.
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
@@ -23,19 +29,52 @@ export async function GET(
     return NextResponse.json({ error: "Too many requests." }, { status: 429 });
   }
 
-  // Authorization: EITHER a valid capability token bound to this exact
-  // (chapterId, teamId), OR a logged-in admin / member of this team.
+  const searchParams = new URL(request.url).searchParams;
+  const token = searchParams.get("token");
+  const variantParam = searchParams.get("variant");
+  const memberParam = searchParams.get("member");
+
+  if (variantParam !== null && variantParam !== "achievement" && variantParam !== "participation") {
+    return NextResponse.json({ error: "Invalid variant." }, { status: 400 });
+  }
+  // Reject an empty member param before token verification: v2 tokens encode a
+  // missing member as the literal "team" scope, so an empty string would alias
+  // to the team token while still entering the personal-certificate branch.
+  if (memberParam === "") {
+    return NextResponse.json({ error: "Invalid member." }, { status: 400 });
+  }
+
+  // Authorization: EITHER a capability token bound to this exact request shape,
+  // OR a logged-in admin / member of this team.
   //
-  // The token path serves the emailed certificate link to recipients who are not
-  // logged in. A token authorizes only its own certificate (it is an HMAC over
-  // `${chapterId}:${teamId}`), so it cannot be used to enumerate other teams.
-  const token = new URL(request.url).searchParams.get("token");
-  const hasValidToken = verifyCertificateToken(chapterId, teamId, token);
+  // - The DEFAULT request (no variant/member params) accepts the legacy v1
+  //   token (HMAC over `${chapterId}:${teamId}`) so every certificate link
+  //   already sent by email keeps working unchanged.
+  // - Any request selecting a variant or member accepts ONLY a v2 token minted
+  //   for that exact (member, variant) scope. A v1 token must never unlock a
+  //   personal certificate or a variant it was not minted for. Emailed v2
+  //   links always carry an explicit `variant` param, so verification never
+  //   depends on data we have not fetched yet.
+  const isDefaultRequest = variantParam === null && memberParam === null;
+  let hasValidToken = false;
+  if (isDefaultRequest) {
+    hasValidToken = verifyCertificateToken(chapterId, teamId, token);
+  } else if (variantParam !== null) {
+    hasValidToken = verifyCertificateTokenV2(
+      chapterId,
+      teamId,
+      { variant: variantParam, memberId: memberParam },
+      token
+    );
+  }
 
   const adminClient = createAdminClient();
 
   if (!hasValidToken) {
-    // Fall back to the session-based path (admin or team member).
+    // Fall back to the session-based path (admin or team member). Any member of
+    // the team may fetch any of the team's certificates, including another
+    // member's personal one: member names are already mutually visible inside a
+    // team, and the personal certificate contains nothing beyond them.
     const session = await getSession();
     if (!session) {
       return NextResponse.json({ error: "Authentication required." }, { status: 401 });
@@ -70,6 +109,36 @@ export async function GET(
     return NextResponse.json({ error: "Certificate not available" }, { status: 404 });
   }
 
+  const placement = score.placement as number | null;
+  const isPlaced = isPlacedPlacement(placement);
+
+  // Effective variant: explicit param, else today's behavior (achievement for
+  // placed teams, participation otherwise). An explicit achievement request for
+  // an unplaced team has nothing to certify.
+  const variant: CertificateVariant =
+    variantParam ?? (isPlaced ? "achievement" : "participation");
+  if (variant === "achievement" && !isPlaced) {
+    return NextResponse.json({ error: "Certificate not available" }, { status: 404 });
+  }
+
+  // Personal certificate: the named person must actually be a member of this
+  // team and have a profile name to print.
+  let personName: string | null = null;
+  if (memberParam !== null) {
+    const { data: member } = await adminClient
+      .from("team_members")
+      .select("user_id, profiles(name)")
+      .eq("team_id", teamId)
+      .eq("user_id", memberParam)
+      .single();
+
+    const profile = member?.profiles as unknown as { name: string | null } | null;
+    if (!member || !profile?.name) {
+      return NextResponse.json({ error: "Certificate not available" }, { status: 404 });
+    }
+    personName = profile.name;
+  }
+
   // Fetch team
   const { data: team } = await adminClient
     .from("teams")
@@ -92,18 +161,29 @@ export async function GET(
     return NextResponse.json({ error: "Chapter not found" }, { status: 404 });
   }
 
-  // Fetch team members
-  const { data: members } = await adminClient
-    .from("team_members")
-    .select("profiles(name)")
-    .eq("team_id", teamId);
+  // Fetch team members (the personal certificate omits the member list)
+  let memberNames: string[] = [];
+  if (personName === null) {
+    const { data: members } = await adminClient
+      .from("team_members")
+      .select("profiles(name)")
+      .eq("team_id", teamId);
 
-  const memberNames = (members ?? [])
-    .map((m) => {
-      const profile = m.profiles as unknown as { name: string | null } | null;
-      return profile?.name ?? null;
-    })
-    .filter((n): n is string => !!n);
+    memberNames = (members ?? [])
+      .map((m) => {
+        const profile = m.profiles as unknown as { name: string | null } | null;
+        return profile?.name ?? null;
+      })
+      .filter((n): n is string => !!n);
+  }
+
+  // Custom background design, if the chapter has one for this variant. Falls
+  // back to the default EHL design on any failure (never breaks an emailed link).
+  const backgroundImageSrc = await getCertificateBackgroundDataUri(
+    adminClient,
+    chapterId,
+    variant
+  );
 
   // Format date
   const formatDate = (d: string | null) => {
@@ -121,26 +201,43 @@ export async function GET(
       : formatDate(chapter.date as string)
     : "";
 
-  const placement = score.placement as number | null;
   const placementLabel = placement
     ? `${placement}${placement === 1 ? "st" : placement === 2 ? "nd" : placement === 3 ? "rd" : "th"} Place`
     : "Participant";
 
   // Generate PDF
-  const pdfStream = await ReactPDF.renderToStream(
-    CertificateDocument({
-      teamName: team.name as string,
-      university: (team.university as string) ?? null,
-      memberNames,
-      chapterName: chapter.name as string,
-      chapterCity: `${chapter.city as string}, ${chapter.country as string}`,
-      chapterDate: dateStr,
-      challengeName: (score.challenge_name as string) ?? null,
-      placementLabel,
-      points: score.points as number,
-      isPlaced: placement !== null && placement <= 5,
-    })
-  );
+  const certificateProps = {
+    teamName: team.name as string,
+    university: (team.university as string) ?? null,
+    memberNames,
+    chapterName: chapter.name as string,
+    chapterCity: `${chapter.city as string}, ${chapter.country as string}`,
+    chapterDate: dateStr,
+    challengeName: (score.challenge_name as string) ?? null,
+    placementLabel,
+    points: score.points as number,
+    variant,
+    personName,
+  };
+
+  let pdfStream;
+  try {
+    pdfStream = await ReactPDF.renderToStream(
+      CertificateDocument({ ...certificateProps, backgroundImageSrc })
+    );
+  } catch (err) {
+    // A custom background that passed upload validation can still be
+    // undecodable for react-pdf (e.g. a truncated file). A broken design must
+    // never break certificate links, so retry with the default EHL design.
+    if (!backgroundImageSrc) throw err;
+    console.error(
+      `Certificate render failed with custom background (chapter ${chapterId}, ${variant}), falling back to default design:`,
+      err
+    );
+    pdfStream = await ReactPDF.renderToStream(
+      CertificateDocument({ ...certificateProps, backgroundImageSrc: null })
+    );
+  }
 
   // Convert stream to buffer
   const chunks: Uint8Array[] = [];
@@ -149,7 +246,9 @@ export async function GET(
   }
   const pdfBuffer = Buffer.concat(chunks);
 
-  const filename = `EHL-Certificate-${(team.name as string).replace(/[^a-zA-Z0-9]/g, "-")}.pdf`;
+  const awardee = personName ?? (team.name as string);
+  const suffix = variant === "participation" ? "-Participation" : "";
+  const filename = `EHL-Certificate${suffix}-${awardee.replace(/[^a-zA-Z0-9]/g, "-")}.pdf`;
 
   return new NextResponse(pdfBuffer, {
     headers: {

@@ -7,6 +7,7 @@ import {
   getPublishReadiness,
   getPendingJuryTeamIds,
   getJudgedUnscoredChallenges,
+  isPlacedPlacement,
 } from "@/lib/scoring";
 import type { Team, Score, Chapter } from "@/lib/types";
 
@@ -563,5 +564,19 @@ describe("findDuplicatePlacements (manual score entry guard)", () => {
         { teamId: "b", placement: null, challengeId: "ch1" },
       ])
     ).toEqual([]);
+  });
+});
+
+describe("isPlacedPlacement", () => {
+  it("treats placements 1-5 (the PLACEMENT_POINTS keys) as placed", () => {
+    for (const p of [1, 2, 3, 4, 5]) {
+      expect(isPlacedPlacement(p)).toBe(true);
+    }
+  });
+
+  it("treats null and out-of-range placements as not placed", () => {
+    expect(isPlacedPlacement(null)).toBe(false);
+    expect(isPlacedPlacement(6)).toBe(false);
+    expect(isPlacedPlacement(0)).toBe(false);
   });
 });

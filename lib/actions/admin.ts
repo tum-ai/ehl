@@ -6,8 +6,9 @@ import { ensureFileLinkReadable, getFileMimeType } from "@/lib/gdrive";
 import { requireAdminAction, requireChapterAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
-import { getPlacementLabel, formatDate } from "@/lib/utils";
-import { certificateToken } from "@/lib/certificate-token";
+import { getPlacementLabel, formatDate, runWithConcurrency } from "@/lib/utils";
+import { isPlacedPlacement } from "@/lib/scoring";
+import { certificateToken, certificateTokenV2 } from "@/lib/certificate-token";
 import { logEvent, logEventStrict } from "@/lib/event-log";
 import { MAX_TEAM_SIZE, MIN_TEAM_SIZE } from "@/lib/config/limits";
 import type { ChapterStatus } from "@/lib/types";
@@ -1735,13 +1736,20 @@ export async function sendCertificateEmails(chapterId: string) {
   let sent = 0;
   let failed = 0;
 
+  // Collect one send-job per member first, then run them with bounded
+  // concurrency: one email per member multiplies the send count by team size,
+  // and a strictly sequential SMTP loop could blow the 60s function timeout on
+  // a large chapter (leaving later teams unemailed with no audit row).
+  const sendJobs: (() => Promise<void>)[] = [];
+
   for (const score of scores) {
     const teamId = score.team_id as string;
 
-    // Get team members with their email addresses
+    // Get team members with their email addresses (user_id is needed to mint
+    // each member's personal certificate link)
     const { data: members } = await adminClient
       .from("team_members")
-      .select("profiles(email, name)")
+      .select("user_id, profiles(email, name)")
       .eq("team_id", teamId);
 
     // Get team name
@@ -1754,48 +1762,71 @@ export async function sendCertificateEmails(chapterId: string) {
     if (!team || !members) continue;
 
     const placement = score.placement as number | null;
-    const placementLabel = placement
-      ? `${getPlacementLabel(placement)} Place`
+    const isPlaced = isPlacedPlacement(placement);
+    // Participation certificates carry no points; only placed teams see them.
+    const resultLabel = isPlaced
+      ? `${getPlacementLabel(placement as number)} Place (+${score.points as number} pts)`
       : "Participant";
+    const defaultVariant = isPlaced ? ("achievement" as const) : ("participation" as const);
 
-    // Append an unguessable capability token so the link works without login
-    // while remaining bound to this exact (chapterId, teamId). See
+    // Unguessable capability tokens so the links work without login while
+    // staying bound to exactly one certificate each. The team link keeps the
+    // legacy v1 shape (same URL as previously emailed links); the personal and
+    // participation links use v2 tokens scoped to their (member, variant). See
     // lib/certificate-token.ts.
-    const token = certificateToken(chapterId, teamId);
-    const certificateUrl = `${baseUrl}/api/certificates/${chapterId}/${teamId}?token=${token}`;
+    const routeUrl = `${baseUrl}/api/certificates/${chapterId}/${teamId}`;
+    const teamCertificateUrl = `${routeUrl}?token=${certificateToken(chapterId, teamId)}`;
+    const participationCertificateUrl = isPlaced
+      ? `${routeUrl}?variant=participation&token=${certificateTokenV2(chapterId, teamId, { variant: "participation" })}`
+      : null;
 
-    const emails = members
-      .map((m) => {
-        const profile = m.profiles as unknown as { email: string | null; name: string | null } | null;
-        return profile?.email;
-      })
-      .filter((e): e is string => !!e);
+    // One email per member: each carries that member's own personal
+    // certificate link, so recipients can no longer share a single message.
+    for (const m of members) {
+      const userId = m.user_id as string;
+      const profile = m.profiles as unknown as { email: string | null; name: string | null } | null;
+      if (!profile?.email) continue;
+      const email = profile.email;
 
-    if (emails.length === 0) continue;
+      // The personal variant prints the member's name; without one there is
+      // nothing to certify, so offer only the team certificate(s).
+      const personalCertificateUrl = profile.name
+        ? `${routeUrl}?variant=${defaultVariant}&member=${userId}&token=${certificateTokenV2(chapterId, teamId, { variant: defaultVariant, memberId: userId })}`
+        : null;
 
-    try {
-      const html = await renderCertificateEmail({
-        teamName: team.name as string,
-        chapterName: chapter.name as string,
-        chapterCity,
-        chapterDate,
-        placementLabel,
-        points: score.points as number,
-        certificateUrl,
+      sendJobs.push(async () => {
+        try {
+          const html = await renderCertificateEmail({
+            memberName: profile.name ?? null,
+            teamName: team.name as string,
+            chapterName: chapter.name as string,
+            chapterCity,
+            chapterDate,
+            resultLabel,
+            personalCertificateUrl,
+            teamCertificateUrl,
+            participationCertificateUrl,
+          });
+
+          await sendEmail({
+            to: email,
+            subject: `Your EHL Certificates: ${chapter.name as string}`,
+            html,
+          });
+          sent++;
+        } catch (err) {
+          console.error(
+            `Failed to send certificate email to a member of team ${teamId}:`,
+            err
+          );
+          failed++;
+        }
       });
-
-      // Fire-and-forget per team (don't block the loop)
-      await sendEmail({
-        to: emails,
-        subject: `Your EHL Certificate: ${chapter.name as string}`,
-        html,
-      });
-      sent++;
-    } catch (err) {
-      console.error(`Failed to send certificate email to team ${teamId}:`, err);
-      failed++;
     }
   }
+
+  // Every job catches its own error, so a failed send never stops the batch.
+  await runWithConcurrency(sendJobs, 5);
 
   const actorId = await getAdminUserId();
   logEvent({

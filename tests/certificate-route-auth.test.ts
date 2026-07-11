@@ -42,39 +42,63 @@ vi.mock("@/lib/certificates/template", () => ({
   CertificateDocument: vi.fn(() => ({})),
 }));
 
+import ReactPDF from "@react-pdf/renderer";
 import { GET } from "@/app/api/certificates/[chapterId]/[teamId]/route";
-import { certificateToken } from "@/lib/certificate-token";
+import { CertificateDocument } from "@/lib/certificates/template";
+import { certificateToken, certificateTokenV2 } from "@/lib/certificate-token";
+import { clearCertificateBackgroundCache } from "@/lib/certificates/designs";
 
 const CHAPTER = "11111111-1111-1111-1111-111111111111";
 const TEAM_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
 const TEAM_B = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
 const MEMBER_ID = "member-user-id";
+const OTHER_MEMBER_ID = "other-member-id";
 
 function params(chapterId = CHAPTER, teamId = TEAM_A) {
   return { params: Promise.resolve({ chapterId, teamId }) };
 }
 
-function req(token?: string) {
-  const url = token
-    ? `http://t/api/certificates/${CHAPTER}/${TEAM_A}?token=${token}`
-    : `http://t/api/certificates/${CHAPTER}/${TEAM_A}`;
+function req(token?: string, query: Record<string, string> = {}) {
+  const search = new URLSearchParams(query);
+  if (token) search.set("token", token);
+  const qs = search.toString();
+  const url = `http://t/api/certificates/${CHAPTER}/${TEAM_A}${qs ? `?${qs}` : ""}`;
   return new Request(url, { headers: { "x-forwarded-for": "1.2.3.4" } });
 }
 
 // A fully-populated DB stub returning published score, team, chapter, members.
-function fullDb(opts: { memberUserId?: string } = {}) {
+// `memberUserId` answers the session membership lookup; `teamMemberIds` answers
+// the personal-certificate member lookup (?member=...); `placement` configures
+// whether the team placed (null = unplaced).
+function fullDb(
+  opts: {
+    memberUserId?: string;
+    teamMemberIds?: string[];
+    placement?: number | null;
+    designPath?: string;
+  } = {}
+) {
+  const placement = opts.placement === undefined ? 1 : opts.placement;
   return {
     from(table: string) {
       const builder: Record<string, unknown> = {};
-      builder.select = () => builder;
-      builder.eq = () => builder;
+      let selectedColumns = "";
+      builder.select = (cols?: string) => {
+        selectedColumns = cols ?? "";
+        return builder;
+      };
+      const eqFilters: Record<string, unknown> = {};
+      builder.eq = (col: string, value: unknown) => {
+        eqFilters[col] = value;
+        return builder;
+      };
       builder.single = () => {
         switch (table) {
           case "scores":
             return Promise.resolve({
               data: {
-                placement: 1,
-                points: 8,
+                placement,
+                points: placement ? 8 : 2,
                 challenge_name: "Challenge",
                 published: true,
               },
@@ -93,13 +117,28 @@ function fullDb(opts: { memberUserId?: string } = {}) {
                 date_end: null,
               },
             });
-          case "team_members":
-            // membership lookup
+          case "chapter_certificate_designs":
             return Promise.resolve(
-              opts.memberUserId
+              opts.designPath ? { data: { storage_path: opts.designPath } } : { data: null }
+            );
+          case "team_members": {
+            if (selectedColumns.includes("profiles")) {
+              // Personal-certificate member lookup (?member=<userId>)
+              const requested = eqFilters.user_id as string;
+              const isMember = (opts.teamMemberIds ?? []).includes(requested);
+              return Promise.resolve(
+                isMember
+                  ? { data: { user_id: requested, profiles: { name: "Alice" } } }
+                  : { data: null }
+              );
+            }
+            // Session membership lookup
+            return Promise.resolve(
+              opts.memberUserId && eqFilters.user_id === opts.memberUserId
                 ? { data: { user_id: opts.memberUserId } }
                 : { data: null }
             );
+          }
           default:
             return Promise.resolve({ data: null });
         }
@@ -109,11 +148,26 @@ function fullDb(opts: { memberUserId?: string } = {}) {
         Promise.resolve({ data: [{ profiles: { name: "Alice" } }] }).then(onF);
       return builder;
     },
+    storage: {
+      from() {
+        return {
+          download: async () =>
+            opts.designPath
+              ? {
+                  data: new Blob([Buffer.from("img-bytes")], { type: "image/png" }),
+                  error: null,
+                }
+              : { data: null, error: { message: "not found" } },
+        };
+      },
+    },
   };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The background loader memoizes per (chapter, variant); isolate every test.
+  clearCertificateBackgroundCache();
   mocks.checkRateLimit.mockResolvedValue({ limited: false });
   mocks.createAdminClient.mockReturnValue(fullDb());
   mocks.getSession.mockResolvedValue(null);
@@ -190,5 +244,183 @@ describe("GET /api/certificates/[chapterId]/[teamId] — session path (unchanged
     });
     const res = await GET(req(), params());
     expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /api/certificates — variant & member params (v2)", () => {
+  it("invalid variant param => 400", async () => {
+    const res = await GET(req(undefined, { variant: "gold" }), params());
+    expect(res.status).toBe(400);
+  });
+
+  it("empty member param => 400 (v2 tokens encode team scope as 'team', so '' must not alias to it)", async () => {
+    // The team-scoped token must NOT smuggle an empty member past the boundary.
+    const teamToken = certificateTokenV2(CHAPTER, TEAM_A, { variant: "participation" });
+    const res = await GET(
+      req(teamToken, { variant: "participation", member: "" }),
+      params()
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("a v1 token does NOT authorize a personal certificate (member param) => 401", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ teamMemberIds: [MEMBER_ID] })
+    );
+    const v1 = certificateToken(CHAPTER, TEAM_A);
+    const res = await GET(
+      req(v1, { variant: "achievement", member: MEMBER_ID }),
+      params()
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("a v1 token does NOT authorize an explicit variant request => 401", async () => {
+    const v1 = certificateToken(CHAPTER, TEAM_A);
+    const res = await GET(req(v1, { variant: "participation" }), params());
+    expect(res.status).toBe(401);
+  });
+
+  it("valid v2 team participation token => 200 PDF", async () => {
+    const token = certificateTokenV2(CHAPTER, TEAM_A, { variant: "participation" });
+    const res = await GET(req(token, { variant: "participation" }), params());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/pdf");
+    expect(mocks.getSession).not.toHaveBeenCalled();
+  });
+
+  it("valid v2 member token => 200 PDF", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ teamMemberIds: [MEMBER_ID] })
+    );
+    const token = certificateTokenV2(CHAPTER, TEAM_A, {
+      variant: "achievement",
+      memberId: MEMBER_ID,
+    });
+    const res = await GET(
+      req(token, { variant: "achievement", member: MEMBER_ID }),
+      params()
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/pdf");
+  });
+
+  it("a v2 member token does not authorize a DIFFERENT member => 401", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ teamMemberIds: [MEMBER_ID, OTHER_MEMBER_ID] })
+    );
+    const token = certificateTokenV2(CHAPTER, TEAM_A, {
+      variant: "achievement",
+      memberId: MEMBER_ID,
+    });
+    const res = await GET(
+      req(token, { variant: "achievement", member: OTHER_MEMBER_ID }),
+      params()
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("a v2 token for one variant does not authorize the other => 401", async () => {
+    const token = certificateTokenV2(CHAPTER, TEAM_A, { variant: "participation" });
+    const res = await GET(req(token, { variant: "achievement" }), params());
+    expect(res.status).toBe(401);
+  });
+
+  it("explicit achievement variant for an UNPLACED team => 404 (nothing to certify)", async () => {
+    mocks.createAdminClient.mockReturnValue(fullDb({ placement: null }));
+    const token = certificateTokenV2(CHAPTER, TEAM_A, { variant: "achievement" });
+    const res = await GET(req(token, { variant: "achievement" }), params());
+    expect(res.status).toBe(404);
+  });
+
+  it("participation variant works for a PLACED team (ranking-free certificate) => 200", async () => {
+    mocks.createAdminClient.mockReturnValue(fullDb({ placement: 1 }));
+    const token = certificateTokenV2(CHAPTER, TEAM_A, { variant: "participation" });
+    const res = await GET(req(token, { variant: "participation" }), params());
+    expect(res.status).toBe(200);
+  });
+
+  it("personal certificate for someone who is NOT a team member => 404", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ teamMemberIds: [MEMBER_ID] })
+    );
+    const token = certificateTokenV2(CHAPTER, TEAM_A, {
+      variant: "achievement",
+      memberId: "stranger-id",
+    });
+    const res = await GET(
+      req(token, { variant: "achievement", member: "stranger-id" }),
+      params()
+    );
+    expect(res.status).toBe(404);
+  });
+
+  it("session team member can fetch their own personal certificate (no token)", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ memberUserId: MEMBER_ID, teamMemberIds: [MEMBER_ID] })
+    );
+    mocks.getSession.mockResolvedValue({
+      user: { id: MEMBER_ID },
+      profile: { role: "participant" },
+    });
+    const res = await GET(req(undefined, { member: MEMBER_ID }), params());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/pdf");
+  });
+
+  it("session team member can fetch the team participation variant (no token)", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ memberUserId: MEMBER_ID, placement: 1 })
+    );
+    mocks.getSession.mockResolvedValue({
+      user: { id: MEMBER_ID },
+      profile: { role: "participant" },
+    });
+    const res = await GET(req(undefined, { variant: "participation" }), params());
+    expect(res.status).toBe(200);
+  });
+
+  it("non-member session cannot fetch variant/member certificates => 403", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ teamMemberIds: [MEMBER_ID] })
+    );
+    mocks.getSession.mockResolvedValue({
+      user: { id: "stranger-id" },
+      profile: { role: "participant" },
+    });
+    const res = await GET(req(undefined, { variant: "participation" }), params());
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /api/certificates — custom background fail-soft", () => {
+  it("renders with the custom background when a design exists", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ designPath: "chapter/achievement.png" })
+    );
+    const token = certificateToken(CHAPTER, TEAM_A);
+    const res = await GET(req(token), params());
+    expect(res.status).toBe(200);
+    const lastProps = vi.mocked(CertificateDocument).mock.calls.at(-1)?.[0] as {
+      backgroundImageSrc?: string | null;
+    };
+    expect(lastProps.backgroundImageSrc).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("falls back to the default design when rendering with the background throws (broken image must never break a link)", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ designPath: "chapter/achievement.png" })
+    );
+    vi.mocked(ReactPDF.renderToStream).mockRejectedValueOnce(
+      new Error("Unsupported image type")
+    );
+    const token = certificateToken(CHAPTER, TEAM_A);
+    const res = await GET(req(token), params());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/pdf");
+    const lastProps = vi.mocked(CertificateDocument).mock.calls.at(-1)?.[0] as {
+      backgroundImageSrc?: string | null;
+    };
+    expect(lastProps.backgroundImageSrc).toBeNull();
   });
 });

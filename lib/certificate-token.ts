@@ -57,6 +57,66 @@ export function verifyCertificateToken(
   teamId: string,
   token: string | null | undefined
 ): boolean {
+  return verifyAgainst(() => certificateToken(chapterId, teamId), token);
+}
+
+// ─── v2 tokens: variant- and member-scoped certificates ─────────────────────
+//
+// v1 tokens authorize exactly one thing: the team's DEFAULT certificate. The
+// certificate route now also serves a participation variant and per-member
+// personal certificates, each selected via query params. Every one of those is
+// a distinct capability (a personal certificate carries an individual's name),
+// so each gets its own token, bound to the full request shape. A v1 token must
+// never unlock a personal certificate it was not minted for — the route only
+// accepts v1 tokens for param-less default requests.
+//
+// Payload: `v2:${chapterId}:${teamId}:${memberId || "team"}:${variant}`.
+// All ids are UUIDs (no colons), variants are fixed literals, and the "v2:"
+// prefix keeps the payload space disjoint from v1 (which starts with a UUID),
+// so no v1 token can collide with any v2 token or vice versa.
+
+export type CertificateVariant = "achievement" | "participation";
+
+export interface CertificateTokenScope {
+  variant: CertificateVariant;
+  /** userId for a personal certificate, null/undefined for the team certificate. */
+  memberId?: string | null;
+}
+
+/**
+ * Compute the v2 capability token for one (chapterId, teamId, member, variant)
+ * certificate. Returns a URL-safe base64url string.
+ */
+export function certificateTokenV2(
+  chapterId: string,
+  teamId: string,
+  scope: CertificateTokenScope
+): string {
+  const { createHmac } = require("crypto") as typeof import("crypto");
+  const key = getTokenKey();
+  const payload = `v2:${chapterId}:${teamId}:${scope.memberId || "team"}:${scope.variant}`;
+  return createHmac("sha256", key).update(payload).digest().toString("base64url");
+}
+
+/**
+ * Constant-time verification of a v2 token for the exact scope requested.
+ * Returns false for any mismatch, malformed input, or length difference.
+ * Never throws on attacker-controlled input.
+ */
+export function verifyCertificateTokenV2(
+  chapterId: string,
+  teamId: string,
+  scope: CertificateTokenScope,
+  token: string | null | undefined
+): boolean {
+  return verifyAgainst(() => certificateTokenV2(chapterId, teamId, scope), token);
+}
+
+/** Shared constant-time compare against a freshly computed expected token. */
+function verifyAgainst(
+  computeExpected: () => string,
+  token: string | null | undefined
+): boolean {
   if (!token) return false;
   const { timingSafeEqual } = require("crypto") as typeof import("crypto");
 
@@ -69,7 +129,7 @@ export function verifyCertificateToken(
 
   let expected: Buffer;
   try {
-    expected = Buffer.from(certificateToken(chapterId, teamId), "base64url");
+    expected = Buffer.from(computeExpected(), "base64url");
   } catch {
     // Missing secret etc. Fail closed.
     return false;

@@ -9,6 +9,7 @@ import {
   slugify,
   getSafeRedirect,
   redactSecretTokens,
+  runWithConcurrency,
 } from "@/lib/utils";
 
 // ─── cn() ───────────────────────────────────────────────────
@@ -308,5 +309,38 @@ describe("redactSecretTokens", () => {
     expect(redactSecretTokens("https://ehl.gg/leaderboard")).toBe("https://ehl.gg/leaderboard");
     expect(redactSecretTokens("/matches/munich-1")).toBe("/matches/munich-1");
     expect(redactSecretTokens("/matches/munich-1?tab=results")).toBe("/matches/munich-1?tab=results");
+  });
+});
+
+describe("runWithConcurrency", () => {
+  it("runs every job exactly once and awaits completion", async () => {
+    const done: number[] = [];
+    const jobs = Array.from({ length: 10 }, (_, i) => async () => {
+      await new Promise((r) => setTimeout(r, 1));
+      done.push(i);
+    });
+    await runWithConcurrency(jobs, 3);
+    expect(done.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+  });
+
+  it("never exceeds the concurrency limit", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const jobs = Array.from({ length: 12 }, () => async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 2));
+      inFlight--;
+    });
+    await runWithConcurrency(jobs, 4);
+    expect(maxInFlight).toBeLessThanOrEqual(4);
+    expect(maxInFlight).toBeGreaterThan(1);
+  });
+
+  it("handles an empty job list and a limit larger than the list", async () => {
+    await expect(runWithConcurrency([], 5)).resolves.toBeUndefined();
+    const done: number[] = [];
+    await runWithConcurrency([async () => { done.push(1); }], 99);
+    expect(done).toEqual([1]);
   });
 });

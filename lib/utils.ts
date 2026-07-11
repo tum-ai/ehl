@@ -187,3 +187,23 @@ export function getPlacementColor(placement: number): string {
       return "text-text-secondary";
   }
 }
+
+/**
+ * Run async jobs with at most `limit` in flight at once. Jobs are responsible
+ * for their own error handling; a rejection from a job propagates and aborts
+ * the remaining queue, so wrap fallible work in try/catch inside the job.
+ */
+export async function runWithConcurrency(
+  jobs: (() => Promise<void>)[],
+  limit: number
+): Promise<void> {
+  let next = 0;
+  async function worker() {
+    while (next < jobs.length) {
+      const job = jobs[next++];
+      await job();
+    }
+  }
+  const workers = Array.from({ length: Math.min(limit, jobs.length) }, worker);
+  await Promise.all(workers);
+}

@@ -92,7 +92,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-60 sequential migrations in `supabase/migrations/`. Key tables:
+61 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055),
   `teams`, `team_members`, `team_invites`, `team_join_requests`
@@ -110,6 +110,10 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 - `chapter_partner_showcase` (admin-only per-chapter unguessable sponsor showcase token +
   settings: is_enabled, show_cvs, expires_at; a SEPARATE table, never on the
   publicly-readable `chapters` row, mirroring `chapter_walk_in`)
+- `chapter_certificate_designs` (admin-only per-chapter custom certificate background
+  designs, one row per chapter+variant; images live in the PRIVATE
+  `certificate-backgrounds` storage bucket; a SEPARATE table, never on the
+  publicly-readable `chapters` row)
 - `admin_emails`, `chapter_admins` (local/chapter admins), `app_settings`, `admin_audit_log`
 - `leaderboard` (Postgres VIEW, not a table)
 
@@ -177,7 +181,7 @@ lib/
   actions/              — Server actions (registration, teams, submissions, jury, admin, applications, event, auth, screening, flags, communications, showcase)
   queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles, showcase)
   emails/               — React Email templates (layout.tsx shared, individual templates, text-block.ts for safe plain-text rendering)
-  certificates/         — PDF certificate template (@react-pdf/renderer)
+  certificates/         — PDF certificate template + design-guide (@react-pdf/renderer), layout.ts (fixed text positions), designs.ts (custom background loading)
   code-review/          — AI review pipeline (ingest, openrouter, pipeline, prompts)
   config/               — Centralized configuration (limits.ts with env var overrides)
   supabase/             — Client configs (client.ts, server.ts, admin.ts, middleware.ts)

@@ -101,8 +101,11 @@ export const showcasePhotoZipLimiter = makeLimiter("rl:showcase-photo-zip", 12, 
 export const uploadLimiter = makeLimiter("rl:upload", 50, "3600 s", { limit: 10, windowMs: 60_000 });
 // General API: 1000 per 60s per IP (fallback 200/min)
 export const apiLimiter = makeLimiter("rl:api", 1000, "60 s", { limit: 200, windowMs: 60_000 });
-// Certificate PDF generation: 30 per 60s per IP (CPU-intensive)
-export const certLimiter = makeLimiter("rl:cert", 30, "60 s", { limit: 30, windowMs: 60_000 });
+// Certificate PDF generation: 60 per 60s per IP (CPU-intensive). Each member
+// now has up to three certificates (personal, team, participation), and whole
+// teams often sit behind one venue NAT at the award ceremony, so 30/min could
+// throttle legitimate bursts.
+export const certLimiter = makeLimiter("rl:cert", 60, "60 s", { limit: 60, windowMs: 60_000 });
 // Email sending: 10 per hour per address (fallback 5/min)
 export const emailLimiter = makeLimiter("rl:email", 10, "3600 s", { limit: 5, windowMs: 60_000 });
 // Password-reset emails: per-RECIPIENT throttle to prevent reset-email bombing of
