@@ -107,6 +107,13 @@ export default async function ParticipantDashboard() {
 
   const teamEntry = leaderboard.find((e) => e.team.id === team.id);
   const scoredChapterIds = new Set(publishedScores.map((s) => s.chapterId));
+  // Placed teams (1st-5th) get both an achievement and a neutral participation
+  // certificate; the extra participation link only renders for them.
+  const placedChapterIds = new Set(
+    publishedScores
+      .filter((s) => s.placement !== null && s.placement <= 5)
+      .map((s) => s.chapterId)
+  );
 
   // Get captain-specific data
   let pendingInvites: Awaited<ReturnType<typeof getPendingInvitesForTeam>> = [];
@@ -261,7 +268,20 @@ export default async function ParticipantDashboard() {
                     </div>
                   </Link>
                   {hasCertificate && (
-                    <div className="border-t border-white/5 px-4 py-2">
+                    <div className="flex flex-wrap gap-x-5 gap-y-1 border-t border-white/5 px-4 py-2">
+                      {/* Session-authenticated links: the route lets any team
+                          member fetch their team's certificates, no tokens. */}
+                      <a
+                        href={`/api/certificates/${chapter.id}/${team.id}?member=${userId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-gold hover:underline"
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                        </svg>
+                        Your Certificate (PDF)
+                      </a>
                       <a
                         href={`/api/certificates/${chapter.id}/${team.id}`}
                         target="_blank"
@@ -271,8 +291,21 @@ export default async function ParticipantDashboard() {
                         <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                         </svg>
-                        Download Certificate (PDF)
+                        Team Certificate (PDF)
                       </a>
+                      {placedChapterIds.has(chapter.id) && (
+                        <a
+                          href={`/api/certificates/${chapter.id}/${team.id}?variant=participation`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-xs font-medium text-purple hover:underline"
+                        >
+                          <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                          </svg>
+                          Participation Certificate (PDF)
+                        </a>
+                      )}
                     </div>
                   )}
                 </div>

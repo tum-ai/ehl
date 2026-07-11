@@ -1,0 +1,221 @@
+import { NextResponse } from "next/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { requireAdmin, getActingUserId } from "@/lib/admin-auth";
+import { logEvent } from "@/lib/event-log";
+import {
+  CERTIFICATE_BACKGROUNDS_BUCKET,
+  CERTIFICATE_BACKGROUND_MAX_BYTES,
+  CERTIFICATE_BACKGROUND_MIME_TO_EXT,
+  certificateBackgroundPath,
+} from "@/lib/certificates/designs";
+import type { CertificateVariant } from "@/lib/certificate-token";
+
+// Custom certificate background designs for one chapter (certificates v2,
+// Stage 1). GLOBAL admin only: designs are chapter settings, which local
+// chapter admins cannot edit (requireAdmin admits only role "admin").
+
+function parseVariant(value: unknown): CertificateVariant | null {
+  return value === "participation" || value === "achievement" ? value : null;
+}
+
+/** All storage paths a design for this variant may live at (both allowed
+ * extensions), so replace/delete never leaves a stale file behind. */
+function allVariantPaths(chapterId: string, variant: CertificateVariant): string[] {
+  return Object.values(CERTIFICATE_BACKGROUND_MIME_TO_EXT).map((ext) =>
+    certificateBackgroundPath(chapterId, variant, ext)
+  );
+}
+
+/** Preview: stream the uploaded background image (the bucket is private, so
+ * the admin UI cannot use a public URL). */
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
+  const { id: chapterId } = await params;
+  const variant = parseVariant(new URL(request.url).searchParams.get("variant"));
+  if (!variant) {
+    return NextResponse.json({ error: "Invalid variant." }, { status: 400 });
+  }
+
+  const adminClient = createAdminClient();
+  const { data: design } = await adminClient
+    .from("chapter_certificate_designs")
+    .select("storage_path")
+    .eq("chapter_id", chapterId)
+    .eq("variant", variant)
+    .single();
+
+  if (!design?.storage_path) {
+    return NextResponse.json({ error: "No design uploaded." }, { status: 404 });
+  }
+
+  const { data: blob, error } = await adminClient.storage
+    .from(CERTIFICATE_BACKGROUNDS_BUCKET)
+    .download(design.storage_path as string);
+
+  if (error || !blob) {
+    return NextResponse.json({ error: "Design file missing in storage." }, { status: 404 });
+  }
+
+  const mime = (design.storage_path as string).endsWith(".png") ? "image/png" : "image/jpeg";
+  return new NextResponse(Buffer.from(await blob.arrayBuffer()), {
+    headers: {
+      "Content-Type": blob.type || mime,
+      "Cache-Control": "private, no-store",
+    },
+  });
+}
+
+export async function POST(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
+  const { id: chapterId } = await params;
+  const formData = await request.formData();
+  const variant = parseVariant(formData.get("variant"));
+  const file = formData.get("file") as File | null;
+
+  if (!variant) {
+    return NextResponse.json({ error: "Invalid variant." }, { status: 400 });
+  }
+  if (!file) {
+    return NextResponse.json({ error: "No file provided." }, { status: 400 });
+  }
+  // Stricter than the general image whitelist: react-pdf can only draw
+  // PNG/JPEG (no WebP/AVIF, and SVG is banned repo-wide).
+  const ext = CERTIFICATE_BACKGROUND_MIME_TO_EXT[file.type];
+  if (!ext) {
+    return NextResponse.json(
+      { error: "Only PNG and JPEG images are allowed for certificate designs." },
+      { status: 400 }
+    );
+  }
+  if (file.size > CERTIFICATE_BACKGROUND_MAX_BYTES) {
+    return NextResponse.json({ error: "File size must be under 5MB." }, { status: 400 });
+  }
+
+  const adminClient = createAdminClient();
+
+  // The chapter must exist (also guards against uploading under a bogus id).
+  const { data: chapter } = await adminClient
+    .from("chapters")
+    .select("id")
+    .eq("id", chapterId)
+    .single();
+  if (!chapter) {
+    return NextResponse.json({ error: "Chapter not found." }, { status: 404 });
+  }
+
+  // Lazily create the PRIVATE bucket (designs must not be publicly enumerable).
+  const { error: bucketError } = await adminClient.storage.createBucket(
+    CERTIFICATE_BACKGROUNDS_BUCKET,
+    { public: false }
+  );
+  if (bucketError && !bucketError.message.includes("already exists")) {
+    console.error("Certificate design bucket creation failed:", bucketError.message);
+    return NextResponse.json({ error: "Storage setup failed." }, { status: 500 });
+  }
+
+  // Replace any previous design for this variant, including one stored under
+  // the other extension (a leftover would shadow nothing but waste storage).
+  const stalePaths = allVariantPaths(chapterId, variant).filter(
+    (p) => p !== certificateBackgroundPath(chapterId, variant, ext)
+  );
+  if (stalePaths.length > 0) {
+    await adminClient.storage.from(CERTIFICATE_BACKGROUNDS_BUCKET).remove(stalePaths);
+  }
+
+  const storagePath = certificateBackgroundPath(chapterId, variant, ext);
+  const { error: uploadError } = await adminClient.storage
+    .from(CERTIFICATE_BACKGROUNDS_BUCKET)
+    .upload(storagePath, await file.arrayBuffer(), {
+      contentType: file.type,
+      upsert: true,
+    });
+
+  if (uploadError) {
+    console.error("Certificate design upload failed:", uploadError.message);
+    return NextResponse.json({ error: "Upload failed." }, { status: 500 });
+  }
+
+  const actorId = await getActingUserId();
+  const { error: dbError } = await adminClient
+    .from("chapter_certificate_designs")
+    .upsert(
+      {
+        chapter_id: chapterId,
+        variant,
+        storage_path: storagePath,
+        uploaded_by: actorId,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "chapter_id,variant" }
+    );
+
+  if (dbError) {
+    console.error("Certificate design row upsert failed:", dbError.message);
+    return NextResponse.json({ error: "Saving the design failed." }, { status: 500 });
+  }
+
+  logEvent({
+    action: "chapter.certificate_design_uploaded",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { created: { variant, storage_path: storagePath } },
+  });
+
+  return NextResponse.json({ success: true });
+}
+
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const denied = await requireAdmin();
+  if (denied) return denied;
+
+  const { id: chapterId } = await params;
+  const variant = parseVariant(new URL(request.url).searchParams.get("variant"));
+  if (!variant) {
+    return NextResponse.json({ error: "Invalid variant." }, { status: 400 });
+  }
+
+  const adminClient = createAdminClient();
+
+  const { error: dbError } = await adminClient
+    .from("chapter_certificate_designs")
+    .delete()
+    .eq("chapter_id", chapterId)
+    .eq("variant", variant);
+
+  if (dbError) {
+    return NextResponse.json({ error: "Removing the design failed." }, { status: 500 });
+  }
+
+  // Best-effort: certificates already fall back to the default design when the
+  // storage object is gone, so a failed removal only wastes storage.
+  await adminClient.storage
+    .from(CERTIFICATE_BACKGROUNDS_BUCKET)
+    .remove(allVariantPaths(chapterId, variant));
+
+  const actorId = await getActingUserId();
+  logEvent({
+    action: "chapter.certificate_design_removed",
+    entityType: "chapter",
+    entityId: chapterId,
+    actorId,
+    actorType: "admin",
+    delta: { deleted: { variant } },
+  });
+
+  return NextResponse.json({ success: true });
+}

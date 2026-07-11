@@ -313,6 +313,31 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        )
      ) as present`,
   },
+  {
+    // Custom certificate background designs: the table exists with its
+    // composite PK and an uploaded_by FK that is ON DELETE SET NULL
+    // (confdeltype 'n' — the 00058/00060 deletability lesson).
+    prefix: "00061",
+    label: "chapter_certificate_designs",
+    sql: `select (
+       exists (
+         select 1 from information_schema.tables
+         where table_schema = 'public' and table_name = 'chapter_certificate_designs'
+       )
+       and exists (
+         select 1 from pg_constraint c
+         where c.conrelid = 'public.chapter_certificate_designs'::regclass
+           and c.contype = 'p'
+       )
+       and exists (
+         select 1 from pg_constraint c
+         where c.conrelid = 'public.chapter_certificate_designs'::regclass
+           and c.conname = 'chapter_certificate_designs_uploaded_by_fkey'
+           and c.contype = 'f'
+           and c.confdeltype = 'n'
+       )
+     ) as present`,
+  },
 ];
 
 /**

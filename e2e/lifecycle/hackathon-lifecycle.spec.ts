@@ -1873,4 +1873,51 @@ test.describe.serial("Hackathon Lifecycle", () => {
       await admin.from("applications").delete().in("email", [acceptedEmail, rejectedEmail, waitlistedEmail]);
     }
   });
+
+  // ── BLOCK 14: CERTIFICATES (personal, team, point-free participation) ──
+
+  test("14.1 Dashboard offers personal, team, and participation certificate links (placed team)", async ({ page }) => {
+    // Scores were published in 9.1 (E2E Alpha placed 1st) and the chapter is
+    // completed, so the dashboard must show all three certificate links for a
+    // placed team's member.
+    await loginAsParticipant(page, E2E_ACCOUNTS.president.email);
+    await page.goto("/dashboard");
+    await page.waitForLoadState("networkidle");
+
+    await expect(page.getByRole("link", { name: /Your Certificate \(PDF\)/i })).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByRole("link", { name: /Team Certificate \(PDF\)/i })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /Participation Certificate \(PDF\)/i })
+    ).toBeVisible();
+  });
+
+  test("14.2 Each dashboard certificate link serves a real PDF for the logged-in member", async ({ page }) => {
+    await loginAsParticipant(page, E2E_ACCOUNTS.president.email);
+    const base = `/api/certificates/${chapterId}/${teamAlphaId}`;
+
+    // page.request carries the participant session cookies.
+    for (const url of [
+      `${base}?member=${presidentUserId}`,
+      base,
+      `${base}?variant=participation`,
+    ]) {
+      const res = await page.request.get(url);
+      expect(res.status(), `${url} -> 200`).toBe(200);
+      expect(res.headers()["content-type"], url).toContain("application/pdf");
+      const body = await res.body();
+      expect(body.subarray(0, 4).toString("latin1"), `${url} real PDF bytes`).toBe("%PDF");
+    }
+  });
+
+  test("14.3 A non-member session cannot fetch this team's certificates", async ({ page }) => {
+    // The solo participant is not a member of E2E Alpha: every variant must 403.
+    await loginAsParticipant(page, E2E_ACCOUNTS.solo.email);
+    const base = `/api/certificates/${chapterId}/${teamAlphaId}`;
+    for (const url of [base, `${base}?variant=participation`, `${base}?member=${presidentUserId}`]) {
+      const res = await page.request.get(url);
+      expect(res.status(), `${url} -> 403`).toBe(403);
+    }
+  });
 });

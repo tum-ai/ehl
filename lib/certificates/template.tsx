@@ -1,5 +1,11 @@
 import React from "react";
-import { Document, Page, View, Text, StyleSheet } from "@react-pdf/renderer";
+import { Document, Page, View, Text, Image, StyleSheet } from "@react-pdf/renderer";
+import {
+  CONTENT_INSET_X,
+  TEXT_BLOCKS,
+  type TextBlockSpec,
+} from "./layout";
+import type { CertificateVariant } from "@/lib/certificate-token";
 
 const gold = "#E8B84B";
 const purple = "#9B59B6";
@@ -11,6 +17,14 @@ const styles = StyleSheet.create({
     padding: 60,
     fontFamily: "Helvetica",
     position: "relative",
+  },
+  // Full-bleed custom background (custom design mode)
+  background: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    width: "100%",
+    height: "100%",
   },
   // Corner brackets
   cornerTL: {
@@ -195,7 +209,43 @@ interface CertificateProps {
   challengeName: string | null;
   placementLabel: string;
   points: number;
-  isPlaced: boolean;
+  /**
+   * Which certificate to render. "achievement" shows the gold placement badge
+   * with points; "participation" shows a neutral purple badge and NEVER any
+   * points or placement, even for placed teams (operators hand these out as
+   * ranking-free certificates).
+   */
+  variant: CertificateVariant;
+  /**
+   * Set for a personal certificate: the certificate is awarded to this person
+   * by name, the member list is omitted and the team moves into the details
+   * row for context.
+   */
+  personName?: string | null;
+  /**
+   * Optional custom background design (PNG/JPEG data URI). When set, the image
+   * is drawn full-bleed, the EHL decorations (corner brackets, divider) are
+   * suppressed, and every text block is placed at the fixed positions from
+   * lib/certificates/layout.ts so sponsors can design around documented areas.
+   */
+  backgroundImageSrc?: string | null;
+}
+
+/** Absolutely positions children at a layout block (custom design mode). */
+function FixedBlock({ block, children }: { block: TextBlockSpec; children: React.ReactNode }) {
+  return (
+    <View
+      style={{
+        position: "absolute",
+        top: block.top,
+        left: CONTENT_INSET_X,
+        right: CONTENT_INSET_X,
+        alignItems: "center",
+      }}
+    >
+      {children}
+    </View>
+  );
 }
 
 export function CertificateDocument(props: CertificateProps) {
@@ -209,10 +259,105 @@ export function CertificateDocument(props: CertificateProps) {
     challengeName,
     placementLabel,
     points,
-    isPlaced,
+    variant,
+    personName,
+    backgroundImageSrc,
   } = props;
 
-  const certificateTitle = isPlaced ? "Achievement" : "Participation";
+  const certificateTitle = variant === "achievement" ? "Achievement" : "Participation";
+  const awardeeName = personName || teamName;
+
+  const badge =
+    variant === "achievement" ? (
+      <View style={styles.placementBadge}>
+        <Text style={styles.placementText}>{placementLabel}</Text>
+        <Text style={styles.pointsText}>{points} points</Text>
+      </View>
+    ) : (
+      <View style={styles.participationBadge}>
+        <Text style={styles.participationText}>Participant</Text>
+      </View>
+    );
+
+  const details = (
+    <View style={styles.detailsRow}>
+      <View style={styles.detailBlock}>
+        <Text style={styles.detailLabel}>Match</Text>
+        <Text style={styles.detailValue}>{chapterName}</Text>
+      </View>
+      {personName && (
+        <View style={styles.detailBlock}>
+          <Text style={styles.detailLabel}>Team</Text>
+          <Text style={styles.detailValue}>{teamName}</Text>
+        </View>
+      )}
+      {challengeName && (
+        <View style={styles.detailBlock}>
+          <Text style={styles.detailLabel}>Challenge</Text>
+          <Text style={styles.detailValue}>{challengeName}</Text>
+        </View>
+      )}
+      <View style={styles.detailBlock}>
+        <Text style={styles.detailLabel}>Location</Text>
+        <Text style={styles.detailValue}>{chapterCity}</Text>
+      </View>
+      {chapterDate && (
+        <View style={styles.detailBlock}>
+          <Text style={styles.detailLabel}>Date</Text>
+          <Text style={styles.detailValue}>{chapterDate}</Text>
+        </View>
+      )}
+    </View>
+  );
+
+  const footerText = (
+    <Text style={styles.footerText}>
+      European Hackathon League · Season 1 · ehl.gg
+    </Text>
+  );
+
+  if (backgroundImageSrc) {
+    // Custom design mode: full-bleed background, text at fixed positions from
+    // layout.ts. No flow layout here — positions must not depend on content
+    // length, or sponsor designs would break for long member lists.
+    return (
+      <Document>
+        <Page size="A4" orientation="landscape" style={{ position: "relative", fontFamily: "Helvetica" }}>
+          {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt prop */}
+          <Image src={backgroundImageSrc} style={styles.background} />
+
+          <FixedBlock block={TEXT_BLOCKS.header}>
+            <Text style={styles.ehlTitle}>European Hackathon League</Text>
+          </FixedBlock>
+          <FixedBlock block={TEXT_BLOCKS.certificateOf}>
+            <Text style={styles.certificateOf}>Certificate of</Text>
+          </FixedBlock>
+          <FixedBlock block={TEXT_BLOCKS.title}>
+            <Text style={styles.certificateType}>{certificateTitle}</Text>
+          </FixedBlock>
+          <FixedBlock block={TEXT_BLOCKS.awardedTo}>
+            <Text style={styles.awardedTo}>Awarded to</Text>
+          </FixedBlock>
+          <FixedBlock block={TEXT_BLOCKS.name}>
+            <Text style={styles.teamName}>{awardeeName}</Text>
+          </FixedBlock>
+          {university && (
+            <FixedBlock block={TEXT_BLOCKS.university}>
+              <Text style={styles.university}>{university}</Text>
+            </FixedBlock>
+          )}
+          {!personName && memberNames.length > 0 && (
+            <FixedBlock block={TEXT_BLOCKS.members}>
+              <Text style={styles.members}>{memberNames.join("  ·  ")}</Text>
+            </FixedBlock>
+          )}
+          <FixedBlock block={TEXT_BLOCKS.badge}>{badge}</FixedBlock>
+          <FixedBlock block={TEXT_BLOCKS.details}>{details}</FixedBlock>
+          <FixedBlock block={TEXT_BLOCKS.footer}>{footerText}</FixedBlock>
+        </Page>
+      </Document>
+    );
+  }
 
   return (
     <Document>
@@ -234,56 +379,69 @@ export function CertificateDocument(props: CertificateProps) {
         <Text style={styles.certificateOf}>Certificate of</Text>
         <Text style={styles.certificateType}>{certificateTitle}</Text>
 
-        {/* Team info */}
+        {/* Awardee (team, or one person on a personal certificate) */}
         <Text style={styles.awardedTo}>Awarded to</Text>
-        <Text style={styles.teamName}>{teamName}</Text>
+        <Text style={styles.teamName}>{awardeeName}</Text>
         {university && <Text style={styles.university}>{university}</Text>}
-        {memberNames.length > 0 && (
+        {!personName && memberNames.length > 0 && (
           <Text style={styles.members}>{memberNames.join("  ·  ")}</Text>
         )}
 
         {/* Placement badge */}
-        {isPlaced ? (
-          <View style={styles.placementBadge}>
-            <Text style={styles.placementText}>{placementLabel}</Text>
-            <Text style={styles.pointsText}>{points} points</Text>
-          </View>
-        ) : (
-          <View style={styles.participationBadge}>
-            <Text style={styles.participationText}>Participant · {points} points</Text>
-          </View>
-        )}
+        {badge}
 
         {/* Event details */}
-        <View style={styles.detailsRow}>
-          <View style={styles.detailBlock}>
-            <Text style={styles.detailLabel}>Match</Text>
-            <Text style={styles.detailValue}>{chapterName}</Text>
-          </View>
-          {challengeName && (
-            <View style={styles.detailBlock}>
-              <Text style={styles.detailLabel}>Challenge</Text>
-              <Text style={styles.detailValue}>{challengeName}</Text>
-            </View>
-          )}
-          <View style={styles.detailBlock}>
-            <Text style={styles.detailLabel}>Location</Text>
-            <Text style={styles.detailValue}>{chapterCity}</Text>
-          </View>
-          {chapterDate && (
-            <View style={styles.detailBlock}>
-              <Text style={styles.detailLabel}>Date</Text>
-              <Text style={styles.detailValue}>{chapterDate}</Text>
-            </View>
-          )}
-        </View>
+        {details}
 
         {/* Footer */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            European Hackathon League · Season 1 · ehl.gg
+        <View style={styles.footer}>{footerText}</View>
+      </Page>
+    </Document>
+  );
+}
+
+/**
+ * Operator design template: a PDF marking every text area from layout.ts as a
+ * labeled box, so sponsors know which regions of their background design must
+ * stay free. Downloaded from the admin certificate-designs page.
+ */
+export function CertificateDesignGuide() {
+  return (
+    <Document>
+      <Page size="A4" orientation="landscape" style={{ position: "relative", fontFamily: "Helvetica" }}>
+        <View
+          style={{
+            position: "absolute",
+            top: 8,
+            left: CONTENT_INSET_X,
+            right: CONTENT_INSET_X,
+          }}
+        >
+          <Text style={{ fontSize: 10, color: "#666666", textAlign: "center" }}>
+            EHL certificate design template (A4 landscape). Boxed areas are used for
+            certificate text: keep them free of important artwork.
           </Text>
         </View>
+        {Object.values(TEXT_BLOCKS).map((block) => (
+          <View
+            key={block.label}
+            style={{
+              position: "absolute",
+              top: block.top,
+              left: CONTENT_INSET_X,
+              right: CONTENT_INSET_X,
+              height: block.height,
+              borderWidth: 1,
+              borderColor: purple,
+              borderStyle: "dashed",
+              justifyContent: "center",
+            }}
+          >
+            <Text style={{ fontSize: 8, color: purple, textAlign: "center" }}>
+              {block.label}
+            </Text>
+          </View>
+        ))}
       </Page>
     </Document>
   );

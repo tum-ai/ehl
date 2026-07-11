@@ -84,7 +84,9 @@ Requires participant account (email + password).
 - **Member roster** (read-only for non-presidents)
 - **Match list**: All non-draft matches with status badges
   - "Unlocked" badge when team has access
-  - "Download Certificate (PDF)" link for completed matches with published scores
+  - Certificate links for completed matches with published scores: personal
+    certificate, team certificate, and (for placed teams) a neutral participation
+    certificate
 - Link to public team profile
 
 ### Applications (`/apply/<chapter-slug>`)
@@ -97,12 +99,23 @@ Requires participant account (email + password).
 
 ### Certificates
 - PDF certificates generated on-demand at `/api/certificates/<chapterId>/<teamId>`
-- Requires authentication: only team members and admins can download
+- Requires authentication: team members and admins via session, or a capability
+  token from the certificate email (each token unlocks exactly one certificate)
 - A4 landscape, white background, printable
-- Shows: team name, university, member names, match details, placement, points
-- EHL branding with purple corner brackets and gold placement badge
-- Immutably cached (generated once, served forever)
-- Download link appears on dashboard for completed matches
+- **Two variants**:
+  - *Achievement* (teams placed 1st-5th): gold badge with placement and points
+  - *Participation*: neutral purple badge, never shows points or placement
+- **Team and personal certificates**: the team certificate lists all members;
+  each member can additionally download a personal certificate carrying their
+  own name (team shown in the details row). Select via `?member=<userId>`.
+- **Placed teams get both**: in addition to their achievement certificate they
+  can download a neutral participation certificate (`?variant=participation`),
+  e.g. to share without revealing their ranking
+- Shows: awardee (team or person), university, match, challenge, location, date
+- EHL branding with purple corner brackets, or a per-chapter custom background
+  design uploaded by an admin (see Admin > Certificate Designs)
+- Download links appear on the dashboard for completed matches; certificate
+  emails contain one personal link per member plus the team link(s)
 
 ---
 
@@ -430,7 +443,21 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
   unfinalized results are not silently dropped at publish time. Publishing a
   chapter with genuinely no scores is still allowed (completes with an empty
   leaderboard) but explicitly confirmed.
-- Send certificate emails to all teams after publishing
+- Send certificate emails after publishing: one email per team member with a
+  personal certificate link, the team certificate link, and (for placed teams)
+  a neutral participation certificate link
+
+### Certificate Designs (`/admin/chapters/<id>/certificates`)
+- Global admins upload a custom full-page background per chapter and per
+  certificate variant (participation / achievement), e.g. with sponsor logos
+- PNG or JPEG only (react-pdf cannot draw WebP/AVIF; SVG banned repo-wide),
+  max 5MB, recommended 2384x1684 px (A4 landscape at 200 dpi)
+- Stored in the PRIVATE `certificate-backgrounds` Supabase Storage bucket
+  (designs must not be enumerable before an event)
+- Certificate text is placed at fixed positions on top; a downloadable design
+  template PDF marks the areas sponsors must keep free
+- Without an upload (or if the file goes missing) certificates fall back to
+  the default EHL design; emailed links never break
 
 ### Jury Management (`/admin/jury`)
 - Invite jury members by email (sends magic link)
@@ -479,7 +506,7 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 - File uploads: 10/hour
 - Emails: 3/hour per address
 - General API: 1,000 requests/minute (high: 500+ participants share one WiFi at events)
-- Certificate generation: 10 requests/minute (CPU-intensive PDF rendering)
+- Certificate generation: 60 requests/minute per IP (CPU-intensive PDF rendering; sized for up to three certificates per member and whole teams behind one venue NAT)
 - Powered by Upstash Redis, in-memory fallback (30 req/min) when Redis unavailable
 
 ### Email System

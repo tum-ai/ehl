@@ -120,6 +120,15 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
         )}
         {isGlobalAdmin && (
           <Link
+            href={`/admin/chapters/${chapter.id}/certificates`}
+            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+          >
+            <span>Certificate Designs</span>
+            <span className="ad-text-muted">&rarr;</span>
+          </Link>
+        )}
+        {isGlobalAdmin && (
+          <Link
             href={`/admin/chapters/${chapter.id}/admins`}
             className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
           >
