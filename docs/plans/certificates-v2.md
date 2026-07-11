@@ -1,7 +1,9 @@
 # Certificates v2: personal certificates, point-free participation, custom designs
 
-Status: **planned** (not started) · Written: 2026-07-11
+Status: **shipped** (PR #93, merged 2026-07-11; Package 1 and Package 2 Stage 1) · Written: 2026-07-11
 Origin: operator feature request after Season 1 events.
+Open question 1 (§6) resolved: `profiles.name` as a single field is fine, no split.
+Stage 2 (visual position editor) remains deferred.
 
 This document contains enough background to implement the feature without re-deriving
 the current architecture. Read "Current implementation" first; every design decision
