@@ -1,6 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getCertificateBackgroundDataUri } from "@/lib/certificates/designs";
+import {
+  getCertificateBackgroundDataUri,
+  clearCertificateBackgroundCache,
+} from "@/lib/certificates/designs";
+
+// The loader memoizes per (chapterId, variant); isolate every test.
+beforeEach(() => {
+  clearCertificateBackgroundCache();
+});
 
 // The custom-background loader must NEVER throw: a certificate link in
 // someone's inbox must keep working (falling back to the default EHL design)
@@ -74,5 +82,24 @@ describe("getCertificateBackgroundDataUri", () => {
       "participation"
     );
     expect(uri).toBeNull();
+  });
+
+  it("caches the result: a burst of requests downloads the background once", async () => {
+    const client = makeClient({ designPath: "chapter/participation.png" });
+    const storageFrom = (client.storage as unknown as { from: ReturnType<typeof vi.fn> }).from;
+
+    const first = await getCertificateBackgroundDataUri(client, "chapter", "participation");
+    const second = await getCertificateBackgroundDataUri(client, "chapter", "participation");
+    expect(second).toBe(first);
+    expect(storageFrom).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches per (chapter, variant): a different variant downloads separately", async () => {
+    const client = makeClient({ designPath: "chapter/participation.png" });
+    const storageFrom = (client.storage as unknown as { from: ReturnType<typeof vi.fn> }).from;
+
+    await getCertificateBackgroundDataUri(client, "chapter", "participation");
+    await getCertificateBackgroundDataUri(client, "chapter", "achievement");
+    expect(storageFrom).toHaveBeenCalledTimes(2);
   });
 });

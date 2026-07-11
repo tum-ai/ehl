@@ -42,8 +42,11 @@ vi.mock("@/lib/certificates/template", () => ({
   CertificateDocument: vi.fn(() => ({})),
 }));
 
+import ReactPDF from "@react-pdf/renderer";
 import { GET } from "@/app/api/certificates/[chapterId]/[teamId]/route";
+import { CertificateDocument } from "@/lib/certificates/template";
 import { certificateToken, certificateTokenV2 } from "@/lib/certificate-token";
+import { clearCertificateBackgroundCache } from "@/lib/certificates/designs";
 
 const CHAPTER = "11111111-1111-1111-1111-111111111111";
 const TEAM_A = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -72,6 +75,7 @@ function fullDb(
     memberUserId?: string;
     teamMemberIds?: string[];
     placement?: number | null;
+    designPath?: string;
   } = {}
 ) {
   const placement = opts.placement === undefined ? 1 : opts.placement;
@@ -113,6 +117,10 @@ function fullDb(
                 date_end: null,
               },
             });
+          case "chapter_certificate_designs":
+            return Promise.resolve(
+              opts.designPath ? { data: { storage_path: opts.designPath } } : { data: null }
+            );
           case "team_members": {
             if (selectedColumns.includes("profiles")) {
               // Personal-certificate member lookup (?member=<userId>)
@@ -143,7 +151,13 @@ function fullDb(
     storage: {
       from() {
         return {
-          download: async () => ({ data: null, error: { message: "not found" } }),
+          download: async () =>
+            opts.designPath
+              ? {
+                  data: new Blob([Buffer.from("img-bytes")], { type: "image/png" }),
+                  error: null,
+                }
+              : { data: null, error: { message: "not found" } },
         };
       },
     },
@@ -152,6 +166,8 @@ function fullDb(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The background loader memoizes per (chapter, variant); isolate every test.
+  clearCertificateBackgroundCache();
   mocks.checkRateLimit.mockResolvedValue({ limited: false });
   mocks.createAdminClient.mockReturnValue(fullDb());
   mocks.getSession.mockResolvedValue(null);
@@ -234,6 +250,16 @@ describe("GET /api/certificates/[chapterId]/[teamId] — session path (unchanged
 describe("GET /api/certificates — variant & member params (v2)", () => {
   it("invalid variant param => 400", async () => {
     const res = await GET(req(undefined, { variant: "gold" }), params());
+    expect(res.status).toBe(400);
+  });
+
+  it("empty member param => 400 (v2 tokens encode team scope as 'team', so '' must not alias to it)", async () => {
+    // The team-scoped token must NOT smuggle an empty member past the boundary.
+    const teamToken = certificateTokenV2(CHAPTER, TEAM_A, { variant: "participation" });
+    const res = await GET(
+      req(teamToken, { variant: "participation", member: "" }),
+      params()
+    );
     expect(res.status).toBe(400);
   });
 
@@ -364,5 +390,37 @@ describe("GET /api/certificates — variant & member params (v2)", () => {
     });
     const res = await GET(req(undefined, { variant: "participation" }), params());
     expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /api/certificates — custom background fail-soft", () => {
+  it("renders with the custom background when a design exists", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ designPath: "chapter/achievement.png" })
+    );
+    const token = certificateToken(CHAPTER, TEAM_A);
+    const res = await GET(req(token), params());
+    expect(res.status).toBe(200);
+    const lastProps = vi.mocked(CertificateDocument).mock.calls.at(-1)?.[0] as {
+      backgroundImageSrc?: string | null;
+    };
+    expect(lastProps.backgroundImageSrc).toMatch(/^data:image\/png;base64,/);
+  });
+
+  it("falls back to the default design when rendering with the background throws (broken image must never break a link)", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      fullDb({ designPath: "chapter/achievement.png" })
+    );
+    vi.mocked(ReactPDF.renderToStream).mockRejectedValueOnce(
+      new Error("Unsupported image type")
+    );
+    const token = certificateToken(CHAPTER, TEAM_A);
+    const res = await GET(req(token), params());
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Type")).toBe("application/pdf");
+    const lastProps = vi.mocked(CertificateDocument).mock.calls.at(-1)?.[0] as {
+      backgroundImageSrc?: string | null;
+    };
+    expect(lastProps.backgroundImageSrc).toBeNull();
   });
 });

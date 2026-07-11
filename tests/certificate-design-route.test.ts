@@ -79,14 +79,17 @@ function makeDb(opts: { chapterExists?: boolean; designPath?: string | null } = 
   return { db, upload, remove, download, upsert, createBucket };
 }
 
+// Minimal byte prefixes that satisfy the magic-byte content check.
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+
 function uploadRequest(opts: { variant?: string; file?: File | null } = {}) {
   const formData = new FormData();
   formData.append("variant", opts.variant ?? "participation");
   if (opts.file !== null) {
     formData.append(
       "file",
-      opts.file ??
-        new File([Buffer.from("fake-png")], "design.png", { type: "image/png" })
+      opts.file ?? new File([PNG_BYTES], "design.png", { type: "image/png" })
     );
   }
   return new Request(`http://t/api/admin/chapters/${CHAPTER}/certificate-design`, {
@@ -139,6 +142,29 @@ describe("POST /api/admin/chapters/[id]/certificate-design", () => {
     });
     const res = await POST(uploadRequest({ file }), params());
     expect(res.status).toBe(400);
+  });
+
+  it("rejects a file whose content does not match the declared MIME (spoofed PNG) => 400", async () => {
+    // A renamed WebP arrives with type image/png (browsers derive it from the
+    // extension); react-pdf could not decode it, so the content check must catch it.
+    const file = new File([Buffer.from("RIFFxxxxWEBPVP8 ")], "spoofed.png", {
+      type: "image/png",
+    });
+    const res = await POST(uploadRequest({ file }), params());
+    expect(res.status).toBe(400);
+  });
+
+  it("accepts a real JPEG under the declared image/jpeg type", async () => {
+    const { db, upload } = makeDb();
+    mocks.createAdminClient.mockReturnValue(db);
+    const file = new File([JPEG_BYTES], "design.jpg", { type: "image/jpeg" });
+    const res = await POST(uploadRequest({ file }), params());
+    expect(res.status).toBe(200);
+    expect(upload).toHaveBeenCalledWith(
+      `${CHAPTER}/participation.jpg`,
+      expect.anything(),
+      expect.objectContaining({ contentType: "image/jpeg" })
+    );
   });
 
   it("unknown chapter => 404", async () => {

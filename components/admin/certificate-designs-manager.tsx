@@ -31,23 +31,35 @@ function DesignSlot({ chapterId, variant }: { chapterId: string; variant: (typeo
   const loadPreview = useCallback(async () => {
     try {
       const res = await fetch(apiUrl);
-      if (!res.ok) {
+      if (res.status === 404) {
+        // No design uploaded: the expected empty state, not an error.
         setPreviewUrl(null);
         return;
       }
+      if (!res.ok) {
+        setPreviewUrl(null);
+        setError("Could not load the design preview. Reload the page to retry.");
+        return;
+      }
       const blob = await res.blob();
-      setPreviewUrl((old) => {
-        if (old) URL.revokeObjectURL(old);
-        return URL.createObjectURL(blob);
-      });
+      setPreviewUrl(URL.createObjectURL(blob));
     } catch {
       setPreviewUrl(null);
+      setError("Could not load the design preview: network error.");
     }
   }, [apiUrl]);
 
   useEffect(() => {
     loadPreview();
   }, [loadPreview]);
+
+  // Revoke the previous object URL whenever the preview changes, and the last
+  // one on unmount, so replaced previews don't leak multi-MB blobs.
+  useEffect(() => {
+    return () => {
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+    };
+  }, [previewUrl]);
 
   async function handleUpload(file: File) {
     setBusy(true);
@@ -63,6 +75,8 @@ function DesignSlot({ chapterId, variant }: { chapterId: string; variant: (typeo
         return;
       }
       await loadPreview();
+    } catch {
+      setError("Upload failed: network error. Please try again.");
     } finally {
       setBusy(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -82,10 +96,9 @@ function DesignSlot({ chapterId, variant }: { chapterId: string; variant: (typeo
         setError(body.error || "Removing the design failed.");
         return;
       }
-      setPreviewUrl((old) => {
-        if (old) URL.revokeObjectURL(old);
-        return null;
-      });
+      setPreviewUrl(null);
+    } catch {
+      setError("Removing the design failed: network error. Please try again.");
     } finally {
       setBusy(false);
     }

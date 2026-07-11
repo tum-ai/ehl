@@ -10,6 +10,7 @@ import {
   verifyCertificateTokenV2,
   type CertificateVariant,
 } from "@/lib/certificate-token";
+import { isPlacedPlacement } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,12 @@ export async function GET(
 
   if (variantParam !== null && variantParam !== "achievement" && variantParam !== "participation") {
     return NextResponse.json({ error: "Invalid variant." }, { status: 400 });
+  }
+  // Reject an empty member param before token verification: v2 tokens encode a
+  // missing member as the literal "team" scope, so an empty string would alias
+  // to the team token while still entering the personal-certificate branch.
+  if (memberParam === "") {
+    return NextResponse.json({ error: "Invalid member." }, { status: 400 });
   }
 
   // Authorization: EITHER a capability token bound to this exact request shape,
@@ -103,7 +110,7 @@ export async function GET(
   }
 
   const placement = score.placement as number | null;
-  const isPlaced = placement !== null && placement <= 5;
+  const isPlaced = isPlacedPlacement(placement);
 
   // Effective variant: explicit param, else today's behavior (achievement for
   // placed teams, participation otherwise). An explicit achievement request for
@@ -199,22 +206,38 @@ export async function GET(
     : "Participant";
 
   // Generate PDF
-  const pdfStream = await ReactPDF.renderToStream(
-    CertificateDocument({
-      teamName: team.name as string,
-      university: (team.university as string) ?? null,
-      memberNames,
-      chapterName: chapter.name as string,
-      chapterCity: `${chapter.city as string}, ${chapter.country as string}`,
-      chapterDate: dateStr,
-      challengeName: (score.challenge_name as string) ?? null,
-      placementLabel,
-      points: score.points as number,
-      variant,
-      personName,
-      backgroundImageSrc,
-    })
-  );
+  const certificateProps = {
+    teamName: team.name as string,
+    university: (team.university as string) ?? null,
+    memberNames,
+    chapterName: chapter.name as string,
+    chapterCity: `${chapter.city as string}, ${chapter.country as string}`,
+    chapterDate: dateStr,
+    challengeName: (score.challenge_name as string) ?? null,
+    placementLabel,
+    points: score.points as number,
+    variant,
+    personName,
+  };
+
+  let pdfStream;
+  try {
+    pdfStream = await ReactPDF.renderToStream(
+      CertificateDocument({ ...certificateProps, backgroundImageSrc })
+    );
+  } catch (err) {
+    // A custom background that passed upload validation can still be
+    // undecodable for react-pdf (e.g. a truncated file). A broken design must
+    // never break certificate links, so retry with the default EHL design.
+    if (!backgroundImageSrc) throw err;
+    console.error(
+      `Certificate render failed with custom background (chapter ${chapterId}, ${variant}), falling back to default design:`,
+      err
+    );
+    pdfStream = await ReactPDF.renderToStream(
+      CertificateDocument({ ...certificateProps, backgroundImageSrc: null })
+    );
+  }
 
   // Convert stream to buffer
   const chunks: Uint8Array[] = [];

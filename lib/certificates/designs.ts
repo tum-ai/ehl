@@ -34,6 +34,56 @@ function mimeFromPath(path: string): string {
 }
 
 /**
+ * Look up and download the custom background for (chapterId, variant), or null
+ * when none exists (no design row, or its storage object is gone). Shared by
+ * the certificate route (via the cached data-URI wrapper below) and the admin
+ * preview endpoint so the lookup/download/mime logic cannot drift.
+ */
+export async function downloadCertificateBackground(
+  adminClient: SupabaseClient,
+  chapterId: string,
+  variant: CertificateVariant
+): Promise<{ buffer: Buffer; mime: string } | null> {
+  const { data: design } = await adminClient
+    .from("chapter_certificate_designs")
+    .select("storage_path")
+    .eq("chapter_id", chapterId)
+    .eq("variant", variant)
+    .single();
+
+  if (!design?.storage_path) return null;
+
+  const { data: blob, error } = await adminClient.storage
+    .from(CERTIFICATE_BACKGROUNDS_BUCKET)
+    .download(design.storage_path as string);
+
+  if (error || !blob) {
+    console.error(
+      `Certificate background missing in storage (chapter ${chapterId}, ${variant}):`,
+      error?.message
+    );
+    return null;
+  }
+
+  return {
+    buffer: Buffer.from(await blob.arrayBuffer()),
+    mime: blob.type || mimeFromPath(design.storage_path as string),
+  };
+}
+
+// Per-instance cache of rendered data URIs. Certificate downloads burst (whole
+// teams fetch up to three PDFs each right after publish), and re-downloading
+// the same up-to-5MB background from storage for every render is pure waste.
+// Short TTL so a replaced or deleted design propagates within a minute.
+const CACHE_TTL_MS = 60_000;
+const backgroundCache = new Map<string, { dataUri: string | null; expiresAt: number }>();
+
+/** Test hook: reset the module-level background cache. */
+export function clearCertificateBackgroundCache(): void {
+  backgroundCache.clear();
+}
+
+/**
  * Load the custom background for (chapterId, variant) as a data URI for
  * react-pdf, or null when no design exists. NEVER throws: a certificate link
  * in someone's inbox must not break because a design row points at a deleted
@@ -44,36 +94,25 @@ export async function getCertificateBackgroundDataUri(
   chapterId: string,
   variant: CertificateVariant
 ): Promise<string | null> {
+  const cacheKey = `${chapterId}/${variant}`;
+  const cached = backgroundCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.dataUri;
+
+  let dataUri: string | null = null;
   try {
-    const { data: design } = await adminClient
-      .from("chapter_certificate_designs")
-      .select("storage_path")
-      .eq("chapter_id", chapterId)
-      .eq("variant", variant)
-      .single();
-
-    if (!design?.storage_path) return null;
-
-    const { data: blob, error } = await adminClient.storage
-      .from(CERTIFICATE_BACKGROUNDS_BUCKET)
-      .download(design.storage_path as string);
-
-    if (error || !blob) {
-      console.error(
-        `Certificate background missing in storage (chapter ${chapterId}, ${variant}):`,
-        error?.message
-      );
-      return null;
+    const background = await downloadCertificateBackground(adminClient, chapterId, variant);
+    if (background) {
+      dataUri = `data:${background.mime};base64,${background.buffer.toString("base64")}`;
     }
-
-    const buffer = Buffer.from(await blob.arrayBuffer());
-    const mime = blob.type || mimeFromPath(design.storage_path as string);
-    return `data:${mime};base64,${buffer.toString("base64")}`;
   } catch (err) {
     console.error(
       `Failed to load certificate background (chapter ${chapterId}, ${variant}):`,
       err
     );
-    return null;
+    // Fall through: cache the null so a broken design doesn't add a failing
+    // roundtrip to every certificate render in the burst.
   }
+
+  backgroundCache.set(cacheKey, { dataUri, expiresAt: Date.now() + CACHE_TTL_MS });
+  return dataUri;
 }

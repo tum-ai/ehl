@@ -10,6 +10,15 @@ export const PLACEMENT_POINTS: Record<number, number> = {
 
 export const PARTICIPATION_POINTS = 2;
 
+/**
+ * Whether a placement counts as "placed" (achievement certificate, extra
+ * participation certificate, gold badge). Derived from PLACEMENT_POINTS so the
+ * placed range has exactly one source of truth.
+ */
+export function isPlacedPlacement(placement: number | null): boolean {
+  return placement !== null && PLACEMENT_POINTS[placement] !== undefined;
+}
+
 export function getPoints(
   placement: number | null,
   submitted: boolean

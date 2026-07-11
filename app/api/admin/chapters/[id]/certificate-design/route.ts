@@ -7,6 +7,7 @@ import {
   CERTIFICATE_BACKGROUND_MAX_BYTES,
   CERTIFICATE_BACKGROUND_MIME_TO_EXT,
   certificateBackgroundPath,
+  downloadCertificateBackground,
 } from "@/lib/certificates/designs";
 import type { CertificateVariant } from "@/lib/certificate-token";
 
@@ -16,6 +17,28 @@ import type { CertificateVariant } from "@/lib/certificate-token";
 
 function parseVariant(value: unknown): CertificateVariant | null {
   return value === "participation" || value === "achievement" ? value : null;
+}
+
+/**
+ * Verify the file content actually matches the declared image type. Browsers
+ * derive file.type from the extension, so a renamed WebP arrives as image/png;
+ * react-pdf cannot decode it and every certificate render for the chapter
+ * would fail. Magic bytes: PNG 89 50 4E 47, JPEG FF D8 FF.
+ */
+function matchesMagicBytes(bytes: Uint8Array, mime: string): boolean {
+  if (mime === "image/png") {
+    return (
+      bytes.length >= 4 &&
+      bytes[0] === 0x89 &&
+      bytes[1] === 0x50 &&
+      bytes[2] === 0x4e &&
+      bytes[3] === 0x47
+    );
+  }
+  if (mime === "image/jpeg") {
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  return false;
 }
 
 /** All storage paths a design for this variant may live at (both allowed
@@ -41,30 +64,18 @@ export async function GET(
     return NextResponse.json({ error: "Invalid variant." }, { status: 400 });
   }
 
-  const adminClient = createAdminClient();
-  const { data: design } = await adminClient
-    .from("chapter_certificate_designs")
-    .select("storage_path")
-    .eq("chapter_id", chapterId)
-    .eq("variant", variant)
-    .single();
-
-  if (!design?.storage_path) {
+  const background = await downloadCertificateBackground(
+    createAdminClient(),
+    chapterId,
+    variant
+  );
+  if (!background) {
     return NextResponse.json({ error: "No design uploaded." }, { status: 404 });
   }
 
-  const { data: blob, error } = await adminClient.storage
-    .from(CERTIFICATE_BACKGROUNDS_BUCKET)
-    .download(design.storage_path as string);
-
-  if (error || !blob) {
-    return NextResponse.json({ error: "Design file missing in storage." }, { status: 404 });
-  }
-
-  const mime = (design.storage_path as string).endsWith(".png") ? "image/png" : "image/jpeg";
-  return new NextResponse(Buffer.from(await blob.arrayBuffer()), {
+  return new NextResponse(new Uint8Array(background.buffer), {
     headers: {
-      "Content-Type": blob.type || mime,
+      "Content-Type": background.mime,
       "Cache-Control": "private, no-store",
     },
   });
@@ -101,6 +112,14 @@ export async function POST(
     return NextResponse.json({ error: "File size must be under 5MB." }, { status: 400 });
   }
 
+  const fileBytes = new Uint8Array(await file.arrayBuffer());
+  if (!matchesMagicBytes(fileBytes, file.type)) {
+    return NextResponse.json(
+      { error: "File content does not match its declared image type. Upload a real PNG or JPEG." },
+      { status: 400 }
+    );
+  }
+
   const adminClient = createAdminClient();
 
   // The chapter must exist (also guards against uploading under a bogus id).
@@ -135,7 +154,7 @@ export async function POST(
   const storagePath = certificateBackgroundPath(chapterId, variant, ext);
   const { error: uploadError } = await adminClient.storage
     .from(CERTIFICATE_BACKGROUNDS_BUCKET)
-    .upload(storagePath, await file.arrayBuffer(), {
+    .upload(storagePath, fileBytes, {
       contentType: file.type,
       upsert: true,
     });
