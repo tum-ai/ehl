@@ -1,9 +1,10 @@
 import React from "react";
 import { Document, Page, View, Text, Image, StyleSheet } from "@react-pdf/renderer";
 import {
-  CONTENT_INSET_X,
-  TEXT_BLOCKS,
-  type TextBlockSpec,
+  OVERLAY_LAYOUTS,
+  OVERLAY_BASELINE_GAP,
+  PAGE_HEIGHT,
+  type OverlayFieldSpec,
 } from "./layout";
 import type { CertificateVariant } from "@/lib/certificate-token";
 
@@ -224,26 +225,36 @@ interface CertificateProps {
   personName?: string | null;
   /**
    * Optional custom background design (PNG/JPEG data URI). When set, the image
-   * is drawn full-bleed, the EHL decorations (corner brackets, divider) are
-   * suppressed, and every text block is placed at the fixed positions from
-   * lib/certificates/layout.ts so sponsors can design around documented areas.
+   * is drawn full-bleed and ONLY the certificate VALUES are placed onto the
+   * design's field underlines (positions from lib/certificates/layout.ts). The
+   * design itself carries every static element: title, "AWARDED TO", field
+   * lines, logos, signature. None of the default EHL layout is rendered.
    */
   backgroundImageSrc?: string | null;
 }
 
-/** Absolutely positions children at a layout block (custom design mode). */
-function FixedBlock({ block, children }: { block: TextBlockSpec; children: React.ReactNode }) {
+/** Ink for values written onto a custom design (near-black, reads as filled-in
+ * rather than as part of the artwork). */
+const overlayInk = "#1F1F2E";
+
+/** Centers a value on one of the design's field underlines, baseline just
+ * above the line (custom design mode). */
+function OverlayValue({ field, children }: { field: OverlayFieldSpec; children: React.ReactNode }) {
   return (
     <View
       style={{
         position: "absolute",
-        top: block.top,
-        left: CONTENT_INSET_X,
-        right: CONTENT_INSET_X,
+        // The text box's bottom edge sits OVERLAY_BASELINE_GAP above the
+        // underline; react-pdf line height ~1.2x the font size.
+        top: field.lineY - OVERLAY_BASELINE_GAP - field.fontSize * 1.2,
+        left: field.left,
+        width: field.right - field.left,
         alignItems: "center",
       }}
     >
-      {children}
+      <Text style={{ fontSize: field.fontSize, color: overlayInk, textAlign: "center" }}>
+        {children}
+      </Text>
     </View>
   );
 }
@@ -317,43 +328,44 @@ export function CertificateDocument(props: CertificateProps) {
   );
 
   if (backgroundImageSrc) {
-    // Custom design mode: full-bleed background, text at fixed positions from
-    // layout.ts. No flow layout here — positions must not depend on content
-    // length, or sponsor designs would break for long member lists.
+    // Custom design mode: the uploaded background IS the certificate (title,
+    // "AWARDED TO", field underlines, logos, signature all live in the
+    // artwork). Only the VALUES are written onto the design's underlines, at
+    // the per-variant positions measured from the operator's template
+    // (lib/certificates/layout.ts). Nothing from the default EHL layout —
+    // no badge, no member list, no footer — may be drawn here, or it would
+    // collide with the design's own static text.
+    const layout = OVERLAY_LAYOUTS[variant];
     return (
       <Document>
-        <Page size="A4" orientation="landscape" style={{ position: "relative", fontFamily: "Helvetica" }}>
-          {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt prop */}
-          <Image src={backgroundImageSrc} style={styles.background} />
+        <Page size="A4" orientation="landscape" style={{ fontFamily: "Helvetica" }}>
+          {/* Single non-wrapping full-page container: without it react-pdf
+              pushes the absolutely-positioned values onto a second page (and
+              wrap=false directly on the Page collapses its height to zero).
+              Height in points, not "100%": react-pdf's A4 is fractionally
+              taller (595.28pt) and a 100% container triggers a can't-wrap
+              warning on every render. A certificate is always one page. */}
+          <View wrap={false} style={{ position: "relative", width: "100%", height: PAGE_HEIGHT }}>
+            {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt prop */}
+            <Image src={backgroundImageSrc} style={styles.background} />
 
-          <FixedBlock block={TEXT_BLOCKS.header}>
-            <Text style={styles.ehlTitle}>European Hackathon League</Text>
-          </FixedBlock>
-          <FixedBlock block={TEXT_BLOCKS.certificateOf}>
-            <Text style={styles.certificateOf}>Certificate of</Text>
-          </FixedBlock>
-          <FixedBlock block={TEXT_BLOCKS.title}>
-            <Text style={styles.certificateType}>{certificateTitle}</Text>
-          </FixedBlock>
-          <FixedBlock block={TEXT_BLOCKS.awardedTo}>
-            <Text style={styles.awardedTo}>Awarded to</Text>
-          </FixedBlock>
-          <FixedBlock block={TEXT_BLOCKS.name}>
-            <Text style={styles.teamName}>{awardeeName}</Text>
-          </FixedBlock>
-          {university && (
-            <FixedBlock block={TEXT_BLOCKS.university}>
-              <Text style={styles.university}>{university}</Text>
-            </FixedBlock>
-          )}
-          {!personName && memberNames.length > 0 && (
-            <FixedBlock block={TEXT_BLOCKS.members}>
-              <Text style={styles.members}>{memberNames.join("  ·  ")}</Text>
-            </FixedBlock>
-          )}
-          <FixedBlock block={TEXT_BLOCKS.badge}>{badge}</FixedBlock>
-          <FixedBlock block={TEXT_BLOCKS.details}>{details}</FixedBlock>
-          <FixedBlock block={TEXT_BLOCKS.footer}>{footerText}</FixedBlock>
+            <OverlayValue field={layout.hackathonName}>{chapterName}</OverlayValue>
+            <OverlayValue field={layout.awardee}>{awardeeName}</OverlayValue>
+            {/* The team line is context on PERSONAL certificates; on a team
+                certificate the awardee already is the team, so it stays empty. */}
+            {personName && (
+              <OverlayValue field={layout.teamName}>{teamName}</OverlayValue>
+            )}
+            {layout.rank && (
+              <OverlayValue field={layout.rank}>{placementLabel}</OverlayValue>
+            )}
+            {layout.points && (
+              <OverlayValue field={layout.points}>{points} points</OverlayValue>
+            )}
+            <OverlayValue field={layout.cityDate}>
+              {chapterDate ? `${chapterCity} · ${chapterDate}` : chapterCity}
+            </OverlayValue>
+          </View>
         </Page>
       </Document>
     );
@@ -401,48 +413,74 @@ export function CertificateDocument(props: CertificateProps) {
 }
 
 /**
- * Operator design template: a PDF marking every text area from layout.ts as a
- * labeled box, so sponsors know which regions of their background design must
- * stay free. Downloaded from the admin certificate-designs page.
+ * Operator design template: a PDF marking every value field from layout.ts as
+ * a labeled box, one page per certificate variant. A custom design must be a
+ * COMPLETE certificate (title, "AWARDED TO", underlines, logos); the platform
+ * only writes the values into these boxes. Downloaded from the admin
+ * certificate-designs page.
  */
 export function CertificateDesignGuide() {
+  const pages: { title: string; variant: CertificateVariant }[] = [
+    { title: "Achievement certificate (placed teams)", variant: "achievement" },
+    { title: "Participation certificate", variant: "participation" },
+  ];
   return (
     <Document>
-      <Page size="A4" orientation="landscape" style={{ position: "relative", fontFamily: "Helvetica" }}>
-        <View
-          style={{
-            position: "absolute",
-            top: 8,
-            left: CONTENT_INSET_X,
-            right: CONTENT_INSET_X,
-          }}
-        >
-          <Text style={{ fontSize: 10, color: "#666666", textAlign: "center" }}>
-            EHL certificate design template (A4 landscape). Boxed areas are used for
-            certificate text: keep them free of important artwork.
-          </Text>
-        </View>
-        {Object.values(TEXT_BLOCKS).map((block) => (
-          <View
-            key={block.label}
-            style={{
-              position: "absolute",
-              top: block.top,
-              left: CONTENT_INSET_X,
-              right: CONTENT_INSET_X,
-              height: block.height,
-              borderWidth: 1,
-              borderColor: purple,
-              borderStyle: "dashed",
-              justifyContent: "center",
-            }}
+      {pages.map(({ title, variant }) => {
+        const layout = OVERLAY_LAYOUTS[variant];
+        const fields = [
+          layout.hackathonName,
+          layout.awardee,
+          layout.teamName,
+          ...(layout.rank ? [layout.rank] : []),
+          ...(layout.points ? [layout.points] : []),
+          layout.cityDate,
+          layout.signature,
+        ];
+        return (
+          <Page
+            key={variant}
+            size="A4"
+            orientation="landscape"
+            style={{ fontFamily: "Helvetica" }}
           >
-            <Text style={{ fontSize: 8, color: purple, textAlign: "center" }}>
-              {block.label}
-            </Text>
-          </View>
-        ))}
-      </Page>
+            {/* Same single-container trick as the certificate itself. */}
+            <View wrap={false} style={{ position: "relative", width: "100%", height: PAGE_HEIGHT }}>
+              <View style={{ position: "absolute", top: 10, left: 60, right: 60 }}>
+                <Text style={{ fontSize: 11, color: "#333333", textAlign: "center" }}>
+                  EHL design template: {title}
+                </Text>
+                <Text style={{ fontSize: 8, color: "#666666", textAlign: "center", marginTop: 4 }}>
+                  Your design must be a complete certificate (title, labels, underlines,
+                  logos). The platform only writes the values into the boxed areas below,
+                  centered, with the text baseline sitting on the box bottom. Export as
+                  PNG or JPEG, A4 landscape, recommended 2384x1684 px.
+                </Text>
+              </View>
+              {fields.map((field) => (
+                <View
+                  key={field.label}
+                  style={{
+                    position: "absolute",
+                    top: field.lineY - OVERLAY_BASELINE_GAP - field.fontSize * 1.2,
+                    left: field.left,
+                    width: field.right - field.left,
+                    height: field.fontSize * 1.2 + OVERLAY_BASELINE_GAP,
+                    borderWidth: 1,
+                    borderColor: purple,
+                    borderStyle: "dashed",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Text style={{ fontSize: 8, color: purple, textAlign: "center" }}>
+                    {field.label}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </Page>
+        );
+      })}
     </Document>
   );
 }

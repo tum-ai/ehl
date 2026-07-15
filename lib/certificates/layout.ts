@@ -1,48 +1,75 @@
 // Single source of truth for certificate text geometry (A4 landscape, points).
 //
+// CUSTOM DESIGN MODE (operator-uploaded backgrounds): the uploaded design is a
+// COMPLETE certificate (title, "AWARDED TO", field underlines, logos) and the
+// renderer only fills in the VALUES on the design's underlines. The field
+// positions below are measured from the operator's certificate template
+// ("Hackathon Certificates Templates" PDF, A4 landscape 842x595pt, one field
+// map per variant). Backgrounds exported from that template line up exactly.
+//
 // Two consumers depend on these numbers staying in sync:
-//   1. `lib/certificates/template.tsx` positions every text block from them when
-//      a custom background design is used (absolute layout, so positions are
-//      deterministic regardless of how many members a team has).
+//   1. `lib/certificates/template.tsx` places every value from them.
 //   2. The operator design-template PDF (`CertificateDesignGuide`) draws the
-//      same blocks as labeled boxes so sponsors know which areas to keep free.
-// If a position changes here, both the rendered certificates and the guide
-// sponsors design against move together — they cannot drift apart.
+//      same fields as labeled boxes, one page per variant, so designers know
+//      where values will land. If a position changes here, both the rendered
+//      certificates and the guide move together — they cannot drift apart.
 
 /** A4 landscape in PDF points. */
 export const PAGE_WIDTH = 842;
 export const PAGE_HEIGHT = 595;
 
-/** Horizontal inset of every text block; all blocks span the full width between
- * insets and are center-aligned. */
-export const CONTENT_INSET_X = 60;
-
-export interface TextBlockSpec {
-  /** Distance from the top edge of the page, in points. */
-  top: number;
-  /** Reserved height sponsors must keep free, in points. */
-  height: number;
+export interface OverlayFieldSpec {
+  /** Y of the field's underline in the design, from the top edge (pt). The
+   * value's baseline sits just above this line. */
+  lineY: number;
+  /** Left edge of the underline (pt). */
+  left: number;
+  /** Right edge of the underline (pt). */
+  right: number;
+  /** Font size of the value (pt). */
+  fontSize: number;
   /** Human-readable label used in the operator design guide. */
   label: string;
 }
 
-/**
- * Fixed vertical positions of every text block drawn onto a custom background.
- * The values approximate the default (flow-layout) EHL design so a certificate
- * looks familiar whether or not a custom design is uploaded.
- */
-export const TEXT_BLOCKS = {
-  header: { top: 60, height: 20, label: "EUROPEAN HACKATHON LEAGUE (wordmark)" },
-  certificateOf: { top: 108, height: 16, label: "CERTIFICATE OF" },
-  title: { top: 128, height: 40, label: "Achievement / Participation (title)" },
-  awardedTo: { top: 186, height: 14, label: "AWARDED TO" },
-  name: { top: 204, height: 36, label: "Team or participant name" },
-  university: { top: 244, height: 18, label: "University" },
-  members: { top: 268, height: 34, label: "Member names (team certificates)" },
-  badge: { top: 312, height: 52, label: "Placement / participant badge" },
-  details: { top: 384, height: 44, label: "Match / challenge / location / date" },
-  footer: { top: PAGE_HEIGHT - 50, height: 14, label: "EHL footer line" },
-} as const satisfies Record<string, TextBlockSpec>;
+interface OverlayLayout {
+  hackathonName: OverlayFieldSpec;
+  awardee: OverlayFieldSpec;
+  teamName: OverlayFieldSpec;
+  /** Achievement only: placement, left column. */
+  rank?: OverlayFieldSpec;
+  /** Achievement only: points, right column. */
+  points?: OverlayFieldSpec;
+  cityDate: OverlayFieldSpec;
+  /** Present in the design but NEVER auto-filled (a printed signature belongs
+   * into the background artwork). Listed so the guide can say so. */
+  signature: OverlayFieldSpec & { neverFilled: true };
+}
+
+/** Field positions measured from the operator's template, per variant. The
+ * participation design has no rank/points row, so its lower fields sit
+ * slightly deeper than on the achievement design. */
+export const OVERLAY_LAYOUTS: Record<"achievement" | "participation", OverlayLayout> = {
+  achievement: {
+    hackathonName: { lineY: 243, left: 237, right: 605, fontSize: 15, label: "Hackathon name" },
+    awardee: { lineY: 311, left: 180, right: 662, fontSize: 24, label: "Awarded to (participant or team name)" },
+    teamName: { lineY: 371, left: 294, right: 549, fontSize: 13, label: "Team name (personal certificates)" },
+    rank: { lineY: 430, left: 182, right: 397, fontSize: 14, label: "Rank / placement" },
+    points: { lineY: 430, left: 445, right: 660, fontSize: 14, label: "Points / score" },
+    cityDate: { lineY: 492, left: 176, right: 403, fontSize: 10, label: "City, date" },
+    signature: { lineY: 492, left: 440, right: 666, fontSize: 10, label: "Signature (not auto-filled)", neverFilled: true },
+  },
+  participation: {
+    hackathonName: { lineY: 243, left: 237, right: 605, fontSize: 15, label: "Hackathon name" },
+    awardee: { lineY: 334, left: 180, right: 662, fontSize: 24, label: "Awarded to (participant or team name)" },
+    teamName: { lineY: 407, left: 294, right: 549, fontSize: 13, label: "Team name (personal certificates)" },
+    cityDate: { lineY: 481, left: 176, right: 403, fontSize: 10, label: "City, date" },
+    signature: { lineY: 481, left: 440, right: 666, fontSize: 10, label: "Signature (not auto-filled)", neverFilled: true },
+  },
+};
+
+/** Gap between a value's text bottom and its underline (pt). */
+export const OVERLAY_BASELINE_GAP = 6;
 
 /**
  * Recommended raster size for uploaded backgrounds: 200 dpi A4 landscape.
