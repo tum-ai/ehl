@@ -79,9 +79,31 @@ function makeDb(opts: { chapterExists?: boolean; designPath?: string | null } = 
   return { db, upload, remove, download, upsert, createBucket };
 }
 
-// Minimal byte prefixes that satisfy the magic-byte content check.
-const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
-const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+// Minimal headers that satisfy the magic-byte AND dimension checks (the
+// route reads width/height from the PNG IHDR / JPEG SOF header).
+function pngBytes(width = 2384, height = 1684): Uint8Array<ArrayBuffer> {
+  const arr = new Uint8Array(26);
+  const view = new DataView(arr.buffer);
+  arr.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]); // signature
+  view.setUint32(8, 13); // IHDR length
+  arr.set([0x49, 0x48, 0x44, 0x52], 12); // "IHDR"
+  view.setUint32(16, width);
+  view.setUint32(20, height);
+  return arr;
+}
+function jpegBytes(width = 2384, height = 1684): Uint8Array<ArrayBuffer> {
+  // FFD8 + SOF0 segment carrying the frame dimensions.
+  const arr = new Uint8Array(13);
+  const view = new DataView(arr.buffer);
+  arr.set([0xff, 0xd8, 0xff, 0xc0]);
+  view.setUint16(4, 9); // segment length
+  arr[6] = 8; // precision
+  view.setUint16(7, height);
+  view.setUint16(9, width);
+  return arr;
+}
+const PNG_BYTES = pngBytes();
+const JPEG_BYTES = jpegBytes();
 
 function uploadRequest(opts: { variant?: string; file?: File | null } = {}) {
   const formData = new FormData();
@@ -138,6 +160,27 @@ describe("POST /api/admin/chapters/[id]/certificate-design", () => {
 
   it("rejects files over 5MB => 400", async () => {
     const file = new File([Buffer.alloc(5 * 1024 * 1024 + 1)], "big.png", {
+      type: "image/png",
+    });
+    const res = await POST(uploadRequest({ file }), params());
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a non-A4-landscape design (would shift values off the field lines) => 400", async () => {
+    // 16:9 export: stretched full-bleed it would move every printed underline.
+    const file = new File([pngBytes(1920, 1080)], "wide.png", { type: "image/png" });
+    const res = await POST(uploadRequest({ file }), params());
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a portrait design => 400", async () => {
+    const file = new File([jpegBytes(1684, 2384)], "portrait.jpg", { type: "image/jpeg" });
+    const res = await POST(uploadRequest({ file }), params());
+    expect(res.status).toBe(400);
+  });
+
+  it("rejects a PNG whose header is too short to carry dimensions => 400", async () => {
+    const file = new File([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a])], "trunc.png", {
       type: "image/png",
     });
     const res = await POST(uploadRequest({ file }), params());

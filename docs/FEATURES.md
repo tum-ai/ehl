@@ -448,14 +448,20 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
   a neutral participation certificate link
 
 ### Certificate Designs (`/admin/chapters/<id>/certificates`)
-- Global admins upload a custom full-page background per chapter and per
-  certificate variant (participation / achievement), e.g. with sponsor logos
-- PNG or JPEG only (react-pdf cannot draw WebP/AVIF; SVG banned repo-wide),
-  max 5MB, recommended 2384x1684 px (A4 landscape at 200 dpi)
+- Global admins upload a custom certificate design per chapter and per
+  variant (participation / achievement), e.g. with sponsor logos
+- The uploaded design is a COMPLETE certificate (title, labels, field
+  underlines, logos, signature); the platform only writes the values
+  (hackathon name, awardee, team, rank/points, city and date) onto the
+  design's field lines at fixed per-variant positions
+  (`lib/certificates/layout.ts`); the signature field is never auto-filled
+- A downloadable design-template PDF (one page per variant) marks exactly
+  where each value lands
+- PNG or JPEG only (react-pdf cannot draw WebP/AVIF; SVG banned repo-wide;
+  design tools should export PNG, not PDF), max 5MB, recommended 2384x1684 px
+  (A4 landscape at 200 dpi)
 - Stored in the PRIVATE `certificate-backgrounds` Supabase Storage bucket
   (designs must not be enumerable before an event)
-- Certificate text is placed at fixed positions on top; a downloadable design
-  template PDF marks the areas sponsors must keep free
 - Without an upload (or if the file goes missing) certificates fall back to
   the default EHL design; emailed links never break
 

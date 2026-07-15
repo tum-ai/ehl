@@ -162,11 +162,14 @@ export function CertificateDesignsManager({ chapterId }: { chapterId: string }) 
       <Card>
         <h2 className="ad-heading text-lg">How it works</h2>
         <p className="mt-1 text-sm ad-text-secondary">
-          Upload a full-page background image per certificate type, for example with
-          sponsor logos. Certificate text (names, placement, match details) is placed
-          on top at fixed positions. Use the design template to see which areas must
-          stay free. PNG or JPEG, max 5MB, recommended 2384x1684 px (A4 landscape at
-          200 dpi). Without an upload, certificates use the default EHL design.
+          Upload a COMPLETE certificate design per type: title, labels, field
+          underlines, logos and (optionally) a printed signature all belong in your
+          artwork. The platform only writes the values (hackathon name, awardee,
+          team, rank and points, city and date) onto your field lines, at the fixed
+          positions shown in the design template below. Design in your tool of
+          choice and export as PNG or JPEG (not PDF), A4 landscape, max 5MB,
+          recommended 2384x1684 px (200 dpi). Without an upload, certificates use
+          the default EHL design.
         </p>
         <a
           href="/api/admin/certificate-design-template"

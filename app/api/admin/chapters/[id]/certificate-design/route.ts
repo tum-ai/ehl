@@ -10,6 +10,7 @@ import {
   downloadCertificateBackground,
 } from "@/lib/certificates/designs";
 import type { CertificateVariant } from "@/lib/certificate-token";
+import { isValidBackgroundAspect } from "@/lib/certificates/layout";
 
 // Custom certificate background designs for one chapter (certificates v2,
 // Stage 1). GLOBAL admin only: designs are chapter settings, which local
@@ -39,6 +40,40 @@ function matchesMagicBytes(bytes: Uint8Array, mime: string): boolean {
     return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
   }
   return false;
+}
+
+/**
+ * Read the pixel dimensions from a PNG IHDR / JPEG SOF header (no decoder
+ * needed). Returns null when the header cannot be parsed, which is treated as
+ * an invalid upload: the image is stretched full-bleed under fixed value
+ * positions, so we must be able to check its aspect ratio.
+ */
+function readImageDimensions(
+  bytes: Uint8Array,
+  mime: string
+): { width: number; height: number } | null {
+  const u32 = (o: number) =>
+    ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]) >>> 0;
+  const u16 = (o: number) => (bytes[o] << 8) | bytes[o + 1];
+  if (mime === "image/png") {
+    // Signature (8) + IHDR chunk: length(4) + "IHDR"(4) + width(4) + height(4)
+    if (bytes.length < 24) return null;
+    return { width: u32(16), height: u32(20) };
+  }
+  if (mime === "image/jpeg") {
+    // Walk the JPEG segments to the first SOF marker (C0-CF except C4/C8/CC).
+    let offset = 2;
+    while (offset + 9 < bytes.length) {
+      if (bytes[offset] !== 0xff) return null;
+      const marker = bytes[offset + 1];
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return { width: u16(offset + 7), height: u16(offset + 5) };
+      }
+      offset += 2 + u16(offset + 2);
+    }
+    return null;
+  }
+  return null;
 }
 
 /** All storage paths a design for this variant may live at (both allowed
@@ -116,6 +151,21 @@ export async function POST(
   if (!matchesMagicBytes(fileBytes, file.type)) {
     return NextResponse.json(
       { error: "File content does not match its declared image type. Upload a real PNG or JPEG." },
+      { status: 400 }
+    );
+  }
+
+  // The design is stretched full-bleed under FIXED value positions: any
+  // non-A4-landscape aspect would silently shift the design's printed field
+  // lines away from where the values are drawn. Reject it here, with a clear
+  // message, instead of producing misaligned certificates.
+  const dimensions = readImageDimensions(fileBytes, file.type);
+  if (!dimensions || !isValidBackgroundAspect(dimensions.width, dimensions.height)) {
+    return NextResponse.json(
+      {
+        error:
+          "The design must be A4 landscape (aspect ratio 1.41:1, e.g. 2384x1684 px). Other formats would shift the certificate text off the design's field lines.",
+      },
       { status: 400 }
     );
   }
