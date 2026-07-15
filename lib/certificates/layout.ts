@@ -71,6 +71,34 @@ export const OVERLAY_LAYOUTS: Record<"achievement" | "participation", OverlayLay
 /** Gap between a value's text bottom and its underline (pt). */
 export const OVERLAY_BASELINE_GAP = 6;
 
+/** react-pdf line-box factor for built-in Helvetica; validated visually
+ * against the operator's design (values sit on the underlines). */
+export const OVERLAY_LINE_HEIGHT_FACTOR = 1.2;
+
+// Shared box geometry so the renderer and the design guide use the SAME
+// numbers by construction (this file's whole purpose).
+export function overlayBoxTop(field: OverlayFieldSpec, fontSize = field.fontSize): number {
+  return field.lineY - OVERLAY_BASELINE_GAP - fontSize * OVERLAY_LINE_HEIGHT_FACTOR;
+}
+export function overlayBoxHeight(field: OverlayFieldSpec, fontSize = field.fontSize): number {
+  return fontSize * OVERLAY_LINE_HEIGHT_FACTOR + OVERLAY_BASELINE_GAP;
+}
+
+/**
+ * Uploaded designs must match the page's A4-landscape aspect ratio: the image
+ * is stretched full-bleed, so any other aspect shifts the design's printed
+ * field lines away from the fixed value positions above. sqrt(2):1 with a
+ * small tolerance for rounding in exports.
+ */
+export const REQUIRED_BACKGROUND_ASPECT = PAGE_WIDTH / PAGE_HEIGHT;
+export const BACKGROUND_ASPECT_TOLERANCE = 0.03;
+
+export function isValidBackgroundAspect(width: number, height: number): boolean {
+  if (width <= 0 || height <= 0) return false;
+  const aspect = width / height;
+  return Math.abs(aspect - REQUIRED_BACKGROUND_ASPECT) <= REQUIRED_BACKGROUND_ASPECT * BACKGROUND_ASPECT_TOLERANCE;
+}
+
 /**
  * Recommended raster size for uploaded backgrounds: 200 dpi A4 landscape.
  * Documented in the admin UI and docs; not enforced (any PNG/JPEG under the

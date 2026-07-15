@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import type React from "react";
-import { CertificateDocument, CertificateDesignGuide } from "@/lib/certificates/template";
-import { OVERLAY_LAYOUTS } from "@/lib/certificates/layout";
+import {
+  CertificateDocument,
+  CertificateDesignGuide,
+  fitOverlayFontSize,
+} from "@/lib/certificates/template";
+import { OVERLAY_LAYOUTS, isValidBackgroundAspect } from "@/lib/certificates/layout";
 
 // Content tests on the React element tree (no PDF rendering needed): the
 // certificate guarantees are about WHICH text appears, per variant.
@@ -16,8 +20,12 @@ function collectText(node: unknown, out: string[] = []): string[] {
     for (const child of node) collectText(child, out);
     return out;
   }
-  const element = node as React.ReactElement<{ children?: unknown }>;
-  if (element.props) collectText(element.props.children, out);
+  const element = node as React.ReactElement<{ children?: unknown; value?: unknown }>;
+  if (element.props) {
+    collectText(element.props.children, out);
+    // Overlay values are passed as a `value` prop, not as children.
+    if (typeof element.props.value === "string") out.push(element.props.value);
+  }
   return out;
 }
 
@@ -167,6 +175,27 @@ describe("CertificateDesignGuide", () => {
   });
 });
 
+describe("fitOverlayFontSize", () => {
+  const field = OVERLAY_LAYOUTS.achievement.awardee;
+
+  it("keeps the base size for values that fit the field", () => {
+    expect(fitOverlayFontSize("Alice Mueller", field)).toBe(field.fontSize);
+  });
+
+  it("shrinks long values so they stay on one line", () => {
+    const long = "Extraordinarily Long Participant Name That Would Wrap";
+    const size = fitOverlayFontSize(long, field);
+    expect(size).toBeLessThan(field.fontSize);
+    // Shrunk exactly to the estimated field width, so it still fills the line.
+    expect(size).toBeGreaterThan(field.fontSize * 0.55);
+  });
+
+  it("never shrinks below 55% of the base size (legibility floor)", () => {
+    const extreme = "x".repeat(500);
+    expect(fitOverlayFontSize(extreme, field)).toBeCloseTo(field.fontSize * 0.55, 5);
+  });
+});
+
 describe("custom design real rendering", () => {
   // Regression: a full-page background image used to push the absolutely
   // positioned values onto a second, background-less page. Render through the
@@ -192,4 +221,19 @@ describe("custom design real rendering", () => {
     expect(pdf).toContain("/Count 1");
     expect(pdf).not.toContain("/Count 2");
   }, 30000);
+});
+
+describe("isValidBackgroundAspect", () => {
+  it("accepts A4-landscape exports (including the operator template's own render)", () => {
+    expect(isValidBackgroundAspect(2384, 1684)).toBe(true);
+    expect(isValidBackgroundAspect(2340, 1655)).toBe(true); // 200dpi pdftoppm render
+    expect(isValidBackgroundAspect(842, 595)).toBe(true);
+  });
+
+  it("rejects 16:9, portrait, and degenerate dimensions", () => {
+    expect(isValidBackgroundAspect(1920, 1080)).toBe(false);
+    expect(isValidBackgroundAspect(1684, 2384)).toBe(false);
+    expect(isValidBackgroundAspect(0, 100)).toBe(false);
+    expect(isValidBackgroundAspect(100, 0)).toBe(false);
+  });
 });

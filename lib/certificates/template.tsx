@@ -2,7 +2,8 @@ import React from "react";
 import { Document, Page, View, Text, Image, StyleSheet } from "@react-pdf/renderer";
 import {
   OVERLAY_LAYOUTS,
-  OVERLAY_BASELINE_GAP,
+  overlayBoxTop,
+  overlayBoxHeight,
   PAGE_HEIGHT,
   type OverlayFieldSpec,
 } from "./layout";
@@ -237,23 +238,46 @@ interface CertificateProps {
  * rather than as part of the artwork). */
 const overlayInk = "#1F1F2E";
 
+/**
+ * Font size that fits `value` on a single line of the field: the base size
+ * shrinks proportionally for long values (floor: 55% of base, so extreme
+ * inputs stay legible and the maxLines=1 ellipsis catches the pathological
+ * rest). Width estimate: average Helvetica glyph is ~0.52em wide.
+ */
+export function fitOverlayFontSize(value: string, field: OverlayFieldSpec): number {
+  const width = field.right - field.left;
+  const estimated = value.length * 0.52 * field.fontSize;
+  if (estimated <= width) return field.fontSize;
+  return Math.max(field.fontSize * (width / estimated), field.fontSize * 0.55);
+}
+
 /** Centers a value on one of the design's field underlines, baseline just
- * above the line (custom design mode). */
-function OverlayValue({ field, children }: { field: OverlayFieldSpec; children: React.ReactNode }) {
+ * above the line, shrinking the font for long values so nothing wraps onto
+ * the design's artwork (custom design mode). */
+function OverlayValue({ field, value }: { field: OverlayFieldSpec; value: string }) {
+  const fontSize = fitOverlayFontSize(value, field);
   return (
     <View
       style={{
         position: "absolute",
-        // The text box's bottom edge sits OVERLAY_BASELINE_GAP above the
-        // underline; react-pdf line height ~1.2x the font size.
-        top: field.lineY - OVERLAY_BASELINE_GAP - field.fontSize * 1.2,
+        // Box geometry from layout.ts so the design guide draws the exact
+        // same boxes (text bottom sits OVERLAY_BASELINE_GAP above the line).
+        top: overlayBoxTop(field, fontSize),
         left: field.left,
         width: field.right - field.left,
         alignItems: "center",
       }}
     >
-      <Text style={{ fontSize: field.fontSize, color: overlayInk, textAlign: "center" }}>
-        {children}
+      <Text
+        style={{
+          fontSize,
+          color: overlayInk,
+          textAlign: "center",
+          maxLines: 1,
+          textOverflow: "ellipsis",
+        }}
+      >
+        {value}
       </Text>
     </View>
   );
@@ -349,22 +373,21 @@ export function CertificateDocument(props: CertificateProps) {
             {/* eslint-disable-next-line jsx-a11y/alt-text -- react-pdf Image has no alt prop */}
             <Image src={backgroundImageSrc} style={styles.background} />
 
-            <OverlayValue field={layout.hackathonName}>{chapterName}</OverlayValue>
-            <OverlayValue field={layout.awardee}>{awardeeName}</OverlayValue>
+            <OverlayValue field={layout.hackathonName} value={chapterName} />
+            <OverlayValue field={layout.awardee} value={awardeeName} />
             {/* The team line is context on PERSONAL certificates; on a team
                 certificate the awardee already is the team, so it stays empty. */}
-            {personName && (
-              <OverlayValue field={layout.teamName}>{teamName}</OverlayValue>
-            )}
+            {personName && <OverlayValue field={layout.teamName} value={teamName} />}
             {layout.rank && (
-              <OverlayValue field={layout.rank}>{placementLabel}</OverlayValue>
+              <OverlayValue field={layout.rank} value={placementLabel} />
             )}
             {layout.points && (
-              <OverlayValue field={layout.points}>{points} points</OverlayValue>
+              <OverlayValue field={layout.points} value={`${points} points`} />
             )}
-            <OverlayValue field={layout.cityDate}>
-              {chapterDate ? `${chapterCity} · ${chapterDate}` : chapterCity}
-            </OverlayValue>
+            <OverlayValue
+              field={layout.cityDate}
+              value={chapterDate ? `${chapterCity} · ${chapterDate}` : chapterCity}
+            />
           </View>
         </Page>
       </Document>
@@ -428,15 +451,7 @@ export function CertificateDesignGuide() {
     <Document>
       {pages.map(({ title, variant }) => {
         const layout = OVERLAY_LAYOUTS[variant];
-        const fields = [
-          layout.hackathonName,
-          layout.awardee,
-          layout.teamName,
-          ...(layout.rank ? [layout.rank] : []),
-          ...(layout.points ? [layout.points] : []),
-          layout.cityDate,
-          layout.signature,
-        ];
+        const fields = Object.values(layout) as OverlayFieldSpec[];
         return (
           <Page
             key={variant}
@@ -462,10 +477,10 @@ export function CertificateDesignGuide() {
                   key={field.label}
                   style={{
                     position: "absolute",
-                    top: field.lineY - OVERLAY_BASELINE_GAP - field.fontSize * 1.2,
+                    top: overlayBoxTop(field),
                     left: field.left,
                     width: field.right - field.left,
-                    height: field.fontSize * 1.2 + OVERLAY_BASELINE_GAP,
+                    height: overlayBoxHeight(field),
                     borderWidth: 1,
                     borderColor: purple,
                     borderStyle: "dashed",
