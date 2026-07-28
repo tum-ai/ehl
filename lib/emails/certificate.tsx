@@ -14,9 +14,9 @@ interface CertificateEmailProps {
   /** Personal certificate link; null when the member has no profile name to
    * print (the personal variant needs one). */
   personalCertificateUrl: string | null;
-  teamCertificateUrl: string;
-  /** Neutral team participation certificate; only offered to placed teams
-   * (unplaced teams' team certificate already is the participation one). */
+  /** Personal, ranking-free participation certificate. Only offered as a
+   * second link to placed members; for unplaced members it is the primary
+   * personal certificate above. */
   participationCertificateUrl: string | null;
 }
 
@@ -28,7 +28,6 @@ export function CertificateEmail({
   chapterDate,
   resultLabel,
   personalCertificateUrl,
-  teamCertificateUrl,
   participationCertificateUrl,
 }: CertificateEmailProps) {
   return (
@@ -57,15 +56,11 @@ export function CertificateEmail({
         </Button>
       )}
 
-      <Button href={teamCertificateUrl}>
-        Download Team Certificate (PDF)
-      </Button>
-
       {participationCertificateUrl && (
         <>
           <Text muted>
-            Your team placed, so you can also download a neutral participation
-            certificate that shows no ranking:
+            Your team placed, so you can also download your personal participation
+            certificate without the ranking:
           </Text>
           <Button href={participationCertificateUrl}>
             Download Participation Certificate (PDF)
