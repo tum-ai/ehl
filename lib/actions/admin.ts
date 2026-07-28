@@ -8,7 +8,7 @@ import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate, runWithConcurrency } from "@/lib/utils";
 import { isPlacedPlacement } from "@/lib/scoring";
-import { certificateToken, certificateTokenV2 } from "@/lib/certificate-token";
+import { certificateTokenV2 } from "@/lib/certificate-token";
 import { logEvent, logEventStrict } from "@/lib/event-log";
 import { MAX_TEAM_SIZE, MIN_TEAM_SIZE } from "@/lib/config/limits";
 import type { ChapterStatus } from "@/lib/types";
@@ -1763,35 +1763,43 @@ export async function sendCertificateEmails(chapterId: string) {
 
     const placement = score.placement as number | null;
     const isPlaced = isPlacedPlacement(placement);
-    // Participation certificates carry no points; only placed teams see them.
+    // Participation certificates carry no points. Placed members receive one
+    // in addition to their achievement certificate.
     const resultLabel = isPlaced
       ? `${getPlacementLabel(placement as number)} Place (+${score.points as number} pts)`
       : "Participant";
     const defaultVariant = isPlaced ? ("achievement" as const) : ("participation" as const);
 
-    // Unguessable capability tokens so the links work without login while
-    // staying bound to exactly one certificate each. The team link keeps the
-    // legacy v1 shape (same URL as previously emailed links); the personal and
-    // participation links use v2 tokens scoped to their (member, variant). See
-    // lib/certificate-token.ts.
+    // Unguessable capability tokens let links work without login while staying
+    // bound to exactly one member and certificate variant.
     const routeUrl = `${baseUrl}/api/certificates/${chapterId}/${teamId}`;
-    const teamCertificateUrl = `${routeUrl}?token=${certificateToken(chapterId, teamId)}`;
-    const participationCertificateUrl = isPlaced
-      ? `${routeUrl}?variant=participation&token=${certificateTokenV2(chapterId, teamId, { variant: "participation" })}`
-      : null;
 
     // One email per member: each carries that member's own personal
     // certificate link, so recipients can no longer share a single message.
     for (const m of members) {
       const userId = m.user_id as string;
       const profile = m.profiles as unknown as { email: string | null; name: string | null } | null;
-      if (!profile?.email) continue;
+      if (!profile?.email || !profile.name) {
+        console.error(
+          `Cannot send personal certificates to member ${userId} of team ${teamId}: profile email or name is missing.`
+        );
+        failed++;
+        continue;
+      }
       const email = profile.email;
 
-      // The personal variant prints the member's name; without one there is
-      // nothing to certify, so offer only the team certificate(s).
-      const personalCertificateUrl = profile.name
-        ? `${routeUrl}?variant=${defaultVariant}&member=${userId}&token=${certificateTokenV2(chapterId, teamId, { variant: defaultVariant, memberId: userId })}`
+      const personalCertificateUrl =
+        `${routeUrl}?variant=${defaultVariant}&member=${userId}` +
+        `&token=${certificateTokenV2(chapterId, teamId, {
+          variant: defaultVariant,
+          memberId: userId,
+        })}`;
+      const participationCertificateUrl = isPlaced
+        ? `${routeUrl}?variant=participation&member=${userId}` +
+          `&token=${certificateTokenV2(chapterId, teamId, {
+            variant: "participation",
+            memberId: userId,
+          })}`
         : null;
 
       sendJobs.push(async () => {
@@ -1804,7 +1812,6 @@ export async function sendCertificateEmails(chapterId: string) {
             chapterDate,
             resultLabel,
             personalCertificateUrl,
-            teamCertificateUrl,
             participationCertificateUrl,
           });
 

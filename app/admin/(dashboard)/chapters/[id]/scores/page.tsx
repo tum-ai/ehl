@@ -294,7 +294,7 @@ export default function AdminScoresPage({
   }
 
   async function handleSendCertificates() {
-    if (!confirm("Send certificate emails to all teams with published scores? Each team member will receive their own email with personal and team certificate links.")) {
+    if (!confirm("Send certificate emails to all teams with published scores? Each team member will receive their own personal certificate links.")) {
       return;
     }
     setSendingCerts(true);

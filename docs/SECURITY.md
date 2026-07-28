@@ -101,7 +101,11 @@ Every server action follows this pattern:
 
 - Admin API routes check the session and email allowlist (`requireAdmin()`); per-chapter routes a local admin may read use `requireChapterAdminApi(chapterId)`
 - Cron routes use Bearer token auth (`CRON_SECRET`)
-- Certificate routes accept EITHER session auth (team member or admin) OR an unguessable capability token bound to the exact `(chapterId, teamId)` pair (see Cryptography below); they only ever serve published scores. The token path lets emailed certificate links open without login while preventing enumeration of other teams' certificates.
+- Certificate routes accept EITHER session auth (team member or admin) OR an
+  unguessable capability token bound to the exact chapter, team, member, and
+  certificate variant (see Cryptography below); they only ever serve published
+  scores. The token path lets emailed certificate links open without login while
+  preventing access to another member's certificate.
 - Jury API routes check both session and role (jury or admin)
 
 ---
@@ -176,12 +180,16 @@ Certificate PDFs are emailed to participants who may not be logged in. The route
 `/api/certificates/[chapterId]/[teamId]` is therefore reachable without a session,
 but only with a valid capability token:
 
-- **Algorithm**: HMAC-SHA256 over `${chapterId}:${teamId}`, base64url-encoded
+- **Algorithm**: HMAC-SHA256 over the chapter, team, certificate variant, and
+  member scope, base64url-encoded
 - **Key**: `CERTIFICATE_LINK_SECRET` env var (falls back to `VERIFICATION_ENCRYPTION_KEY`); SHA-256-derived and label-namespaced so it never collides with the AES key above
 - **Implementation**: `lib/certificate-token.ts`
 - **Verification**: the route recomputes the expected token and compares with `crypto.timingSafeEqual` (length-checked first to avoid an exception oracle)
-- **Scope**: a token authorizes ONLY its own certificate. It is bound to both ids, so team A's link cannot reveal team B (the HMAC for a different pair differs and cannot be forged without the secret). chapterId/teamId remain effectively unguessable to outsiders.
-- **No DB/migration**: stateless. Rotating the secret invalidates all previously emailed links at once; logged-in admins/members are unaffected (their session path is unchanged). There is no token expiry by design; the link's only sensitive content is the team's own already-published certificate.
+- **Scope**: a current token authorizes ONLY one member's exact certificate
+  variant. Changing the chapter, team, member, or variant invalidates it. Legacy
+  team-scoped tokens remain accepted only by the old default URL so links from
+  emails already sent do not break.
+- **No DB/migration**: stateless. Rotating the secret invalidates all previously emailed links at once; logged-in admins/members are unaffected (their session path is unchanged). There is no token expiry by design; the link's only sensitive content is the member's own already-published certificate.
 - The session path (admin or team member) is preserved unchanged, and the existing `certLimiter` rate limit now runs on every request before any auth branch, so the token path is rate-limited too.
 
 ### Supabase Auth

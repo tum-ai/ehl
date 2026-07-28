@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import path from "path";
 
 export default defineConfig({
@@ -6,7 +6,10 @@ export default defineConfig({
     globals: true,
     environment: "node",
     css: false,
-    exclude: ["node_modules", "e2e/**"],
+    // Preserve Vitest's recursive defaults and ignore local nested worktrees.
+    // Without this, a worktree under .claude/ is discovered as a second copy
+    // of the project, including dependency test files from its node_modules.
+    exclude: [...configDefaults.exclude, "e2e/**", ".claude/**"],
   },
   resolve: {
     alias: {

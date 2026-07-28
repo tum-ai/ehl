@@ -1874,12 +1874,12 @@ test.describe.serial("Hackathon Lifecycle", () => {
     }
   });
 
-  // ── BLOCK 14: CERTIFICATES (personal, team, point-free participation) ──
+  // ── BLOCK 14: CERTIFICATES (personal achievement + participation) ──
 
-  test("14.1 Dashboard offers personal, team, and participation certificate links (placed team)", async ({ page }) => {
+  test("14.1 Dashboard offers personal achievement and participation certificate links (placed team)", async ({ page }) => {
     // Scores were published in 9.1 (E2E Alpha placed 1st) and the chapter is
-    // completed, so the dashboard must show all three certificate links for a
-    // placed team's member.
+    // completed, so the dashboard must show both personal certificate links
+    // and no team certificate for a placed team's member.
     await loginAsParticipant(page, E2E_ACCOUNTS.president.email);
     await page.goto("/dashboard");
     await page.waitForLoadState("networkidle");
@@ -1887,7 +1887,9 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await expect(page.getByRole("link", { name: /Your Certificate \(PDF\)/i })).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByRole("link", { name: /Team Certificate \(PDF\)/i })).toBeVisible();
+    await expect(
+      page.getByRole("link", { name: /Team Certificate \(PDF\)/i })
+    ).toHaveCount(0);
     await expect(
       page.getByRole("link", { name: /Participation Certificate \(PDF\)/i })
     ).toBeVisible();
@@ -1900,8 +1902,7 @@ test.describe.serial("Hackathon Lifecycle", () => {
     // page.request carries the participant session cookies.
     for (const url of [
       `${base}?member=${presidentUserId}`,
-      base,
-      `${base}?variant=participation`,
+      `${base}?variant=participation&member=${presidentUserId}`,
     ]) {
       const res = await page.request.get(url);
       expect(res.status(), `${url} -> 200`).toBe(200);
@@ -1912,10 +1913,14 @@ test.describe.serial("Hackathon Lifecycle", () => {
   });
 
   test("14.3 A non-member session cannot fetch this team's certificates", async ({ page }) => {
-    // The solo participant is not a member of E2E Alpha: every variant must 403.
+    // The solo participant is not a member of E2E Alpha: both personal
+    // variants must 403.
     await loginAsParticipant(page, E2E_ACCOUNTS.solo.email);
     const base = `/api/certificates/${chapterId}/${teamAlphaId}`;
-    for (const url of [base, `${base}?variant=participation`, `${base}?member=${presidentUserId}`]) {
+    for (const url of [
+      `${base}?member=${presidentUserId}`,
+      `${base}?variant=participation&member=${presidentUserId}`,
+    ]) {
       const res = await page.request.get(url);
       expect(res.status(), `${url} -> 403`).toBe(403);
     }
