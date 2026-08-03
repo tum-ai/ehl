@@ -10,6 +10,7 @@ import { checkRateLimit, applicationLimiter, walkInTokenLimiter } from "@/lib/ra
 import { uploadFile } from "@/lib/gdrive";
 import { logEvent } from "@/lib/event-log";
 import { buildApplicationInsert } from "@/lib/applications-shared";
+import { CV_MAX_BYTES, CV_MAX_LABEL } from "@/lib/config/upload-limits";
 
 export interface WalkInChapter {
   id: string;
@@ -206,8 +207,8 @@ export async function submitWalkInApplication(
   const cvFile = formData.get("cv") as File | null;
   const hasCv = !!cvFile && cvFile.size > 0;
   if (hasCv) {
-    if (cvFile!.size > 10 * 1024 * 1024) {
-      return { error: "CV file must be under 10MB." };
+    if (cvFile!.size > CV_MAX_BYTES) {
+      return { error: `CV file must be under ${CV_MAX_LABEL}.` };
     }
     const ext = cvFile!.name.split(".").pop()?.toLowerCase();
     if (ext !== "pdf") {

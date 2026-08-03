@@ -40,6 +40,8 @@ import {
 } from "../helpers/data-factory";
 import { getAdminClient } from "../fixtures/supabase-admin";
 import { resolve } from "path";
+// Relative, not "@/": tsconfig excludes e2e from the path-alias project.
+import { CV_MAX_BYTES, CV_MAX_LABEL } from "../../lib/config/upload-limits";
 
 // ─── Per-run isolation token ─────────────────────────────────
 // The lifecycle chapter used to have a fixed slug ("e2e-match"), and
@@ -639,6 +641,98 @@ test.describe.serial("Hackathon Lifecycle", () => {
       .eq("email", email)
       .maybeSingle();
     expect(app).toBeNull();
+  });
+
+  test("3.1d Reject an oversized CV with a message that names the size limit", async ({ page }) => {
+    // Regression: a 4.6MB CV was rejected by the PLATFORM body limit before the
+    // server action ran, so the applicant saw only "check your connection" and
+    // retried across browsers, networks and incognito for days. Nothing here
+    // can reproduce the edge rejection (there is no Vercel edge in front of the
+    // test server), so this locks the guard that CAN speak: the pre-submit
+    // client check must fire, name the limit, and never reach the network.
+    test.setTimeout(60000);
+    const admin = getAdminClient();
+    const email = "e2e-apply-bigcv@test-ehl.com";
+    const { data: ch } = await admin.from("chapters").select("status").eq("id", chapterId).single();
+    if (ch?.status !== "applications_open") {
+      await setChapterStatus(chapterId, "applications_open");
+    }
+    await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
+
+    await page.goto(`/apply/${chapterSlug}`, { waitUntil: "networkidle" });
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="email"]').blur();
+
+    await page.locator('input[name="firstName"]').fill("E2E");
+    await page.locator('input[name="lastName"]').fill("BigCV");
+    await page.locator('input[name="dateOfBirth"]').fill("2000-01-15");
+    await page.locator('input[name="gender"][value="Male"]').check({ force: true });
+    await page.locator('input[name="locationCity"]').fill("Munich");
+    await page.locator('input[name="locationCountry"]').fill("Germany");
+    await page.locator('input[name="nationality"]').fill("German");
+    await page.locator('input[name="currentlyStudying"][value="false"]').check({ force: true });
+    await page.locator('input[name="hasProgrammingSkills"][value="true"]').check({ force: true });
+    await page.locator('input[name="isTumaiMember"][value="false"]').check({ force: true });
+    await page.locator('textarea[name="hackathonExperience"]').fill("x");
+    await page.locator('input[name="hasTeam"][value="false"]').check({ force: true });
+    await page.locator('input[name="dietaryRestrictions"][value="None"]').check({ force: true });
+    await page.locator('input[name="tshirtCut"][value="men\'s"]').check({ force: true });
+    await page.locator('input[name="tshirtSize"][value="M"]').check({ force: true });
+    await page.getByText("LinkedIn", { exact: true }).click();
+    await page.locator('input[name="wantsCv"][value="true"]').check({ force: true });
+
+    // The field label (revealed by the gate above) must advertise the number
+    // that is actually enforced, not a larger one the platform will refuse.
+    await expect(page.getByText(`CV (PDF, max ${CV_MAX_LABEL})`)).toBeVisible();
+
+    // A genuinely valid PDF, one byte over the cap. Only the size is wrong.
+    const oversized = Buffer.concat([
+      Buffer.from("%PDF-1.4\n"),
+      Buffer.alloc(CV_MAX_BYTES + 1 - 9, 0x20),
+    ]);
+    expect(oversized.byteLength).toBeGreaterThan(CV_MAX_BYTES);
+    await page.locator('input[name="cv"]').setInputFiles({
+      name: "huge.pdf",
+      mimeType: "application/pdf",
+      buffer: oversized,
+    });
+
+    // Count submit POSTs from here on. The email-blur lookups earlier in this
+    // test also POST to this URL, so the counter starts only now.
+    let submitPosts = 0;
+    page.on("request", (req) => {
+      if (req.method() === "POST" && req.url().includes(`/apply/${chapterSlug}`)) {
+        submitPosts++;
+      }
+    });
+
+    await page.getByRole("button", { name: /submit application/i }).click();
+
+    // The size must be named. "Check your connection" for an oversized file is
+    // the exact misdirection this change exists to remove.
+    const errorBox = page.locator("div.bg-error\\/5");
+    await expect(errorBox).toBeVisible({ timeout: 30000 });
+    await expect(errorBox).toContainText(CV_MAX_LABEL);
+    await expect(errorBox).not.toContainText(/check your connection/i);
+
+    // The load-bearing assertion. In production the request would be refused
+    // by the edge and the server action would never run, so a server-side
+    // rejection is NOT an acceptable substitute: the file must not be sent at
+    // all. Locally there is no edge, so without this the test would still pass
+    // on a server-side rejection that cannot happen on Vercel.
+    expect(submitPosts).toBe(0);
+
+    // Rejected before sending, so nothing was written.
+    const { data: app } = await admin
+      .from("applications")
+      .select("id")
+      .eq("chapter_id", chapterId)
+      .eq("email", email)
+      .maybeSingle();
+    expect(app).toBeNull();
+
+    // The form stays usable: the button must not be stuck in its loading state.
+    await expect(page.getByRole("button", { name: /submit application/i })).toBeEnabled();
   });
 
   test("3.2 Submit applications via API", async () => {

@@ -15,6 +15,13 @@ import {
   checkEmailHasAccount,
   lookupExistingTeam,
 } from "@/lib/actions/applications";
+import {
+  CV_MAX_BYTES,
+  CV_TOO_LARGE_MESSAGE,
+  REQUEST_TOO_LARGE_MESSAGE,
+} from "@/lib/config/upload-limits";
+import { isPayloadTooLargeError, toReportableError } from "@/lib/error-report";
+import { reportClientError } from "@/lib/report-client-error";
 
 interface ApplicationFormProps {
   chapterId: string;
@@ -94,11 +101,13 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
     formData.set("email", email);
     fields.populate(formData);
 
-    // Client-side CV size guard so oversized files fail fast with a clear
-    // message instead of being rejected opaquely by the server body limit.
+    // Client-side CV size guard. This is the ONLY guard that can produce a
+    // useful message: a body over the platform limit is rejected at the edge,
+    // so the server action never runs and cannot answer for it. See
+    // lib/config/upload-limits.ts.
     const cv = formData.get("cv");
-    if (cv instanceof File && cv.size > 10 * 1024 * 1024) {
-      setError("Your CV is too large. Please upload a PDF under 10MB.");
+    if (cv instanceof File && cv.size > CV_MAX_BYTES) {
+      setError(CV_TOO_LARGE_MESSAGE);
       setLoading(false);
       setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
       return;
@@ -116,11 +125,25 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
         setError("Something went wrong. Please try again.");
         turnstileRef.current?.reset();
       }
-    } catch {
+    } catch (err) {
       // Thrown errors (network drop on shared event WiFi, body-limit
       // rejection, unexpected server error) must not leave the button stuck.
+      //
+      // Report BEFORE branching: an oversized body is rejected at the edge, so
+      // this is the only record that the attempt ever happened. Swallowing it
+      // here is what previously made this class of failure invisible in both
+      // Vercel logs and event_log.
+      reportClientError(
+        toReportableError(err, {
+          form: "apply",
+          cvBytes: cv instanceof File ? cv.size : 0,
+        }),
+        "apply-submit"
+      );
       setError(
-        "We couldn't submit your application. Please check your connection and try again."
+        isPayloadTooLargeError(err)
+          ? REQUEST_TOO_LARGE_MESSAGE
+          : "We couldn't submit your application. Please check your connection and try again."
       );
       turnstileRef.current?.reset();
       setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);

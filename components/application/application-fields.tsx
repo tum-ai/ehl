@@ -2,6 +2,7 @@
 
 import { useState, useImperativeHandle, forwardRef } from "react";
 import { Card } from "@/components/ui/card";
+import { CV_MAX_LABEL } from "@/lib/config/upload-limits";
 
 // ─── Shared application-field UI ─────────────────────────────
 //
@@ -659,7 +660,7 @@ export const ApplicationFields = forwardRef<
           {showCvInput && (
             <div>
               <label className="block text-sm text-text-muted">
-                CV (PDF, max 10MB){cvAlwaysOptional ? ", optional" : ""}
+                CV (PDF, max {CV_MAX_LABEL}){cvAlwaysOptional ? ", optional" : ""}
               </label>
               <input
                 type="file"
