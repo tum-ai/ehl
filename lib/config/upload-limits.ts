@@ -47,11 +47,25 @@ export const PLATFORM_REQUEST_BODY_LIMIT_BYTES = Math.floor(4.5 * 1024 * 1024);
 export const CV_MAX_BYTES = 4 * 1024 * 1024;
 
 /**
- * Human-readable form of CV_MAX_BYTES. Single source for the field label AND
- * every error message, so the number a user is told can never drift from the
- * number that is enforced.
+ * Render a byte count as the megabyte label users are shown. Whole numbers stay
+ * whole ("4MB"); a fractional cap keeps one decimal ("4.5MB").
  */
-export const CV_MAX_LABEL = "4MB";
+export function megabyteLabel(bytes: number): string {
+  const mb = bytes / (1024 * 1024);
+  return `${Number.isInteger(mb) ? mb : Number(mb.toFixed(1))}MB`;
+}
+
+/**
+ * Human-readable form of CV_MAX_BYTES. Single source for the field label AND
+ * every error message.
+ *
+ * DERIVED, not written out: a hand-maintained label is a second copy of the
+ * limit that can drift from the enforced one, which is the exact failure this
+ * module exists to prevent (the form advertised 10MB while the platform
+ * enforced ~4.5MB). Changing CV_MAX_BYTES now updates every user-facing string
+ * automatically, so drift is impossible rather than merely detected by a test.
+ */
+export const CV_MAX_LABEL = megabyteLabel(CV_MAX_BYTES);
 
 /** Shown when the pre-submit guard catches an oversized CV. */
 export const CV_TOO_LARGE_MESSAGE =

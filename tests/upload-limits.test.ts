@@ -5,6 +5,7 @@ import {
   CV_MAX_BYTES,
   CV_MAX_LABEL,
   CV_TOO_LARGE_MESSAGE,
+  megabyteLabel,
   PLATFORM_REQUEST_BODY_LIMIT_BYTES,
   REQUEST_TOO_LARGE_MESSAGE,
 } from "@/lib/config/upload-limits";
@@ -31,9 +32,20 @@ describe("CV upload limit", () => {
   it("labels the limit with the number that is actually enforced", () => {
     // CV_MAX_LABEL is shown in the field label and in both error messages. If
     // it drifts from CV_MAX_BYTES, users are told one number and held to
-    // another, which is the original bug in miniature.
+    // another, which is the original bug in miniature. The label is derived, so
+    // this now guards against someone replacing the derivation with a literal.
     const mb = CV_MAX_BYTES / (1024 * 1024);
     expect(CV_MAX_LABEL).toBe(`${mb}MB`);
+  });
+
+  it("renders whole and fractional caps the way a user would read them", () => {
+    // Exercised directly because the derivation must stay correct for a cap the
+    // project might move to, not only for today's value.
+    expect(megabyteLabel(4 * 1024 * 1024)).toBe("4MB");
+    expect(megabyteLabel(10 * 1024 * 1024)).toBe("10MB");
+    expect(megabyteLabel(4.5 * 1024 * 1024)).toBe("4.5MB");
+    expect(megabyteLabel(Math.floor(4.5 * 1024 * 1024))).toBe("4.5MB");
+    expect(megabyteLabel(512 * 1024)).toBe("0.5MB");
   });
 
   it("names the limit in every message that mentions size", () => {
@@ -67,7 +79,18 @@ describe("no hardcoded CV size limits survive", () => {
   it.each(consumers)("%s enforces the shared constant, not a literal", (file) => {
     const src = read(file);
     expect(src).toContain("CV_MAX_BYTES");
-    expect(src).not.toMatch(/10 \* 1024 \* 1024/);
+    // Ban ANY megabyte arithmetic, not just the legacy `10 * 1024 * 1024`.
+    // Banning only the old value would let the next hardcoded cap through,
+    // which is how five copies of this number came to disagree in the first
+    // place. None of these files has a legitimate reason to compute a byte
+    // size inline.
+    expect(src).not.toMatch(/\d+\s*\*\s*1024\s*\*\s*1024/);
+  });
+
+  it.each(consumers)("%s does not restate the limit in prose", (file) => {
+    // A hardcoded "max 10MB" in a string drifts from the enforced bytes just as
+    // easily as a numeric literal does, and it is what users actually read.
+    expect(read(file)).not.toMatch(/\d+(\.\d+)?\s?MB/);
   });
 
   it("the CV field label reads the shared label", () => {
