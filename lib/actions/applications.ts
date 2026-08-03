@@ -21,6 +21,7 @@ import { getChapterCommunications } from "@/lib/queries";
 import { acceptanceEmailSubject } from "@/lib/communications";
 import { splitParagraphs } from "@/lib/emails/text-block";
 import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
+import { CV_MAX_BYTES, CV_MAX_LABEL } from "@/lib/config/upload-limits";
 import { formatDateRange } from "@/lib/utils";
 import type { ApplicationStatus, ApplicationTeamMember } from "@/lib/types";
 import { buildApplicationInsert } from "@/lib/applications-shared";
@@ -116,11 +117,15 @@ export async function submitApplication(formData: FormData) {
   // Validate the CV before anything is written. The upload itself happens
   // AFTER the application row is inserted, so a Drive outage or hang can
   // never lose an application.
+  //
+  // The size check here is defence in depth against a non-browser caller, NOT
+  // the user-facing guard: a body over the platform limit never reaches this
+  // function at all (see lib/config/upload-limits.ts).
   const cvFile = formData.get("cv") as File | null;
   const hasCv = !!cvFile && cvFile.size > 0;
   if (hasCv) {
-    if (cvFile!.size > 10 * 1024 * 1024) {
-      return { error: "CV file must be under 10MB." };
+    if (cvFile!.size > CV_MAX_BYTES) {
+      return { error: `CV file must be under ${CV_MAX_LABEL}.` };
     }
     const ext = cvFile!.name.split(".").pop()?.toLowerCase();
     if (ext !== "pdf") {

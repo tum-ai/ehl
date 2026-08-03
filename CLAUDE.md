@@ -250,6 +250,15 @@ This is an **open-source public repository**. Every commit, branch name, PR titl
 3. **Null safety on Supabase results.** `.single()` returns null if no row. Don't chain `.property` on potentially null results.
 4. **Date handling:** Always append `T00:00:00` when creating `Date` objects from date-only strings to avoid timezone shifts.
 5. **The `leaderboard` is a VIEW**, not a table. You cannot insert/update it directly.
+6. **Upload size limits must come from `lib/config/upload-limits.ts`** and must stay under
+   `PLATFORM_REQUEST_BODY_LIMIT_BYTES`. Vercel rejects bodies over ~4.5MB at the edge,
+   before middleware and before any server action or route handler runs, and
+   `bodySizeLimit` in `next.config.ts` cannot raise it. Consequences: a size check inside
+   a server action can never produce a message for an oversized upload (the function is
+   never reached, so the client-side guard is the only one that can speak), and advertising
+   a larger cap ships a promise the platform silently breaks. To accept files above the
+   platform limit, the bytes must bypass the function entirely (direct browser-to-storage
+   upload). Raising the number alone only relocates the silent failure.
 
 ### Code Style
 - Server Components by default. Only `"use client"` when interactive (forms, toggles, state)

@@ -12,6 +12,13 @@ import {
   type ApplicationFieldsHandle,
 } from "@/components/application/application-fields";
 import { submitWalkInApplication } from "@/lib/actions/walk-in";
+import {
+  CV_MAX_BYTES,
+  CV_TOO_LARGE_MESSAGE,
+  REQUEST_TOO_LARGE_MESSAGE,
+} from "@/lib/config/upload-limits";
+import { isPayloadTooLargeError, toReportableError } from "@/lib/error-report";
+import { reportClientError } from "@/lib/report-client-error";
 
 interface WalkInFormProps {
   walkInToken: string;
@@ -80,9 +87,12 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
     formData.set("password", password);
     fields.populate(formData);
 
+    // Only guard that can speak: see lib/config/upload-limits.ts. On event WiFi
+    // a generic "check your connection" is especially misleading, since the
+    // network is the first thing anyone at a venue suspects.
     const cv = formData.get("cv");
-    if (cv instanceof File && cv.size > 10 * 1024 * 1024) {
-      setError("Your CV is too large. Please upload a PDF under 10MB.");
+    if (cv instanceof File && cv.size > CV_MAX_BYTES) {
+      setError(CV_TOO_LARGE_MESSAGE);
       setLoading(false);
       setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
       return;
@@ -108,9 +118,18 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
           setQrDataUrl(null);
         }
       }
-    } catch {
+    } catch (err) {
+      reportClientError(
+        toReportableError(err, {
+          form: "walk-in",
+          cvBytes: cv instanceof File ? cv.size : 0,
+        }),
+        "walk-in-submit"
+      );
       setError(
-        "We couldn't complete your registration. Please check your connection and try again."
+        isPayloadTooLargeError(err)
+          ? REQUEST_TOO_LARGE_MESSAGE
+          : "We couldn't complete your registration. Please check your connection and try again."
       );
       turnstileRef.current?.reset();
       setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);

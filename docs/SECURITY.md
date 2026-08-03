@@ -251,16 +251,43 @@ Only these file types are accepted for image uploads:
 
 | Upload type | Storage | Size limit |
 |-------------|---------|-----------|
-| CVs (application) | Google Drive | 4MB (server action body limit) |
-| Submission files | Google Drive | 20MB (API route, validated server-side) |
-| Partner logos | Supabase Storage | 4MB (server action body limit) |
-| Chapter photos | Google Drive | 4MB (server action body limit) |
-| Challenge briefs | Google Drive | 4MB (server action body limit) |
+| CVs (application + walk-in) | Google Drive | 4MB (`CV_MAX_BYTES`, enforced client-side) |
+| Submission files | Google Drive | 20MB claimed by the route, ~4.5MB in practice (see below) |
+| Partner logos | Supabase Storage | ~4.5MB (platform request body limit) |
+| Chapter photos | Google Drive | ~4.5MB (platform limit, auto-compressed on 413 by `lib/upload.ts`) |
+| Challenge briefs | Google Drive | ~4.5MB (platform request body limit) |
+
+### The real ceiling on every upload that passes through a function
+
+Vercel rejects any request whose body exceeds **~4.5MB** at the edge, before
+middleware and before the server action or route handler runs.
+`experimental.serverActions.bodySizeLimit` in `next.config.ts` raises only
+Next's own limit and cannot lift the platform one.
+
+Two rules follow, and both have been violated in production before:
+
+1. **A server-side size check is not a user-facing guard.** When the body is
+   over the platform limit the function is never invoked, so its friendly error
+   cannot run. The client-side check is the only one that can produce a message.
+   The server check remains as defence in depth against non-browser callers.
+2. **A limit above ~4.5MB is a promise the platform will not keep.** The apply
+   form advertised and enforced 10MB while the edge rejected at 4.6MB. Affected
+   applicants saw a generic connection error and no application row was created,
+   with no trace in Vercel logs or `event_log`. `lib/config/upload-limits.ts`
+   now holds the single source of truth, and a unit test asserts it stays under
+   the platform limit.
+
+`app/api/submissions/upload/route.ts` still declares `MAX_FILE_SIZE = 20MB`.
+That number is not achievable through a function and is **unverified**; treat
+the effective submission limit as ~4.5MB until it is either lowered or moved to
+a direct-to-storage upload.
 
 ### Validation
 
 - MIME type checked server-side before storage
-- File size enforced by Next.js server action body limit (4MB) or API route validation (20MB for submissions)
+- CV size enforced client-side against `CV_MAX_BYTES`, re-checked in the server
+  action; oversized requests that slip past both are classified by
+  `isPayloadTooLargeError()` and reported to `/api/errors`
 - Filenames sanitized before storage
 
 ---
@@ -411,7 +438,7 @@ External service limits that affect the platform. If you hit unexplained errors 
 | Data scraping | Rate limiting on API + query limits on all queries |
 | Email enumeration | Rate limiting on account/team lookup server actions |
 | Email bombing | 3 emails/hour per address rate limit |
-| File upload abuse | MIME whitelist + size limits (4MB server actions, 20MB submissions) + rate limiting |
+| File upload abuse | MIME whitelist + size limits (`CV_MAX_BYTES` for CVs, platform ~4.5MB body limit everywhere else) + rate limiting |
 | JWT manipulation | JWTs signed by Supabase, validated server-side |
 | Admin impersonation | Google OAuth only + email allowlist (DB + env var) |
 | Jury vote manipulation | INSERT-only voting (no updates after submission) |

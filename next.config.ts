@@ -28,10 +28,16 @@ const nextConfig: NextConfig = {
   },
   experimental: {
     serverActions: {
-      // CVs (PDF) are uploaded through the apply server action. The UI
-      // advertises a 10MB cap and the action validates 20MB, so the
-      // framework body limit must be above both or large CVs are rejected
-      // by Next before the action's friendly validation runs.
+      // Raises NEXT'S OWN body limit (1MB by default) so it is never the
+      // binding constraint. It does NOT raise Vercel's ~4.5MB per-request
+      // limit, which is enforced at the edge before this process is reached
+      // and cannot be configured from here.
+      //
+      // So this number is not a promise about what users can upload. The
+      // enforced CV cap lives in lib/config/upload-limits.ts and must stay
+      // under the PLATFORM limit, not under this one. Reading this setting as
+      // "we accept 25MB uploads" is exactly the mistake that shipped a 10MB
+      // CV cap the platform silently rejected at 4.6MB.
       bodySizeLimit: "25mb",
     },
   },
