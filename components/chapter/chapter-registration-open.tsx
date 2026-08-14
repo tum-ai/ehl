@@ -37,6 +37,7 @@ export function noTeamRegistrationMessage(
 interface ChapterRegistrationOpenProps {
   chapter: Chapter;
   challenges: Challenge[];
+  registrationCounts: Record<string, number>;
   checkinInfo: CheckinInfo | null;
   registeredChallengeId: string | null;
   userRole: "president" | "member" | null;
@@ -47,6 +48,7 @@ interface ChapterRegistrationOpenProps {
 export function ChapterRegistrationOpen({
   chapter,
   challenges,
+  registrationCounts,
   checkinInfo,
   registeredChallengeId: initialRegisteredId,
   userRole,
@@ -215,6 +217,8 @@ export function ChapterRegistrationOpen({
             const isRegistered = registeredChallengeId === challenge.id;
             const isOtherRegistered = registeredChallengeId !== null && !isRegistered;
             const isLoading = loading === challenge.id;
+            const registeredCount = registrationCounts[challenge.id] ?? 0;
+            const isFull = challenge.maxTeams != null && registeredCount >= challenge.maxTeams && !isRegistered;
 
             return (
               <div
@@ -240,9 +244,16 @@ export function ChapterRegistrationOpen({
                       )}
                     </div>
                   </div>
-                  {isRegistered && (
-                    <Badge variant="completed">Your Challenge</Badge>
-                  )}
+                  <div className="flex shrink-0 items-center gap-2">
+                    {challenge.maxTeams != null && (
+                      <span className={`text-xs ${isFull ? "text-red-400" : "text-text-muted"}`}>
+                        {isFull ? "Full" : `${registeredCount}/${challenge.maxTeams} teams`}
+                      </span>
+                    )}
+                    {isRegistered && (
+                      <Badge variant="completed">Your Challenge</Badge>
+                    )}
+                  </div>
                 </div>
 
                 {/* Description */}
@@ -319,6 +330,10 @@ export function ChapterRegistrationOpen({
                     {isRegistered ? (
                       <p className="text-sm text-text-secondary">
                         Your team is registered for this challenge. You can switch to a different challenge until selection closes.
+                      </p>
+                    ) : isFull ? (
+                      <p className="text-sm text-text-muted">
+                        This challenge has reached its team limit and is no longer accepting registrations.
                       </p>
                     ) : (
                       <button

@@ -104,6 +104,28 @@ export async function getChapterRegistrationsByTeam(
   return map;
 }
 
+/**
+ * Registration count per challenge for a single chapter, for the participant
+ * challenge selector and its API route to show remaining capacity. Uses the
+ * anon/RLS-scoped client (public read of challenge_registrations is allowed).
+ */
+export async function getRegistrationCountsByChallenge(
+  chapterId: string
+): Promise<Map<string, number>> {
+  const supabase = getClient();
+  const { data } = await supabase
+    .from("challenge_registrations")
+    .select("challenge_id")
+    .eq("chapter_id", chapterId)
+    .limit(QUERY_LIMITS.challengeRegistrations);
+  const counts = new Map<string, number>();
+  for (const row of data ?? []) {
+    const id = row.challenge_id as string;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  return counts;
+}
+
 // ─── Pitch Order Queries ──────────────────────────────────
 
 export async function getPitchOrder(

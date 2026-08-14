@@ -10,6 +10,8 @@ interface Challenge {
   title: string;
   description: string | null;
   sponsorName: string | null;
+  maxTeams: number | null;
+  registeredCount: number;
 }
 
 interface TeamMemberInfo {
@@ -128,26 +130,39 @@ export function ChallengeSelector({
       <div>
         <p className="text-sm text-text-muted mb-2">Select a challenge for your team:</p>
         <div className="space-y-2">
-          {challenges.map((c) => (
-            <button
-              key={c.id}
-              type="button"
-              onClick={() => setSelectedChallenge(c.id)}
-              className={`w-full rounded-lg border p-4 text-left transition-colors ${
-                selectedChallenge === c.id
-                  ? "border-gold/40 bg-gold/5"
-                  : "border-white/10 hover:border-white/20"
-              }`}
-            >
-              <p className="font-bold">{c.title}</p>
-              {c.sponsorName && (
-                <p className="mt-0.5 text-sm text-text-muted">by {c.sponsorName}</p>
-              )}
-              {c.description && (
-                <p className="mt-1 text-sm text-text-secondary line-clamp-2">{c.description}</p>
-              )}
-            </button>
-          ))}
+          {challenges.map((c) => {
+            const isFull = c.maxTeams != null && c.registeredCount >= c.maxTeams;
+            return (
+              <button
+                key={c.id}
+                type="button"
+                disabled={isFull}
+                onClick={() => setSelectedChallenge(c.id)}
+                className={`w-full rounded-lg border p-4 text-left transition-colors ${
+                  isFull
+                    ? "border-white/5 opacity-50 cursor-not-allowed"
+                    : selectedChallenge === c.id
+                      ? "border-gold/40 bg-gold/5"
+                      : "border-white/10 hover:border-white/20"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-bold">{c.title}</p>
+                  {c.maxTeams != null && (
+                    <span className={`shrink-0 text-xs ${isFull ? "text-red-400" : "text-text-muted"}`}>
+                      {isFull ? "Full" : `${c.registeredCount}/${c.maxTeams} teams`}
+                    </span>
+                  )}
+                </div>
+                {c.sponsorName && (
+                  <p className="mt-0.5 text-sm text-text-muted">by {c.sponsorName}</p>
+                )}
+                {c.description && (
+                  <p className="mt-1 text-sm text-text-secondary line-clamp-2">{c.description}</p>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 

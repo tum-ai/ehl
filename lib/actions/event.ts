@@ -502,13 +502,25 @@ export async function registerChallenge(
   // Verify challenge actually belongs to this chapter
   const { data: challengeRow } = await adminClient
     .from("challenges")
-    .select("id")
+    .select("id, max_teams")
     .eq("id", challengeId)
     .eq("chapter_id", chapterId)
     .single();
 
   if (!challengeRow) {
     return { error: "Invalid challenge for this chapter." };
+  }
+
+  // Capacity check (first come, first served). max_teams is null/unset = unlimited.
+  if (challengeRow.max_teams != null) {
+    const { count: registeredCount } = await adminClient
+      .from("challenge_registrations")
+      .select("id", { count: "exact", head: true })
+      .eq("challenge_id", challengeId);
+
+    if ((registeredCount ?? 0) >= (challengeRow.max_teams as number)) {
+      return { error: "This challenge is full." };
+    }
   }
 
   // Dedupe first: a roster of duplicate ids (e.g. [president, president]) must

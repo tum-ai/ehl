@@ -14,6 +14,7 @@ import {
   getTeams,
   getPartnersForChapter,
   getChallengesForChapter,
+  getRegistrationCountsByChallenge,
   getRegistrationForTeam,
   getSubmissionForTeam,
   getMediaForChapter,
@@ -50,12 +51,13 @@ export default async function ChapterDetailPage({ params }: PageProps) {
   }
 
   // Always load these
-  const [scores, teams, partners, challenges, media] = await Promise.all([
+  const [scores, teams, partners, challenges, media, registrationCounts] = await Promise.all([
     getScoresForChapter(chapter.id),
     getTeams(),
     getPartnersForChapter(chapter.id),
     getChallengesForChapter(chapter.id),
     getMediaForChapter(chapter.id),
+    getRegistrationCountsByChallenge(chapter.id),
   ]);
 
   const photos = media.filter((m) => m.type === "photo");
@@ -116,6 +118,7 @@ export default async function ChapterDetailPage({ params }: PageProps) {
         <ChapterRegistrationOpen
           chapter={chapter}
           challenges={challenges}
+          registrationCounts={Object.fromEntries(registrationCounts)}
           checkinInfo={checkinInfo}
           registeredChallengeId={registeredChallengeId}
           userRole={userRole}

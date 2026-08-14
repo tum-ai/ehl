@@ -96,10 +96,32 @@ export async function registerForChallenge(
   // Check if already registered for this chapter
   const { data: existing } = await adminClient
     .from("challenge_registrations")
-    .select("id")
+    .select("id, challenge_id")
     .eq("chapter_id", chapterId)
     .eq("team_id", teamId)
     .single();
+
+  // Capacity check (first come, first served), only relevant when actually
+  // moving into this challenge (a no-op re-registration into the same
+  // challenge must not be blocked by the team's own existing slot).
+  if (!existing || existing.challenge_id !== challengeId) {
+    const { data: challengeRow } = await adminClient
+      .from("challenges")
+      .select("max_teams")
+      .eq("id", challengeId)
+      .single();
+
+    if (challengeRow?.max_teams !== null && challengeRow?.max_teams !== undefined) {
+      const { count: registeredCount } = await adminClient
+        .from("challenge_registrations")
+        .select("id", { count: "exact", head: true })
+        .eq("challenge_id", challengeId);
+
+      if ((registeredCount ?? 0) >= (challengeRow.max_teams as number)) {
+        return { error: "This challenge is full." };
+      }
+    }
+  }
 
   if (existing) {
     // Update existing registration (switch challenge)
