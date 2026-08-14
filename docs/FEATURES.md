@@ -215,6 +215,12 @@ Available to participants who are checked in at an event.
 - A team must have 2 to 5 members to register for a challenge (single-person teams cannot select a challenge); enforced server-side and reflected in the UI
 - All team members must be checked in before the team can register
 - Challenge registration can be opened/closed by admin via deadline
+- Optional per-challenge team capacity ("Max Teams"), set by the admin at challenge creation
+  or edit time: once that many teams have registered, the challenge closes to new
+  registrations (first come, first served, no waitlist). Unset (default) means unlimited.
+  Enforced server-side on both registration paths; the challenge list shows remaining slots
+  or "Full" and disables selecting a full challenge. Admin overrides
+  (`adminSetTeamChallenge`) intentionally bypass the limit.
 
 ### Team Formation (Event Day)
 - Create a new team on the spot
@@ -403,6 +409,8 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 - Upload challenge brief (PDF)
 - Configure code review settings (models, weights, instructions)
 - Toggle scored/unscored challenges
+- Optional Max Teams: caps team registrations for that challenge (first come, first served);
+  leave empty for unlimited
 
 ### Team Oversight (`/admin/teams`)
 - View all teams with member lists

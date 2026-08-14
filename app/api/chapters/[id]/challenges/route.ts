@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getChallengesForChapter } from "@/lib/queries";
+import { getChallengesForChapter, getRegistrationCountsByChallenge } from "@/lib/queries";
 import { checkRateLimit, apiLimiter } from "@/lib/ratelimit";
 
 export async function GET(
@@ -13,7 +13,10 @@ export async function GET(
   }
 
   const { id } = await params;
-  const challenges = await getChallengesForChapter(id);
+  const [challenges, registrationCounts] = await Promise.all([
+    getChallengesForChapter(id),
+    getRegistrationCountsByChallenge(id),
+  ]);
 
   return NextResponse.json(
     challenges.map((c) => ({
@@ -21,6 +24,8 @@ export async function GET(
       title: c.title,
       description: c.description,
       sponsorName: c.sponsorName,
+      maxTeams: c.maxTeams,
+      registeredCount: registrationCounts.get(c.id) ?? 0,
     }))
   );
 }

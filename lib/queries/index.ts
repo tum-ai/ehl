@@ -70,6 +70,7 @@ export {
   getRegistrationForTeam,
   getAllChallengeRegistrations,
   getChapterRegistrationsByTeam,
+  getRegistrationCountsByChallenge,
   getPitchOrder,
 } from "./challenges";
 

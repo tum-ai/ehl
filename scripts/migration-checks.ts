@@ -338,6 +338,24 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        )
      ) as present`,
   },
+  {
+    // Optional per-challenge team capacity (first-come-first-served
+    // registration limit). Probe asserts both the column and the
+    // positive-or-null check constraint.
+    prefix: "00062",
+    label: "challenge_max_teams",
+    sql: `select (
+       exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'challenges' and column_name = 'max_teams'
+       )
+       and exists (
+         select 1 from information_schema.table_constraints
+         where table_schema = 'public' and table_name = 'challenges'
+           and constraint_name = 'challenges_max_teams_positive'
+       )
+     ) as present`,
+  },
 ];
 
 /**

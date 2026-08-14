@@ -126,6 +126,8 @@ export interface Challenge {
   codeReviewConfig: CodeReviewConfig | null;
   /** Set when an admin finalizes jury votes into scores; null while still open. */
   juryFinalizedAt: string | null;
+  /** Max teams that can register (first come, first served). Null = unlimited. */
+  maxTeams: number | null;
 }
 
 export interface ChapterUnlock {

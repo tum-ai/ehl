@@ -370,9 +370,15 @@ export async function createChallenge(formData: FormData) {
   const briefFileId = (formData.get("briefFileId") as string) || null;
   const codeReviewInstructions = (formData.get("codeReviewInstructions") as string) || null;
   const codeReviewConfigJson = formData.get("codeReviewConfig") as string;
+  const maxTeamsRaw = formData.get("maxTeams") as string;
+  const maxTeams = maxTeamsRaw ? Number(maxTeamsRaw) : null;
 
   if (!chapterId || !title) {
     return { error: "Chapter ID and title are required." };
+  }
+
+  if (maxTeams !== null && (!Number.isInteger(maxTeams) || maxTeams < 1)) {
+    return { error: "Max teams must be a positive whole number." };
   }
 
   let submissionFields;
@@ -406,6 +412,7 @@ export async function createChallenge(formData: FormData) {
     brief_file_id: briefFileId,
     code_review_instructions: codeReviewInstructions,
     code_review_config: codeReviewConfig,
+    max_teams: maxTeams,
   }).select("id").single();
 
   if (error) return { error: error.message };
@@ -447,6 +454,7 @@ const CHALLENGE_FIELD_COLUMNS = {
   briefFileId: "brief_file_id",
   codeReviewInstructions: "code_review_instructions",
   codeReviewConfig: "code_review_config",
+  maxTeams: "max_teams",
 } as const;
 
 type ChallengeFieldKey = keyof typeof CHALLENGE_FIELD_COLUMNS;
@@ -519,6 +527,20 @@ export async function updateChallenge(formData: FormData) {
         } catch {
           return { error: "Invalid submission fields JSON." };
         }
+      }
+      continue;
+    }
+
+    if (key === "maxTeams") {
+      const text = (raw as string) ?? "";
+      if (!text) {
+        patch[column] = null;
+      } else {
+        const n = Number(text);
+        if (!Number.isInteger(n) || n < 1) {
+          return { error: "Max teams must be a positive whole number." };
+        }
+        patch[column] = n;
       }
       continue;
     }

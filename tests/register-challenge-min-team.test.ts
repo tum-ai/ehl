@@ -42,8 +42,10 @@ const TEAM = "team-1";
 // challenge_registrations (existing check + insert/update).
 function wireTables(opts: {
   members: { user_id: string }[];
-  existingRegistration?: { id: string } | null;
+  existingRegistration?: { id: string; challenge_id?: string } | null;
   insertResult?: { error: { message: string } | null };
+  maxTeams?: number | null;
+  registeredCount?: number;
 }) {
   const insertSpy = vi.fn().mockResolvedValue(opts.insertResult ?? { error: null });
   const updateChain = {
@@ -81,10 +83,25 @@ function wireTables(opts: {
       c.in = vi.fn().mockResolvedValue({ data: [] });
       return c;
     }
-    if (table === "challenge_registrations") {
+    if (table === "challenges") {
       const c: Record<string, unknown> = {};
       c.select = vi.fn().mockReturnValue(c);
       c.eq = vi.fn().mockReturnValue(c);
+      c.single = vi.fn().mockResolvedValue({ data: { max_teams: opts.maxTeams ?? null } });
+      return c;
+    }
+    if (table === "challenge_registrations") {
+      // Two distinct call shapes share this table: the existing-registration
+      // lookup (.select("id, challenge_id").eq().eq().single()) and the
+      // capacity count (.select("id", { count, head: true }).eq()). Both start
+      // with .select().eq(), so the chain must satisfy either continuation.
+      const countThenable = Promise.resolve({ count: opts.registeredCount ?? 0 });
+      const c: Record<string, unknown> = {};
+      c.select = vi.fn().mockReturnValue(c);
+      c.eq = vi.fn().mockImplementation(() => ({
+        ...c,
+        then: countThenable.then.bind(countThenable),
+      }));
       c.single = vi.fn().mockResolvedValue({ data: opts.existingRegistration ?? null });
       c.insert = insertSpy;
       c.update = updateChain.update;
@@ -160,12 +177,94 @@ describe("registerForChallenge minimum team size", () => {
   });
 });
 
+describe("registerForChallenge capacity limit (max_teams)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserMock.mockResolvedValue({ data: { user: { id: PRESIDENT } } });
+    checkinMock.mockImplementation((ids: string[]) => new Map(ids.map((id) => [id, true])));
+  });
+
+  it("rejects registration once the challenge is at capacity", async () => {
+    const { insertSpy } = wireTables({
+      members: [{ user_id: PRESIDENT }, { user_id: "user-2" }],
+      maxTeams: 2,
+      registeredCount: 2,
+    });
+
+    const result = await registerForChallenge(CHAPTER, CHALLENGE, TEAM, []);
+
+    expect(result.error).toBe("This challenge is full.");
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows registration when under capacity", async () => {
+    const { insertSpy } = wireTables({
+      members: [{ user_id: PRESIDENT }, { user_id: "user-2" }],
+      maxTeams: 2,
+      registeredCount: 1,
+    });
+
+    const result = await registerForChallenge(CHAPTER, CHALLENGE, TEAM, []);
+
+    expect(result.success).toBe(true);
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("allows unlimited capacity when max_teams is null", async () => {
+    const { insertSpy } = wireTables({
+      members: [{ user_id: PRESIDENT }, { user_id: "user-2" }],
+      maxTeams: null,
+      registeredCount: 500,
+    });
+
+    const result = await registerForChallenge(CHAPTER, CHALLENGE, TEAM, []);
+
+    expect(result.success).toBe(true);
+    expect(insertSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not block a team re-registering into its OWN already-full challenge (switch no-op)", async () => {
+    const { insertSpy } = wireTables({
+      members: [{ user_id: PRESIDENT }, { user_id: "user-2" }],
+      existingRegistration: { id: "reg-1", challenge_id: CHALLENGE },
+      maxTeams: 2,
+      registeredCount: 2,
+    });
+
+    const result = await registerForChallenge(CHAPTER, CHALLENGE, TEAM, []);
+
+    expect(result.success).toBe(true);
+    // Existing registration into the SAME challenge takes the update path, not insert.
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("blocks a team switching INTO a different, now-full challenge", async () => {
+    const { insertSpy } = wireTables({
+      members: [{ user_id: PRESIDENT }, { user_id: "user-2" }],
+      existingRegistration: { id: "reg-1", challenge_id: "some-other-challenge" },
+      maxTeams: 2,
+      registeredCount: 2,
+    });
+
+    const result = await registerForChallenge(CHAPTER, CHALLENGE, TEAM, []);
+
+    expect(result.error).toBe("This challenge is full.");
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+});
+
 // ─── registerChallenge (event-hub path) ───────────────────────────────────
 // The event-hub action takes a client-supplied roster and validates it. It must
 // reject a too-small team even when the roster is duplicate-padded (e.g. a solo
 // president passing [self, self]) — the guard dedupes before counting size.
-function wireEventTables(opts: { members: { user_id: string }[]; insertResult?: { error: { message: string } | null } }) {
+function wireEventTables(opts: {
+  members: { user_id: string }[];
+  insertResult?: { error: { message: string } | null };
+  maxTeams?: number | null;
+  registeredCount?: number;
+}) {
   const insertSpy = vi.fn().mockResolvedValue(opts.insertResult ?? { error: null });
+  const countThenable = Promise.resolve({ count: opts.registeredCount ?? 0 });
   (mockFrom as ReturnType<typeof vi.fn>).mockImplementation((table: string) => {
     const c: Record<string, unknown> = {};
     if (table === "teams") {
@@ -190,13 +289,18 @@ function wireEventTables(opts: { members: { user_id: string }[]; insertResult?: 
     } else if (table === "challenges") {
       c.select = vi.fn().mockReturnValue(c);
       c.eq = vi.fn().mockReturnValue(c);
-      c.single = vi.fn().mockResolvedValue({ data: { id: CHALLENGE } });
+      c.single = vi.fn().mockResolvedValue({ data: { id: CHALLENGE, max_teams: opts.maxTeams ?? null } });
     } else if (table === "team_members") {
       c.select = vi.fn().mockReturnValue(c);
       c.eq = vi.fn().mockResolvedValue({ data: opts.members });
     } else if (table === "challenge_registrations") {
+      // Same dual-shape chain as wireTables: existing-check (.eq().single())
+      // and capacity count (.eq() awaited directly).
       c.select = vi.fn().mockReturnValue(c);
-      c.eq = vi.fn().mockReturnValue(c);
+      c.eq = vi.fn().mockImplementation(() => ({
+        ...c,
+        then: countThenable.then.bind(countThenable),
+      }));
       c.single = vi.fn().mockResolvedValue({ data: null });
       c.insert = insertSpy;
     }
@@ -232,5 +336,39 @@ describe("registerChallenge minimum team size (event-hub path)", () => {
     expect(result.success).toBe(true);
     expect(insertSpy).toHaveBeenCalledTimes(1);
     expect(insertSpy.mock.calls[0][0].roster.sort()).toEqual([PRESIDENT, "user-2"].sort());
+  });
+});
+
+describe("registerChallenge capacity limit (max_teams, event-hub path)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserMock.mockResolvedValue({ data: { user: { id: PRESIDENT } } });
+    checkinMock.mockImplementation((ids: string[]) => new Map(ids.map((id) => [id, true])));
+  });
+
+  it("rejects registration once the challenge is at capacity", async () => {
+    const { insertSpy } = wireEventTables({
+      members: [{ user_id: PRESIDENT }, { user_id: "user-2" }],
+      maxTeams: 2,
+      registeredCount: 2,
+    });
+
+    const result = await registerChallenge(CHAPTER, CHALLENGE, TEAM, [PRESIDENT, "user-2"]);
+
+    expect(result.error).toBe("This challenge is full.");
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows registration when under capacity", async () => {
+    const { insertSpy } = wireEventTables({
+      members: [{ user_id: PRESIDENT }, { user_id: "user-2" }],
+      maxTeams: 2,
+      registeredCount: 1,
+    });
+
+    const result = await registerChallenge(CHAPTER, CHALLENGE, TEAM, [PRESIDENT, "user-2"]);
+
+    expect(result.success).toBe(true);
+    expect(insertSpy).toHaveBeenCalledTimes(1);
   });
 });

@@ -27,6 +27,7 @@ interface Challenge {
   displayOrder: number;
   briefFileId: string | null;
   codeReviewConfig: CodeReviewConfig | null;
+  maxTeams: number | null;
 }
 
 const DEFAULT_FIELDS: SubmissionFieldConfig[] = [
@@ -153,6 +154,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
   const [sponsorLogoUrl, setSponsorLogoUrl] = useState("");
   const [prizeDescription, setPrizeDescription] = useState("");
   const [judgingCriteria, setJudgingCriteria] = useState("");
+  const [maxTeams, setMaxTeams] = useState("");
   const [codeReviewEnabled, setCodeReviewEnabled] = useState(true);
   const [isScored, setIsScored] = useState(true);
   const [inviteJuryToForks, setInviteJuryToForks] = useState(false);
@@ -184,6 +186,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     setSponsorLogoUrl("");
     setPrizeDescription("");
     setJudgingCriteria("");
+    setMaxTeams("");
     setCodeReviewEnabled(true);
     setCodeReviewInstructions("");
     setIsScored(true);
@@ -204,6 +207,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     setLogoPreview(challenge.sponsorLogoUrl || null);
     setPrizeDescription(challenge.prizeDescription || "");
     setJudgingCriteria(challenge.judgingCriteria || "");
+    setMaxTeams(challenge.maxTeams != null ? String(challenge.maxTeams) : "");
     setCodeReviewEnabled(challenge.codeReviewEnabled);
     setCodeReviewInstructions(challenge.codeReviewInstructions || "");
     setIsScored(challenge.isScored);
@@ -228,6 +232,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
     formData.set("sponsorLogoUrl", sponsorLogoUrl);
     formData.set("prizeDescription", prizeDescription);
     formData.set("judgingCriteria", judgingCriteria);
+    formData.set("maxTeams", maxTeams.trim());
     // Booleans are sent EXPLICITLY as "true"/"false". Never rely on a bare
     // checkbox's absence to mean false: updateChallenge can no longer tell that
     // apart from "field not managed by this form", and absent => untouched.
@@ -254,6 +259,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
           "sponsorLogoUrl",
           "prizeDescription",
           "judgingCriteria",
+          "maxTeams",
           "codeReviewEnabled",
           "codeReviewInstructions",
           "isScored",
@@ -464,6 +470,21 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
                 className="mt-1 w-full rounded-lg ad-border ad-bg-input px-4 py-2.5 ad-text focus:outline-none"
               />
             </div>
+            <div>
+              <label className="block text-sm ad-text-muted">Max Teams (optional)</label>
+              <input
+                type="number"
+                min={1}
+                step={1}
+                value={maxTeams}
+                onChange={(e) => setMaxTeams(e.target.value)}
+                placeholder="Leave empty for unlimited"
+                className="mt-1 w-full rounded-lg ad-border ad-bg-input px-4 py-2.5 ad-text focus:outline-none"
+              />
+              <p className="mt-1 text-xs ad-text-muted">
+                Once this many teams have registered, the challenge closes to new registrations (first come, first served).
+              </p>
+            </div>
 
             {/* Challenge Brief PDF */}
             <div>
@@ -637,6 +658,11 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
                   {challenge.briefFileId && (
                     <span className="rounded-full border ad-border-info ad-bg-info px-2.5 py-1 text-xs ad-text-info">
                       Brief PDF
+                    </span>
+                  )}
+                  {challenge.maxTeams != null && (
+                    <span className="rounded-full border ad-border ad-bg-elevated px-2.5 py-1 text-xs ad-text-muted">
+                      Max {challenge.maxTeams} teams
                     </span>
                   )}
                 </div>

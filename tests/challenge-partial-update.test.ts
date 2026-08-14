@@ -178,6 +178,52 @@ describe("updateChallenge — partial update safety", () => {
     expect(payload).not.toHaveProperty("is_scored");
   });
 
+  it("writes maxTeams as a number when managed", async () => {
+    const calls: CallState[] = [];
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ calls, responder }));
+
+    const fd = new FormData();
+    fd.set("challengeId", CHALLENGE);
+    fd.set("chapterId", CHAPTER);
+    fd.set("maxTeams", "10");
+    fd.set("managedFields", "maxTeams");
+
+    const result = await updateChallenge(fd);
+    expect(result).toEqual({ success: true });
+    const payload = updatePayload(calls);
+    expect(payload.max_teams).toBe(10);
+  });
+
+  it("clears maxTeams to null when managed and sent empty (unlimited)", async () => {
+    const calls: CallState[] = [];
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ calls, responder }));
+
+    const fd = new FormData();
+    fd.set("challengeId", CHALLENGE);
+    fd.set("chapterId", CHAPTER);
+    fd.set("maxTeams", "");
+    fd.set("managedFields", "maxTeams");
+
+    const result = await updateChallenge(fd);
+    expect(result).toEqual({ success: true });
+    const payload = updatePayload(calls);
+    expect(payload.max_teams).toBeNull();
+  });
+
+  it("rejects a non-positive maxTeams before writing", async () => {
+    const calls: CallState[] = [];
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ calls, responder }));
+
+    const fd = new FormData();
+    fd.set("challengeId", CHALLENGE);
+    fd.set("chapterId", CHAPTER);
+    fd.set("maxTeams", "0");
+    fd.set("managedFields", "maxTeams");
+
+    const result = await updateChallenge(fd);
+    expect(result.error).toMatch(/positive whole number/i);
+  });
+
   it("rejects when challengeId is missing", async () => {
     const fd = new FormData();
     fd.set("title", "T");
