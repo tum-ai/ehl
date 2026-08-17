@@ -10,6 +10,7 @@ import {
   getTeamMembersWithProfiles,
   getPendingInvitesForTeam,
   getTeamsLookingForMembers,
+  getUpcomingEventRecruiting,
   getDashboardJoinRequestsForTeam,
   getPendingJoinRequestsForUser,
   getUsersLookingForTeam,
@@ -56,10 +57,25 @@ export default async function ParticipantDashboard() {
       };
     });
 
-    const [teamsLookingForMembers, pendingJoinRequests] = await Promise.all([
+    const [teamsLookingForMembers, pendingJoinRequests, upcomingRecruiting] = await Promise.all([
       getTeamsLookingForMembers(),
       getPendingJoinRequestsForUser(userId),
+      getUpcomingEventRecruiting(),
     ]);
+
+    const upcomingTeamIds = new Set(upcomingRecruiting?.teamIds ?? []);
+    const upcomingEventRecruiting = upcomingRecruiting
+      ? {
+          chapterName: upcomingRecruiting.chapter.name,
+          chapterHref: `/matches/${upcomingRecruiting.chapter.slug}`,
+          chapterCity: upcomingRecruiting.chapter.city,
+          chapterDate: formatDateRange(
+            upcomingRecruiting.chapter.date,
+            upcomingRecruiting.chapter.dateEnd
+          ),
+          teams: teamsLookingForMembers.filter((team) => upcomingTeamIds.has(team.id)),
+        }
+      : null;
 
     return (
       <div>
@@ -72,6 +88,7 @@ export default async function ParticipantDashboard() {
             lookingForTeam={session.profile?.lookingForTeam ?? false}
             pendingInvites={pendingInvites}
             teamsLookingForMembers={teamsLookingForMembers}
+            upcomingEventRecruiting={upcomingEventRecruiting}
             pendingJoinRequests={pendingJoinRequests}
           />
         </div>

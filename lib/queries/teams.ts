@@ -124,6 +124,56 @@ export interface TeamLookingForMembers extends Team {
   memberNames: string[];
 }
 
+export interface UpcomingEventRecruiting {
+  chapter: {
+    id: string;
+    name: string;
+    slug: string;
+    city: string;
+    date: string;
+    dateEnd: string | null;
+  };
+  teamIds: string[];
+}
+
+/**
+ * Return the current or next public event plus teams whose president has an
+ * active application for that event. The RPC deliberately returns only public
+ * chapter fields and team IDs, never private application rows or identities.
+ */
+export async function getUpcomingEventRecruiting(): Promise<UpcomingEventRecruiting | null> {
+  const supabase = await createServerClient();
+  const { data, error } = await supabase.rpc("get_upcoming_event_recruiting");
+
+  if (error) throw error;
+
+  const rows = (data ?? []) as Array<{
+    chapter_id: string;
+    chapter_name: string;
+    chapter_slug: string;
+    chapter_city: string;
+    chapter_date: string;
+    chapter_date_end: string | null;
+    team_id: string | null;
+  }>;
+  const first = rows[0];
+  if (!first) return null;
+
+  return {
+    chapter: {
+      id: first.chapter_id,
+      name: first.chapter_name,
+      slug: first.chapter_slug,
+      city: first.chapter_city,
+      date: first.chapter_date,
+      dateEnd: first.chapter_date_end,
+    },
+    teamIds: Array.from(
+      new Set(rows.flatMap((row) => (row.team_id ? [row.team_id] : [])))
+    ),
+  };
+}
+
 export async function getTeamsLookingForMembers(): Promise<TeamLookingForMembers[]> {
   // Uses admin client: team_members RLS requires auth, but this runs
   // server-side for dashboard. Read-only, no write risk.

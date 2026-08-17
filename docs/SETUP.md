@@ -55,7 +55,7 @@ for f in supabase/migrations/*.sql; do
 done
 ```
 
-There are 31 migrations (00001 through 00031). They must run in order.
+Migration files currently run through 00063. They must run in numerical order.
 
 ### 2.3 Configure Auth Settings
 
@@ -575,7 +575,7 @@ ADMIN_FALLBACK_EMAILS=e2e-admin@test-ehl.com
 pnpm test:setup-db
 ```
 
-This applies all 31 migrations and loads seed data into the test database.
+This applies all migrations and loads seed data into the test database.
 
 ### 13.5 Run Tests
 
