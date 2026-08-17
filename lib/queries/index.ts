@@ -33,6 +33,7 @@ export {
   getTeamMembersWithProfiles,
   getAllTeamMembers,
   getTeamsLookingForMembers,
+  getUpcomingEventRecruiting,
   getPendingInvitesForTeam,
   getDashboardJoinRequestsForTeam,
   getPendingJoinRequestsForUser,
@@ -40,7 +41,12 @@ export {
   getTeamMatchHistory,
   getAllParticipantsWithTeams,
 } from "./teams";
-export type { TeamLookingForMembers, TeamMatchHistoryEntry, ParticipantWithTeam } from "./teams";
+export type {
+  TeamLookingForMembers,
+  UpcomingEventRecruiting,
+  TeamMatchHistoryEntry,
+  ParticipantWithTeam,
+} from "./teams";
 
 export {
   getChapters,
@@ -107,4 +113,3 @@ export type {
   ChapterStats,
   ChapterDetailStats,
 } from "./admin-stats";
-

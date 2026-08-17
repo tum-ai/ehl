@@ -356,6 +356,17 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        )
      ) as present`,
   },
+  {
+    // Upcoming-event recruiting exposes only public chapter fields and public
+    // team IDs. Anonymous callers must not be able to probe application intent.
+    prefix: "00063",
+    label: "upcoming_event_recruiting",
+    sql: `select (
+       to_regprocedure('public.get_upcoming_event_recruiting()') is not null
+       and not has_function_privilege('anon', 'public.get_upcoming_event_recruiting()', 'execute')
+       and has_function_privilege('authenticated', 'public.get_upcoming_event_recruiting()', 'execute')
+     ) as present`,
+  },
 ];
 
 /**

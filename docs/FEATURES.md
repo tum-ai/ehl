@@ -76,6 +76,11 @@ Requires participant account (email + password).
 
 ### Dashboard (`/dashboard`)
 - **Team stats**: Rank, total points, member count
+- **Team discovery for teamless participants**:
+  - Event-specific section for the current or next match
+  - A team appears there only when it is looking for members and its president
+    has an active application linked to that team for the match
+  - The existing general "Teams Looking for Members" section remains available
 - **Team management** (president only):
   - Invite members by email
   - Accept/decline join requests

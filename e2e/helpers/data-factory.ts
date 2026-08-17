@@ -337,6 +337,41 @@ export async function addTeamMember(teamId: string, userId: string) {
   });
 }
 
+/**
+ * Create or replace an event application for an existing test account.
+ */
+export async function createApplication(opts: {
+  chapterId: string;
+  email: string;
+  firstName: string;
+  lastName: string;
+  status: "pending" | "accepted" | "rejected" | "waitlisted" | "checked_in" | "cancelled";
+  existingTeamId?: string | null;
+}) {
+  const admin = getAdminClient();
+  const { data, error } = await admin
+    .from("applications")
+    .upsert(
+      {
+        chapter_id: opts.chapterId,
+        email: opts.email,
+        first_name: opts.firstName,
+        last_name: opts.lastName,
+        status: opts.status,
+        existing_team_id: opts.existingTeamId ?? null,
+        form_data: {},
+        consent_attendance: true,
+        consent_privacy: true,
+      },
+      { onConflict: "chapter_id,email" }
+    )
+    .select("id")
+    .single();
+
+  if (error) throw new Error(`Failed to create application for ${opts.email}: ${error.message}`);
+  return data.id as string;
+}
+
 // ─── Chapter Creation ───────────────────────────────────────
 
 /**

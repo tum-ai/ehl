@@ -27,6 +27,7 @@ import {
   createImportedParticipant,
   createParticipant,
   createTeam,
+  createApplication,
   generateRecoveryLink,
   getTeamInviteToken,
   setChapterStatus,
@@ -71,6 +72,7 @@ const REGISTER_PRES_EMAIL = `e2e-register-pres-${RUN_ID}@test-ehl.com`;
 const REGISTER_MEM_EMAIL = `e2e-register-mem-${RUN_ID}@test-ehl.com`;
 const REGISTER_TEAM_NAME = `E2E Register Team ${RUN_ID}`;
 const WALKIN_EMAIL = `e2e-walkin-${RUN_ID}@test-ehl.com`;
+const RECRUITING_VIEWER_EMAIL = `e2e-recruiting-viewer-${RUN_ID}@test-ehl.com`;
 
 // ─── Shared state across serial tests ───────────────────────
 
@@ -2017,6 +2019,109 @@ test.describe.serial("Hackathon Lifecycle", () => {
     ]) {
       const res = await page.request.get(url);
       expect(res.status(), `${url} -> 403`).toBe(403);
+    }
+  });
+
+  // ── BLOCK 15: UPCOMING EVENT RECRUITING ────────────────
+
+  test("15.1 Dashboard highlights recruiting teams whose president applied to the next event", async ({ page }) => {
+    const admin = getAdminClient();
+    const today = new Date();
+    const eventEnd = new Date(today);
+    eventEnd.setUTCDate(eventEnd.getUTCDate() + 1);
+    const eventName = `E2E Recruiting Event ${RUN_ID}`;
+
+    const { data: originalTeam } = await admin
+      .from("teams")
+      .select("looking_for_members")
+      .eq("id", teamAlphaId)
+      .single();
+
+    const recruitingViewerId = await createParticipant({
+      email: RECRUITING_VIEWER_EMAIL,
+      name: "E2E Recruiting Viewer",
+      lookingForTeam: true,
+    });
+    const { data: recruitingViewerMemberships } = await admin
+      .from("team_members")
+      .select("team_id")
+      .eq("user_id", recruitingViewerId);
+    expect(recruitingViewerMemberships).toEqual([]);
+
+    const chapter = await createChapter({
+      name: eventName,
+      city: "E2E Recruiting City",
+      country: "Germany",
+      countryCode: "DE",
+      description: "E2E event for upcoming recruiting discovery.",
+      date: today.toISOString().slice(0, 10),
+      dateEnd: eventEnd.toISOString().slice(0, 10),
+      matchNumber: 0,
+    });
+
+    try {
+      await setChapterStatus(chapter.id, "applications_open");
+      await admin
+        .from("teams")
+        .update({ looking_for_members: true })
+        .eq("id", teamAlphaId);
+
+      const applicationId = await createApplication({
+        chapterId: chapter.id,
+        email: E2E_ACCOUNTS.president.email,
+        firstName: "E2E",
+        lastName: "President",
+        status: "accepted",
+        existingTeamId: teamAlphaId,
+      });
+
+      const { data: storedApplication } = await admin
+        .from("applications")
+        .select("status, existing_team_id")
+        .eq("id", applicationId)
+        .single();
+      expect(storedApplication).toEqual({
+        status: "accepted",
+        existing_team_id: teamAlphaId,
+      });
+
+      await loginAsParticipant(page, RECRUITING_VIEWER_EMAIL);
+      await page.goto("/dashboard");
+      await page.waitForLoadState("networkidle");
+
+      const eventSection = page.getByTestId("upcoming-event-recruiting");
+      const generalSection = page.getByTestId("general-recruiting");
+
+      await expect(
+        eventSection.getByRole("heading", { name: `Teams Recruiting for ${eventName}` })
+      ).toBeVisible({ timeout: 15000 });
+      await expect(eventSection.getByText("E2E Alpha", { exact: true })).toBeVisible();
+
+      // The existing general recruiting section remains and still contains the team.
+      await expect(
+        generalSection.getByRole("heading", { name: "Teams Looking for Members" })
+      ).toBeVisible();
+      await expect(generalSection.getByText("E2E Alpha", { exact: true })).toBeVisible();
+
+      // A rejected president application removes only the event-specific signal.
+      await admin
+        .from("applications")
+        .update({ status: "rejected" })
+        .eq("id", applicationId);
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+
+      await expect(eventSection.getByText("E2E Alpha", { exact: true })).toHaveCount(0);
+      await expect(
+        eventSection.getByText("No teams are currently recruiting for this event.")
+      ).toBeVisible();
+      await expect(generalSection.getByText("E2E Alpha", { exact: true })).toBeVisible();
+    } finally {
+      await admin
+        .from("teams")
+        .update({ looking_for_members: originalTeam?.looking_for_members ?? false })
+        .eq("id", teamAlphaId);
+      await admin.from("chapters").delete().eq("id", chapter.id);
     }
   });
 });

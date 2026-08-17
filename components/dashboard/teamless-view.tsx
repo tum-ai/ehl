@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,13 +14,81 @@ interface TeamlessViewProps {
   lookingForTeam: boolean;
   pendingInvites: TeamInvite[];
   teamsLookingForMembers: TeamLookingForMembers[];
+  upcomingEventRecruiting: {
+    chapterName: string;
+    chapterHref: string;
+    chapterCity: string;
+    chapterDate: string;
+    teams: TeamLookingForMembers[];
+  } | null;
   pendingJoinRequests: TeamJoinRequest[];
+}
+
+interface RecruitingTeamCardsProps {
+  teams: TeamLookingForMembers[];
+  requestedTeamIds: ReadonlySet<string>;
+  actionLoading: string | null;
+  onRequestJoin: (teamId: string) => void;
+}
+
+function RecruitingTeamCards({
+  teams,
+  requestedTeamIds,
+  actionLoading,
+  onRequestJoin,
+}: RecruitingTeamCardsProps) {
+  return (
+    <div className="space-y-2">
+      {teams.map((team) => {
+        const alreadyRequested = requestedTeamIds.has(team.id);
+        return (
+          <Card key={team.id}>
+            <div className="flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold text-gold">{team.name}</p>
+                <p className="mt-0.5 text-xs text-text-muted">
+                  {[team.university, team.city].filter(Boolean).join(", ") || "No origin set"}
+                  {" "}&middot; {team.memberCount}/5 members
+                </p>
+                {team.memberNames.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {team.memberNames.map((name, index) => (
+                      <span
+                        key={`${team.id}-${index}`}
+                        className="inline-flex items-center rounded-full bg-surface-deep px-2.5 py-0.5 text-xs text-text-secondary"
+                      >
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex-shrink-0">
+                {alreadyRequested ? (
+                  <Badge variant="announced">Requested</Badge>
+                ) : (
+                  <button
+                    onClick={() => onRequestJoin(team.id)}
+                    disabled={actionLoading === team.id}
+                    className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-1.5 text-xs font-medium text-gold transition-colors hover:bg-gold/10 disabled:opacity-50"
+                  >
+                    {actionLoading === team.id ? "Sending..." : "Ask to Join"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </Card>
+        );
+      })}
+    </div>
+  );
 }
 
 export function TeamlessView({
   lookingForTeam: initialLooking,
   pendingInvites: initialInvites,
   teamsLookingForMembers,
+  upcomingEventRecruiting,
   pendingJoinRequests: initialJoinRequests,
 }: TeamlessViewProps) {
   const router = useRouter();
@@ -235,56 +304,48 @@ export function TeamlessView({
         </div>
       )}
 
+      {upcomingEventRecruiting && (
+        <section data-testid="upcoming-event-recruiting">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-text-muted">
+            Teams Recruiting for {upcomingEventRecruiting.chapterName}
+          </h2>
+          <p className="mb-3 mt-1 text-xs text-text-muted">
+            {upcomingEventRecruiting.chapterCity} &middot; {upcomingEventRecruiting.chapterDate}
+            {" "}&middot;{" "}
+            <Link href={upcomingEventRecruiting.chapterHref} className="text-gold hover:underline">
+              Event details
+            </Link>
+          </p>
+          {upcomingEventRecruiting.teams.length > 0 ? (
+            <RecruitingTeamCards
+              teams={upcomingEventRecruiting.teams}
+              requestedTeamIds={requestedTeamIds}
+              actionLoading={actionLoading}
+              onRequestJoin={handleRequestJoin}
+            />
+          ) : (
+            <Card>
+              <p className="text-sm text-text-muted">
+                No teams are currently recruiting for this event.
+              </p>
+            </Card>
+          )}
+        </section>
+      )}
+
       {/* Teams looking for members */}
       {teamsLookingForMembers.length > 0 && (
-        <div>
+        <section data-testid="general-recruiting">
           <h2 className="mb-3 text-sm font-bold uppercase tracking-wider text-text-muted">
             Teams Looking for Members
           </h2>
-          <div className="space-y-2">
-            {teamsLookingForMembers.map((team) => {
-              const alreadyRequested = requestedTeamIds.has(team.id);
-              return (
-                <Card key={team.id}>
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-bold text-gold">{team.name}</p>
-                      <p className="mt-0.5 text-xs text-text-muted">
-                        {[team.university, team.city].filter(Boolean).join(", ") || "No origin set"}
-                        {" "}&middot; {team.memberCount}/5 members
-                      </p>
-                      {team.memberNames.length > 0 && (
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          {team.memberNames.map((name, i) => (
-                            <span
-                              key={i}
-                              className="inline-flex items-center rounded-full bg-surface-deep px-2.5 py-0.5 text-xs text-text-secondary"
-                            >
-                              {name}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex-shrink-0">
-                      {alreadyRequested ? (
-                        <Badge variant="announced">Requested</Badge>
-                      ) : (
-                        <button
-                          onClick={() => handleRequestJoin(team.id)}
-                          disabled={actionLoading === team.id}
-                          className="rounded-lg border border-gold/30 bg-gold/5 px-3 py-1.5 text-xs font-medium text-gold transition-colors hover:bg-gold/10 disabled:opacity-50"
-                        >
-                          {actionLoading === team.id ? "Sending..." : "Ask to Join"}
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
+          <RecruitingTeamCards
+            teams={teamsLookingForMembers}
+            requestedTeamIds={requestedTeamIds}
+            actionLoading={actionLoading}
+            onRequestJoin={handleRequestJoin}
+          />
+        </section>
       )}
     </div>
   );
