@@ -1,4 +1,5 @@
 import { getSettingValue, SETTING_KEYS } from "@/lib/settings";
+import { listEntireCheckpointRefs } from "@/lib/entire";
 
 const EHL_GITHUB_USERNAME = "ehl-gg";
 
@@ -211,13 +212,19 @@ export async function fetchCheckpointBranchIntoFork(
   const org = await getOrg();
   const forkFullName = `${org}/${snapshotName}`;
 
-  // Candidate refs mirror lib/entire.ts (branch form here; the v1.1 custom ref
-  // lives under refs/ and is addressed without the heads/ prefix).
+  // Candidate refs mirror lib/entire.ts, same order: the ref based backend's
+  // dynamic refs/entire/checkpoints/<shard>/<id> refs first, legacy branch and
+  // v1.1 mirror as fallback. All matching refs are copied, not just the first.
   const candidates = [
+    ...(await listEntireCheckpointRefs(owner, repo, headers)).map((ref) => ({
+      srcRef: ref.slice("refs/".length),
+      dstRef: ref,
+    })),
     { srcRef: "heads/entire/checkpoints/v1", dstRef: "refs/heads/entire/checkpoints/v1" },
     { srcRef: "entire/checkpoints/v1.1", dstRef: "refs/entire/checkpoints/v1.1" },
   ];
 
+  let copiedRef: string | null = null;
   for (const { srcRef, dstRef } of candidates) {
     try {
       const srcRes = await fetch(
@@ -239,7 +246,10 @@ export async function fetchCheckpointBranchIntoFork(
         }
       );
 
-      if (createRes.ok) return { ref: dstRef };
+      if (createRes.ok) {
+        copiedRef = dstRef;
+        continue;
+      }
 
       if (createRes.status === 422) {
         // Ref exists already: fast-forward (force) it to the source SHA.
@@ -251,7 +261,10 @@ export async function fetchCheckpointBranchIntoFork(
             body: JSON.stringify({ sha, force: true }),
           }
         );
-        if (updateRes.ok) return { ref: dstRef };
+        if (updateRes.ok) {
+          copiedRef = dstRef;
+          continue;
+        }
       }
 
       const errText = await createRes.text().catch(() => "");
@@ -260,19 +273,19 @@ export async function fetchCheckpointBranchIntoFork(
         createRes.status,
         errText
       );
-      // Don't try other candidates if the source had this ref but the copy
-      // failed for a non-existence reason; report absence to caller.
-      return null;
+      // Keep trying other checkpoint refs. A single malformed or inaccessible
+      // checkpoint must not hide usable refs from the same repository.
+      continue;
     } catch (e) {
       console.error(
         `Checkpoint ref copy error for ${owner}/${repo} -> ${forkFullName}:`,
         e instanceof Error ? e.message : String(e)
       );
-      return null;
+      continue;
     }
   }
 
-  return null; // no checkpoint branch on the source
+  return copiedRef ? { ref: copiedRef } : null;
 }
 
 // ─── Collaborator management ────────────────────────────────

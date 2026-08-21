@@ -2,9 +2,10 @@
  * Entire.io session-history integration.
  *
  * Entire (https://entire.io, https://github.com/entireio/cli) is a client-side
- * CLI that captures AI coding-agent sessions and stores them, agent-agnostic, on
- * an orphan git branch `entire/checkpoints/v1`. Each commit gets an
- * `Entire-Checkpoint: <12hex>` trailer linking it to a checkpoint.
+ * CLI that captures AI coding-agent sessions and stores them, agent-agnostic,
+ * either on the legacy `entire/checkpoints/v1` branch or on one ref per
+ * checkpoint under `refs/entire/checkpoints/<shard>/<id>`. Each commit gets an
+ * `Entire-Checkpoint` trailer linking it to a checkpoint.
  *
  * On-branch layout (per the open-source CLI, paths/paths.go + checkpoint/*.go):
  *
@@ -33,14 +34,70 @@
 import { getSettingValue, SETTING_KEYS } from "@/lib/settings";
 import type { CheckpointBranchCheck } from "@/lib/types";
 
-// The canonical metadata branch, plus known mirror/legacy refs to fall back on.
-// Order matters: first match wins.
+// The legacy metadata branch, plus known mirror/older refs. These are the
+// FALLBACK: the per-checkpoint refs below are tried first. Order matters within
+// this list too, first match wins.
 export const ENTIRE_BRANCH = "entire/checkpoints/v1";
 export const ENTIRE_CANDIDATE_REFS = [
   "entire/checkpoints/v1", // MetadataBranchName
   "refs/entire/checkpoints/v1.1", // MetadataRefName (v1.1 read mirror)
   "entire/checkpoints", // defensive: older/short form
 ];
+export const ENTIRE_REF_PREFIX = "refs/entire/checkpoints/";
+
+// Upper bound on how many per-checkpoint refs we enumerate. Each ref costs
+// extra GitHub calls downstream (tree read at submit time, copy into the
+// snapshot fork at lock time), and both run inside a request/function budget.
+export const MAX_ENTIRE_CHECKPOINT_REFS = 100;
+
+/**
+ * Return checkpoint refs written by Entire's ref based backend.
+ *
+ * GitHub's matching refs endpoint returns full ref names, for example
+ * refs/entire/checkpoints/WV/01M0JQB8SEQEVEZPP6R0G7VPWV. Keep only the
+ * two level checkpoint shape so unrelated refs in the namespace cannot be
+ * mistaken for checkpoint data.
+ */
+export async function listEntireCheckpointRefs(
+  owner: string,
+  repo: string,
+  headers: Record<string, string>
+): Promise<string[]> {
+  const refs = new Set<string>();
+  const pageSize = 100;
+
+  try {
+    for (let page = 1; page <= 10; page++) {
+      if (refs.size >= MAX_ENTIRE_CHECKPOINT_REFS) break;
+      const res = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/git/matching-refs/entire/checkpoints?per_page=${pageSize}&page=${page}`,
+        { headers }
+      );
+      if (!res.ok) break;
+
+      const data = (await res.json().catch(() => null)) as
+        | Array<{ ref?: unknown }>
+        | null;
+      if (!Array.isArray(data)) break;
+
+      for (const item of data) {
+        const ref = typeof item.ref === "string" ? item.ref : null;
+        if (!ref?.startsWith(ENTIRE_REF_PREFIX)) continue;
+        const parts = ref.slice(ENTIRE_REF_PREFIX.length).split("/");
+        if (parts.length === 2 && parts.every((part) => part.length > 0)) {
+          refs.add(ref);
+          if (refs.size >= MAX_ENTIRE_CHECKPOINT_REFS) break;
+        }
+      }
+
+      if (data.length < pageSize) break;
+    }
+  } catch {
+    return [...refs];
+  }
+
+  return [...refs];
+}
 
 // Canonical separator used in prompt.txt when multiple prompts are stored in one
 // file (checkpoint/prompts.go: PromptSeparator).
@@ -67,14 +124,14 @@ export function entireGateErrorMessage(check: CheckpointBranchCheck): string {
   if (!check.branchExists) {
     return (
       "This challenge requires an Entire session record, but your repository has no " +
-      `${ENTIRE_BRANCH} branch. Install Entire (https://entire.io), run ` +
+      "recognized Entire checkpoint branch or ref. Install Entire (https://entire.io), run " +
       "`entire enable --agent <your-tool>`, commit your AI session, push (including the " +
-      "checkpoint branch), then resubmit. If your repo is private, make sure ehl-gg has " +
+      "checkpoint data), then resubmit. If your repo is private, make sure ehl-gg has " +
       "access so we can read it."
     );
   }
   return (
-    `Your repository has the ${ENTIRE_BRANCH} branch, but we could not find any captured ` +
+    "Your repository has Entire checkpoint data, but we could not find any captured " +
     "prompts in it. Make sure you committed while your AI coding session was active so " +
     "Entire records at least one prompt, then push and resubmit."
   );
@@ -175,15 +232,22 @@ type TreeItem = { path: string; type: string };
 /**
  * Resolve which candidate ref actually exists on the repo and return its
  * recursive tree. Returns null if no Entire branch/ref is present.
+ *
+ * Order: the per-checkpoint refs written by Entire's current git-refs backend
+ * come FIRST, because that is what a freshly installed CLI produces today. The
+ * legacy v1 branch and the v1.1 mirror are the fallback for older records.
  */
 async function fetchCheckpointTree(
   owner: string,
   repo: string,
   headers: Record<string, string>
 ): Promise<{ ref: string; items: TreeItem[] } | null> {
-  for (const ref of ENTIRE_CANDIDATE_REFS) {
-    // git/trees accepts a branch name or ref. Use the recursive tree so we see
-    // every file at once (the branch is small: metadata + transcripts only).
+  const checkpointRefs = await listEntireCheckpointRefs(owner, repo, headers);
+
+  for (const ref of [...checkpointRefs, ...ENTIRE_CANDIDATE_REFS]) {
+    // git/trees accepts a branch name or a full ref. Use the recursive tree so
+    // we see every file at once (checkpoint data is small: metadata +
+    // transcripts only).
     const res = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(
         ref
@@ -200,6 +264,7 @@ async function fetchCheckpointTree(
       return { ref, items: data.tree };
     }
   }
+
   return null;
 }
 
@@ -272,12 +337,15 @@ export async function checkCheckpointBranch(
   }
 
   if (!tree) {
-    notes.push(`No Entire checkpoint branch found (looked for ${ENTIRE_BRANCH}).`);
+    notes.push("No recognized Entire checkpoint branch or ref found.");
     return empty;
   }
 
   const paths = tree.items.filter((t) => t.type === "blob").map((t) => t.path);
-  const checkpointCount = countCheckpointDirs(paths);
+  const checkpointCount = Math.max(
+    countCheckpointDirs(paths),
+    tree.ref.startsWith(ENTIRE_REF_PREFIX) ? 1 : 0
+  );
 
   // Step 3a: prompt.txt blobs (cap reads to stay cheap; this is a submit-time check).
   const maxPromptFiles = opts.maxPromptFiles ?? 10;
@@ -382,7 +450,10 @@ export async function ingestSessionHistory(
   if (!tree) return null;
 
   const paths = tree.items.filter((t) => t.type === "blob").map((t) => t.path);
-  const checkpointCount = countCheckpointDirs(paths);
+  const checkpointCount = Math.max(
+    countCheckpointDirs(paths),
+    tree.ref.startsWith(ENTIRE_REF_PREFIX) ? 1 : 0
+  );
 
   // Collect prompt samples.
   const promptSamples: string[] = [];

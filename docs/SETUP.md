@@ -271,11 +271,11 @@ For challenges that require AI session history, participants install [Entire](ht
 
 1. Install the Entire CLI (see [github.com/entireio/cli](https://github.com/entireio/cli)).
 2. In their project repo, run `entire enable --agent <tool>` (supported: `claude-code`, `codex`, `gemini`, `opencode`, `cursor`, `factoryai-droid`, `copilot-cli`). **Antigravity is not supported by Entire.**
-3. Code as normal and commit while the AI session is active. Entire writes checkpoints to the `entire/checkpoints/v1` branch.
-4. **Push the checkpoint branch** along with their code (`git push` pushes it by default; ensure it is not skipped).
-5. For private repos, invite the bot account (`ehl-gg`) as a collaborator so EHL can read the branch.
+3. Code as normal and commit while the AI session is active. Depending on the Entire checkpoint backend, checkpoints are written either to the legacy `entire/checkpoints/v1` branch or to per-checkpoint refs under `refs/entire/checkpoints/<shard>/<id>`.
+4. **Push the checkpoint data** along with their code (`git push` pushes it by default; ensure it is not skipped).
+5. For private repos, invite the bot account (`ehl-gg`) as a collaborator so EHL can read the checkpoint data.
 
-No EHL-side credentials or service setup are required for Entire: it is client-side and stores data in the participant's own git repo. EHL only reads the branch (via the existing `GH_PAT`) and copies it into the private fork. Enable the requirement per challenge in the admin challenge editor ("Require Entire Session History").
+No EHL-side credentials or service setup are required for Entire: it is client-side and stores data in the participant's own git repo. EHL reads the legacy branch or the per-checkpoint refs (via the existing `GH_PAT`) and copies the checkpoint data into the private fork. Enable the requirement per challenge in the admin challenge editor ("Require Entire Session History").
 
 ---
 

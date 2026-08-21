@@ -217,7 +217,7 @@ export type CodeReviewContent = CodeReviewContentV1 | CodeReviewContentV2;
 // ─── Entire Session History ──────────────────────────────────
 
 // Result of the soft, agent-agnostic presence check on the
-// entire/checkpoints/v1 branch. Tolerant of imperfect checkpoints from
+// Entire checkpoint branch or ref. Tolerant of imperfect checkpoints from
 // different agents (Codex, Cursor, Gemini, ...) and older/newer Entire
 // versions: any positive signal counts. See lib/entire.ts.
 export interface CheckpointBranchCheck {
@@ -228,7 +228,8 @@ export interface CheckpointBranchCheck {
   promptCount: number;
   // Number of sharded checkpoint directories found on the branch.
   checkpointCount: number;
-  // The ref that actually resolved (e.g. "entire/checkpoints/v1").
+  // The ref that actually resolved (for example, "entire/checkpoints/v1" or
+  // "refs/entire/checkpoints/WV/<checkpoint-id>").
   resolvedRef: string | null;
   // True when the branch exists and has at least one prompt: passes the gate.
   satisfiesGate: boolean;

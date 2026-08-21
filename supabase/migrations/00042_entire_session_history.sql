@@ -4,7 +4,7 @@
 -- the session-history analysis produced by the code-review pipeline.
 --
 -- Design: when entire_required is on, submissions must carry an Entire session
--- record (the entire/checkpoints/v1 branch with at least one captured prompt).
+-- record (the legacy branch or a ref-based checkpoint with at least one captured prompt).
 -- Presence is a hard gate at submission time; the QUALITY of that history is an
 -- advisory bonus surfaced to the jury and never feeds placement/scoring.
 
