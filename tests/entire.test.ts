@@ -286,6 +286,27 @@ describe("checkCheckpointBranch", () => {
     expect(r.resolvedRef).toBe(checkpointRef);
   });
 
+  it("prefers a ref based checkpoint over the legacy branch when both exist", async () => {
+    const checkpointRef = "refs/entire/checkpoints/WV/01M0JQB8SEQEVEZPP6R0G7VPWV";
+    globalThis.fetch = mockFetch((url) => {
+      if (url.includes("/git/matching-refs/entire/checkpoints")) {
+        return { json: [{ ref: checkpointRef }] };
+      }
+      // Both the ref and the legacy branch resolve to a usable tree.
+      if (url.includes("/git/trees/")) {
+        return { json: { tree: [{ path: "0/prompt.txt", type: "blob" }] } };
+      }
+      if (url.includes("prompt.txt")) {
+        return { json: { encoding: "base64", content: b64("one prompt") } };
+      }
+      return { status: 404 };
+    });
+
+    const r = await checkCheckpointBranch("o", "r");
+    expect(r.satisfiesGate).toBe(true);
+    expect(r.resolvedRef).toBe(checkpointRef);
+  });
+
   it("does NOT pass when branch exists but is empty (no checkpoints, no prompts)", async () => {
     // Tree resolves but contains only unrelated files: no shard dirs, no prompts.
     const tree = { tree: [{ path: "README.md", type: "blob" }] };

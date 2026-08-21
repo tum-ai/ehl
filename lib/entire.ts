@@ -34,8 +34,9 @@
 import { getSettingValue, SETTING_KEYS } from "@/lib/settings";
 import type { CheckpointBranchCheck } from "@/lib/types";
 
-// The canonical metadata branch, plus known mirror/legacy refs to fall back on.
-// Order matters: first match wins.
+// The legacy metadata branch, plus known mirror/older refs. These are the
+// FALLBACK: the per-checkpoint refs below are tried first. Order matters within
+// this list too, first match wins.
 export const ENTIRE_BRANCH = "entire/checkpoints/v1";
 export const ENTIRE_CANDIDATE_REFS = [
   "entire/checkpoints/v1", // MetadataBranchName
@@ -231,15 +232,22 @@ type TreeItem = { path: string; type: string };
 /**
  * Resolve which candidate ref actually exists on the repo and return its
  * recursive tree. Returns null if no Entire branch/ref is present.
+ *
+ * Order: the per-checkpoint refs written by Entire's current git-refs backend
+ * come FIRST, because that is what a freshly installed CLI produces today. The
+ * legacy v1 branch and the v1.1 mirror are the fallback for older records.
  */
 async function fetchCheckpointTree(
   owner: string,
   repo: string,
   headers: Record<string, string>
 ): Promise<{ ref: string; items: TreeItem[] } | null> {
-  for (const ref of ENTIRE_CANDIDATE_REFS) {
-    // git/trees accepts a branch name or ref. Use the recursive tree so we see
-    // every file at once (the branch is small: metadata + transcripts only).
+  const checkpointRefs = await listEntireCheckpointRefs(owner, repo, headers);
+
+  for (const ref of [...checkpointRefs, ...ENTIRE_CANDIDATE_REFS]) {
+    // git/trees accepts a branch name or a full ref. Use the recursive tree so
+    // we see every file at once (checkpoint data is small: metadata +
+    // transcripts only).
     const res = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(
         ref
@@ -248,27 +256,6 @@ async function fetchCheckpointTree(
     );
     if (res.status === 404) continue; // ref doesn't exist; try next candidate
     if (!res.ok) continue; // transient/other error: don't claim absence, keep trying
-    const data = (await res.json().catch(() => null)) as {
-      tree?: TreeItem[];
-      truncated?: boolean;
-    } | null;
-    if (data?.tree && data.tree.length > 0) {
-      return { ref, items: data.tree };
-    }
-  }
-
-  // Entire's current git-refs backend stores one checkpoint per ref instead
-  // of advancing a shared v1 branch. Reuse the same tree and prompt parsing
-  // below after resolving the first non-empty checkpoint ref.
-  const checkpointRefs = await listEntireCheckpointRefs(owner, repo, headers);
-  for (const ref of checkpointRefs) {
-    const res = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(
-        ref
-      )}?recursive=1`,
-      { headers }
-    );
-    if (!res.ok) continue;
     const data = (await res.json().catch(() => null)) as {
       tree?: TreeItem[];
       truncated?: boolean;

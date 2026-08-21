@@ -212,15 +212,16 @@ export async function fetchCheckpointBranchIntoFork(
   const org = await getOrg();
   const forkFullName = `${org}/${snapshotName}`;
 
-  // Candidate refs mirror lib/entire.ts. The ref based backend adds one
-  // dynamic refs/entire/checkpoints/<shard>/<id> ref per checkpoint.
+  // Candidate refs mirror lib/entire.ts, same order: the ref based backend's
+  // dynamic refs/entire/checkpoints/<shard>/<id> refs first, legacy branch and
+  // v1.1 mirror as fallback. All matching refs are copied, not just the first.
   const candidates = [
-    { srcRef: "heads/entire/checkpoints/v1", dstRef: "refs/heads/entire/checkpoints/v1" },
-    { srcRef: "entire/checkpoints/v1.1", dstRef: "refs/entire/checkpoints/v1.1" },
     ...(await listEntireCheckpointRefs(owner, repo, headers)).map((ref) => ({
       srcRef: ref.slice("refs/".length),
       dstRef: ref,
     })),
+    { srcRef: "heads/entire/checkpoints/v1", dstRef: "refs/heads/entire/checkpoints/v1" },
+    { srcRef: "entire/checkpoints/v1.1", dstRef: "refs/entire/checkpoints/v1.1" },
   ];
 
   let copiedRef: string | null = null;
