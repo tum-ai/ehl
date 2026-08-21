@@ -592,7 +592,7 @@ export default function AdminChallengesPage({ params }: { params: Promise<{ id: 
                 checked={entireRequired}
                 onChange={setEntireRequired}
                 label="Require Entire Session History"
-                description="Teams must include an Entire session record (the entire/checkpoints/v1 branch with at least one prompt) to submit. The history is captured into the private fork and scored as an advisory process-quality bonus in the code review (never counts toward placement)."
+                description="Teams must include an Entire session record, using the legacy branch or a checkpoint ref with at least one prompt, to submit. The history is captured into the private fork and scored as an advisory process-quality bonus in the code review (never counts toward placement)."
               />
             )}
 

@@ -273,8 +273,8 @@ export async function submitProject(formData: FormData) {
   }
 
   // Entire session-history hard gate. When the challenge requires it, every repo
-  // field must carry an Entire session record (the entire/checkpoints/v1 branch
-  // with at least one captured prompt). The check is intentionally SOFT/tolerant
+  // field must carry an Entire session record (the legacy branch or a
+  // ref-based checkpoint with at least one captured prompt). The check is intentionally SOFT/tolerant
   // of imperfect checkpoints across agents and Entire versions: see lib/entire.ts.
   // Blocks the submission BEFORE persisting so a missing record never half-saves.
   {

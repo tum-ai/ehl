@@ -17,7 +17,9 @@ import {
   isTranscriptFilePath,
   checkCheckpointBranch,
   entireGateErrorMessage,
+  listEntireCheckpointRefs,
   ENTIRE_BRANCH,
+  MAX_ENTIRE_CHECKPOINT_REFS,
 } from "@/lib/entire";
 import type { CheckpointBranchCheck } from "@/lib/types";
 
@@ -98,7 +100,7 @@ describe("entireGateErrorMessage", () => {
 
   it("gives a 'no branch' message when the branch is absent", () => {
     const msg = entireGateErrorMessage({ ...base, branchExists: false });
-    expect(msg).toContain(ENTIRE_BRANCH);
+    expect(msg).toMatch(/recognized Entire checkpoint branch or ref/i);
     expect(msg).toMatch(/entire enable/);
   });
 
@@ -259,6 +261,31 @@ describe("checkCheckpointBranch", () => {
     expect(r.resolvedRef).toBe("refs/entire/checkpoints/v1.1");
   });
 
+  it("SOFT: resolves via a ref based checkpoint", async () => {
+    const checkpointRef = "refs/entire/checkpoints/WV/01M0JQB8SEQEVEZPP6R0G7VPWV";
+    const tree = { tree: [{ path: "0/prompt.txt", type: "blob" }] };
+    globalThis.fetch = mockFetch((url) => {
+      if (url.includes("/git/trees/")) {
+        if (url.includes(encodeURIComponent(checkpointRef))) return { json: tree };
+        return { status: 404 };
+      }
+      if (url.includes("/git/matching-refs/entire/checkpoints")) {
+        return { json: [{ ref: checkpointRef, object: { sha: "sha" } }] };
+      }
+      if (url.includes("prompt.txt")) {
+        return { json: { encoding: "base64", content: b64("one prompt") } };
+      }
+      return { status: 404 };
+    });
+
+    const r = await checkCheckpointBranch("o", "r");
+    expect(r.branchExists).toBe(true);
+    expect(r.promptCount).toBe(1);
+    expect(r.checkpointCount).toBe(1);
+    expect(r.satisfiesGate).toBe(true);
+    expect(r.resolvedRef).toBe(checkpointRef);
+  });
+
   it("does NOT pass when branch exists but is empty (no checkpoints, no prompts)", async () => {
     // Tree resolves but contains only unrelated files: no shard dirs, no prompts.
     const tree = { tree: [{ path: "README.md", type: "blob" }] };
@@ -281,5 +308,47 @@ describe("checkCheckpointBranch", () => {
     expect(r.branchExists).toBe(false);
     expect(r.satisfiesGate).toBe(false);
     expect(r.notes.join(" ")).toMatch(/Could not query/);
+  });
+});
+
+// ─── listEntireCheckpointRefs (mocked GitHub) ─────────────────
+
+describe("listEntireCheckpointRefs", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it("keeps only the two level checkpoint ref shape", async () => {
+    globalThis.fetch = mockFetch(() => ({
+      json: [
+        { ref: "refs/entire/checkpoints/WV/01M0JQB8SEQEVEZPP6R0G7VPWV" },
+        { ref: "refs/entire/checkpoints/v1.1" }, // one level: not a checkpoint
+        { ref: "refs/entire/checkpoints/WV/deep/er" }, // three levels
+        { ref: "refs/heads/main" },
+      ],
+    }));
+    const refs = await listEntireCheckpointRefs("o", "r", {});
+    expect(refs).toEqual(["refs/entire/checkpoints/WV/01M0JQB8SEQEVEZPP6R0G7VPWV"]);
+  });
+
+  it("caps enumeration so a repo with many checkpoints stays bounded", async () => {
+    const page = Array.from({ length: 100 }, (_, i) => ({
+      ref: `refs/entire/checkpoints/AA/${String(i).padStart(26, "0")}`,
+    }));
+    let pages = 0;
+    globalThis.fetch = mockFetch(() => {
+      pages++;
+      // Always a full page with distinct ids, so only the cap can stop it.
+      return {
+        json: page.map((item, i) => ({
+          ref: `${item.ref}-${pages}-${i}`,
+        })),
+      };
+    });
+    const refs = await listEntireCheckpointRefs("o", "r", {});
+    expect(refs.length).toBe(MAX_ENTIRE_CHECKPOINT_REFS);
+    expect(pages).toBe(1);
   });
 });

@@ -84,7 +84,7 @@ time (or use separate browser profiles on one machine).
    `challenge_selection → submissions_open → pitching → completed`.
 2. **Participants** open their dashboard and submit while `submissions_open`. Each
    submission requires a GitHub repo URL. If the challenge has `entire_required`, the
-   repo must also have an `entire/checkpoints/v1` branch with at least one checkpoint.
+   repo must also have a recognized Entire branch or checkpoint ref with at least one checkpoint.
 3. **Admin** locks a challenge — this closes submissions and triggers two background steps:
    - **Snapshot**: forks each team's repo into the snapshot org (`GITHUB_TOKEN_EHL` required).
      Without the token, locking still works but the fork is skipped.
@@ -99,7 +99,7 @@ Everyone sees the same state because they share one DB.
 ### Simulating the Entire.io check
 
 If a challenge has `entire_required = true`, participants must submit a repo that has
-an `entire/checkpoints/v1` branch with at least one captured prompt. To simulate this:
+an Entire branch or checkpoint ref with at least one captured prompt. To simulate the legacy branch backend:
 
 1. Install the Entire CLI: `entire enable --agent claude-code` (or your agent)
 2. Work in the repo with your AI tool — Entire records the session to the branch automatically
