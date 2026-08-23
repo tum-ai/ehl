@@ -4,6 +4,7 @@ import type { Team, TeamMember, Profile, TeamJoinRequest, TeamInvite } from "../
 import { getClient } from "./client";
 import { toTeam, toTeamMember, toProfile, toJoinRequest, toTeamInvite } from "./mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
+import { getCurrentMembership } from "@/lib/team-membership";
 
 // ─── Team Queries ─────────────────────────────────────────
 
@@ -33,23 +34,21 @@ export async function getTeamForUser(
   // Uses admin client: team_members RLS requires auth, but this runs
   // server-side for public/participant pages. Read-only, no write risk.
   const supabase = createAdminClient();
-  const { data: membership } = await supabase
-    .from("team_members")
-    .select("team_id, role")
-    .eq("user_id", userId)
-    .single();
+  // A user may hold several memberships (past teams from completed chapters),
+  // so this resolves the current one instead of failing on a multi-row result.
+  const membership = await getCurrentMembership(supabase, userId);
   if (!membership) return null;
 
   const { data: teamRow } = await supabase
     .from("teams")
     .select("*")
-    .eq("id", membership.team_id as string)
+    .eq("id", membership.teamId)
     .single();
   if (!teamRow) return null;
 
   return {
     team: toTeam(teamRow),
-    role: membership.role as "president" | "member",
+    role: membership.role,
   };
 }
 

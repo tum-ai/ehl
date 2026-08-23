@@ -20,6 +20,7 @@ import { getSession } from "@/lib/actions/auth";
 import { getChapterCommunications } from "@/lib/queries";
 import { acceptanceEmailSubject } from "@/lib/communications";
 import { splitParagraphs } from "@/lib/emails/text-block";
+import { getCurrentMembership } from "@/lib/team-membership";
 import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
 import { CV_MAX_BYTES, CV_MAX_LABEL } from "@/lib/config/upload-limits";
 import { formatDateRange } from "@/lib/utils";
@@ -103,14 +104,15 @@ export async function submitApplication(formData: FormData) {
       .single();
 
     if (profileRow) {
-      const { data: memberRecord } = await adminClient
-        .from("team_members")
-        .select("team_id")
-        .eq("user_id", profileRow.id as string)
-        .limit(1)
-        .single();
+      // Resolve the applicant's CURRENT team: an applicant who competed in an
+      // earlier chapter still holds that old membership, and an arbitrary pick
+      // would attach the application to the wrong team.
+      const memberRecord = await getCurrentMembership(
+        adminClient,
+        profileRow.id as string
+      );
 
-      existingTeamId = (memberRecord?.team_id as string) ?? null;
+      existingTeamId = memberRecord?.teamId ?? null;
     }
   }
 
@@ -292,13 +294,9 @@ export async function lookupExistingTeam(email: string) {
 
   if (!profile) return null;
 
-  // Find team membership
-  const { data: membership } = await adminClient
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", profile.id)
-    .limit(1)
-    .single();
+  // Find the current team membership (a returning participant may also hold
+  // memberships from earlier, completed chapters)
+  const membership = await getCurrentMembership(adminClient, profile.id as string);
 
   if (!membership) return null;
 
@@ -306,7 +304,7 @@ export async function lookupExistingTeam(email: string) {
   const { data: team } = await adminClient
     .from("teams")
     .select("id, name")
-    .eq("id", membership.team_id)
+    .eq("id", membership.teamId)
     .single();
 
   if (!team) return null;

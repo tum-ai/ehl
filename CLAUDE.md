@@ -192,6 +192,7 @@ lib/
   ratelimit.ts          — Upstash Redis rate limiters (13 limiters) + in-memory fallback
   flag-utils.ts         — LinkedIn/GitHub username extraction, name normalization for flag matching
   scoring.ts            — Point calculations
+  team-membership.ts    — Resolves a user's CURRENT team when they hold several memberships (see Data Integrity 7)
   showcase-shared.ts    — Partner-showcase consent predicate + derived SQL filter + types
   drive-urls.ts         — Client-safe Google Drive photo URL builders (thumbnail, viewer)
   report-client-error.ts — Shared error-boundary reporter (redacts secret URL tokens before any sink)
@@ -259,6 +260,15 @@ This is an **open-source public repository**. Every commit, branch name, PR titl
    a larger cap ships a promise the platform silently breaks. To accept files above the
    platform limit, the bytes must bypass the function entirely (direct browser-to-storage
    upload). Raising the number alone only relocates the silent failure.
+7. **A user can hold SEVERAL `team_members` rows.** Migration 00024 dropped the global
+   unique index on `team_members(user_id)` so rosters can change between chapters, and the
+   00035 trigger only forbids a second team while the first is registered for a
+   non-completed chapter. Never look a membership up with `.eq("user_id", …).single()`:
+   PostgREST rejects the multi-row result, the query returns null, and the caller concludes
+   the user has no team at all (this emptied the dashboard for everyone who had ever
+   changed teams). Use `getCurrentMembership()` from `lib/team-membership.ts`, which
+   resolves the active-chapter team and falls back to the most recently joined one, or
+   `getLockingTeamId()` when you need the chapter lock across all of a user's teams.
 
 ### Code Style
 - Server Components by default. Only `"use client"` when interactive (forms, toggles, state)

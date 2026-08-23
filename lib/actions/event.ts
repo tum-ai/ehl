@@ -6,6 +6,7 @@ import { getCheckinStatusForUsers } from "@/lib/queries/checkin";
 import { slugify } from "@/lib/utils";
 import { logEvent } from "@/lib/event-log";
 import { MIN_CHALLENGE_ROSTER, MAX_TEAM_SIZE } from "@/lib/config/limits";
+import { getCurrentMembership } from "@/lib/team-membership";
 
 // ─── Get event status for a checked-in participant ──────────
 
@@ -48,13 +49,17 @@ export async function getEventStatus(chapterId: string) {
     .eq("id", chapterId)
     .single();
 
-  // Get team membership
-  const { data: membership } = await adminClient
-    .from("team_members")
-    .select("team_id, role, teams!inner(id, name)")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
+  // Get team membership. A returning participant can hold memberships from
+  // earlier chapters too, so this resolves the team of the running chapter
+  // rather than taking whichever row the database hands back first.
+  const membership = await getCurrentMembership(adminClient, user.id);
+  const { data: membershipTeam } = membership
+    ? await adminClient
+        .from("teams")
+        .select("id, name")
+        .eq("id", membership.teamId)
+        .single()
+    : { data: null };
 
   // Get challenge registration if team exists
   let challengeRegistration = null;
@@ -63,7 +68,7 @@ export async function getEventStatus(chapterId: string) {
       .from("challenge_registrations")
       .select("id, challenge_id, team_id, roster, registered_at, challenges!inner(title)")
       .eq("chapter_id", chapterId)
-      .eq("team_id", membership.team_id as string)
+      .eq("team_id", membership.teamId)
       .single();
 
     if (reg) {
@@ -93,19 +98,20 @@ export async function getEventStatus(chapterId: string) {
     const { data: incoming } = await adminClient
       .from("team_join_requests")
       .select("id, user_id, status, created_at, profiles!team_join_requests_user_id_fkey(name, email)")
-      .eq("team_id", membership.team_id as string)
+      .eq("team_id", membership.teamId)
       .eq("chapter_id", chapterId)
       .eq("status", "pending");
     incomingRequests = incoming ?? [];
   }
 
-  const team = membership
-    ? {
-        id: (membership.teams as unknown as Record<string, unknown>).id as string,
-        name: (membership.teams as unknown as Record<string, unknown>).name as string,
-        isPresident: membership.role === "president",
-      }
-    : null;
+  const team =
+    membership && membershipTeam
+      ? {
+          id: membershipTeam.id as string,
+          name: membershipTeam.name as string,
+          isPresident: membership.role === "president",
+        }
+      : null;
 
   return {
     success: true,
@@ -216,12 +222,7 @@ export async function createEventTeam(chapterId: string, teamName: string) {
   }
 
   // Check if user already has a team
-  const { data: existingMembership } = await adminClient
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
+  const existingMembership = await getCurrentMembership(adminClient, user.id);
 
   if (existingMembership) {
     return { error: "You are already a member of a team. Leave your current team first." };
@@ -306,12 +307,7 @@ export async function requestJoinTeam(chapterId: string, teamId: string) {
   }
 
   // Check if user already has a team
-  const { data: existingMembership } = await adminClient
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
+  const existingMembership = await getCurrentMembership(adminClient, user.id);
 
   if (existingMembership) {
     return { error: "You are already a member of a team." };
@@ -381,16 +377,17 @@ export async function resolveJoinRequest(
 
   if (approved) {
     // Re-check at approval time: the requester may have joined another team
-    // (e.g. via an invite) since requesting. A second membership would break
-    // getTeamForUser's .single() and flip their dashboard to the teamless view.
-    const { data: existingMembership } = await adminClient
-      .from("team_members")
-      .select("team_id")
-      .eq("user_id", request.user_id as string)
-      .maybeSingle();
+    // (e.g. via an invite) since requesting. Approving them into a second team
+    // for the SAME event is what this guards against; memberships left over
+    // from completed chapters are not a reason to refuse, which is why this
+    // resolves the current team instead of reading any row it finds.
+    const existingMembership = await getCurrentMembership(
+      adminClient,
+      request.user_id as string
+    );
 
     if (existingMembership) {
-      if (existingMembership.team_id === request.team_id) {
+      if (existingMembership.teamId === request.team_id) {
         // Already on this team: just resolve the request as approved below.
       } else {
         return {
