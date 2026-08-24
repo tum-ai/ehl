@@ -80,8 +80,15 @@ export const MAX_TEAM_SIZE = envInt("MAX_TEAM_SIZE", 5);
 // cancelling an attendee, to drop a registration that would fall below it.
 export const MIN_CHALLENGE_ROSTER = envInt("MIN_CHALLENGE_ROSTER", 2);
 
-// Minimum members a team must keep after an admin removes someone. A domain
-// invariant enforced on admin member removal (lib/actions/admin.ts): a removal
-// that would drop the team below this is rejected, so an admin can never leave a
-// team too small to compete. The president always counts toward this total.
+// Minimum members a team is expected to keep. The president counts toward it.
+//
+// Enforced as a HARD rule where participants act on their own behalf: a move
+// that would drop the source team below it is refused (adminMoveMember), and
+// registration paths honour MIN_CHALLENGE_ROSTER above.
+//
+// For adminRemoveMember it is a WARNING THRESHOLD, not a refusal. Blocking the
+// admin there meant that at Munich-2 the only thing an operator could do with a
+// no-show on a two-person team was move them somewhere else, so the real fix
+// happened by hand in the database. The action now reports `belowMinimum` and
+// the UI names the consequence in the confirm step instead.
 export const MIN_TEAM_SIZE = envInt("MIN_TEAM_SIZE", 2);

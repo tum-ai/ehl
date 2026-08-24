@@ -1081,13 +1081,29 @@ export async function togglePhotoFeatured(photoId: string, featured: boolean, ch
 
 // ─── Admin: Remove member from team ───────────────────────
 
+/**
+ * Remove a member from a team.
+ *
+ * Munich-2: this refused whenever the team was already at MIN_TEAM_SIZE, and it
+ * never offered the captain at all, so the only thing an operator could do with
+ * a no-show or a misplaced person was MOVE them somewhere else. On the day that
+ * meant editing rows by hand.
+ *
+ * An admin can now remove anybody, captain included. MIN_TEAM_SIZE stays a hard
+ * rule where participants act on their own (challenge registration, see
+ * lib/actions/event.ts); here it becomes a consequence the caller is told about
+ * rather than a refusal. Removing the captain promotes the longest-tenured
+ * remaining member so a team never ends up with no president; removing the last
+ * member leaves the team empty and says so, so the UI can offer deleteTeam.
+ * Deleting a team is a separate, more destructive act and stays a separate,
+ * deliberate click.
+ */
 export async function adminRemoveMember(teamId: string, userId: string) {
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
 
   const adminClient = createAdminClient();
 
-  // Cannot remove the president
   const { data: team } = await adminClient
     .from("teams")
     .select("president_user_id")
@@ -1095,25 +1111,52 @@ export async function adminRemoveMember(teamId: string, userId: string) {
     .single();
 
   if (!team) return { error: "Team not found." };
-  if (team.president_user_id === userId) {
-    return { error: "Cannot remove the team president." };
-  }
 
-  // The member must actually be on this team, and the removal must leave the
-  // team with at least MIN_TEAM_SIZE members.
+  // The member must actually be on this team. Order by joined_at so the
+  // promotion below is deterministic rather than dependent on row order.
   const { data: members } = await adminClient
     .from("team_members")
-    .select("user_id, role")
-    .eq("team_id", teamId);
-  const roster = members ?? [];
+    .select("user_id, role, joined_at")
+    .eq("team_id", teamId)
+    .order("joined_at", { ascending: true });
+
+  const roster = (members ?? []) as {
+    user_id: string;
+    role?: string;
+    joined_at?: string | null;
+  }[];
   const memberRow = roster.find((m) => m.user_id === userId);
   if (!memberRow) {
     return { error: "That user is not a member of this team." };
   }
-  if (roster.length - 1 < MIN_TEAM_SIZE) {
-    return {
-      error: `Removing this member would leave fewer than ${MIN_TEAM_SIZE} members on the team.`,
-    };
+
+  const wasCaptain = team.president_user_id === userId || memberRow.role === "president";
+  const survivors = roster.filter((m) => m.user_id !== userId);
+
+  // Promote BEFORE deleting: if the delete then fails, the team still has a
+  // valid president, which is the invariant that matters. The reverse order can
+  // leave a team with no captain at all.
+  let promotedUserId: string | null = null;
+  if (wasCaptain && survivors.length > 0) {
+    promotedUserId = survivors[0].user_id;
+
+    // teams.president_user_id first: it is the field RLS reads, so president
+    // powers never linger on the person being removed (mirrors
+    // adminChangeCaptain).
+    const { error: teamErr } = await adminClient
+      .from("teams")
+      .update({ president_user_id: promotedUserId })
+      .eq("id", teamId);
+    if (teamErr) return { error: `Could not promote a new captain: ${teamErr.message}` };
+
+    const { error: promoteErr } = await adminClient
+      .from("team_members")
+      .update({ role: "president" })
+      .eq("team_id", teamId)
+      .eq("user_id", promotedUserId);
+    if (promoteErr) {
+      return { error: `Could not promote a new captain: ${promoteErr.message}` };
+    }
   }
 
   const { error: delError } = await adminClient
@@ -1124,27 +1167,15 @@ export async function adminRemoveMember(teamId: string, userId: string) {
 
   if (delError) return { error: delError.message };
 
-  // Guard against a check-then-act race: two admins removing different members
-  // of the same team concurrently could each pass the size check above and
-  // together drop the team below MIN_TEAM_SIZE. Re-count AFTER the delete; if we
-  // crossed the floor, compensate by re-inserting the row we just removed and
-  // report the failure. (This action is admin-only and rare, so an optimistic
-  // delete + compensation is simpler and safe vs. a dedicated transactional RPC.)
-  const { count: remaining } = await adminClient
-    .from("team_members")
-    .select("user_id", { count: "exact", head: true })
-    .eq("team_id", teamId);
-  if (remaining !== null && remaining < MIN_TEAM_SIZE) {
-    await adminClient.from("team_members").insert({
-      team_id: teamId,
-      user_id: userId,
-      role: (memberRow as { role?: string }).role ?? "member",
-    });
-    return {
-      error: `Removing this member would leave fewer than ${MIN_TEAM_SIZE} members on the team.`,
-    };
+  // Removing the last member leaves the team with no president to point at.
+  if (wasCaptain && survivors.length === 0) {
+    await adminClient
+      .from("teams")
+      .update({ president_user_id: null })
+      .eq("id", teamId);
   }
 
+  const remaining = survivors.length;
   const actorId = await getAdminUserId();
   logEvent({
     action: "team.member_removed",
@@ -1152,11 +1183,25 @@ export async function adminRemoveMember(teamId: string, userId: string) {
     entityId: teamId,
     actorId,
     actorType: "admin",
-    delta: { deleted: { user_id: userId } },
+    delta: {
+      deleted: { user_id: userId, was_captain: wasCaptain },
+      remaining,
+      // Recorded because both are exceptions to the ordinary invariants and are
+      // exactly what someone reading the audit log after an event asks about.
+      below_minimum: remaining < MIN_TEAM_SIZE,
+      ...(promotedUserId ? { promoted_user_id: promotedUserId } : {}),
+    },
   });
 
   revalidatePath("/admin/teams");
-  return { success: true };
+  return {
+    success: true as const,
+    remaining,
+    belowMinimum: remaining < MIN_TEAM_SIZE,
+    teamEmptied: remaining === 0,
+    promotedUserId,
+    wasCaptain,
+  };
 }
 
 // ─── Admin team/member overrides (audit-logged) ──────────

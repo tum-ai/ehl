@@ -429,7 +429,15 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
   missing row is never silent. The move-member target list always covers every team, not just
   the rows currently matching the search.
 - Change team status
-- Remove individual members (never the captain; blocked if the team would drop below `MIN_TEAM_SIZE`, default 2)
+- Remove any individual member, **including the captain**. Removing the captain promotes the
+  longest-tenured remaining member (the promotion is written before the delete, so a team is
+  never left with no president); removing the last member leaves the team empty and clears
+  its president, and deleting the now-empty team stays a separate, deliberate click.
+  `MIN_TEAM_SIZE` (default 2) is a warning here, not a block: the confirm step names the
+  exact consequence ("this leaves Alpha Innovators with 1 member, below the minimum of 2",
+  "Grace Hopper will be promoted"), and the audit log records `remaining`, `below_minimum`,
+  `was_captain`, and `promoted_user_id`. It remains a hard rule on moves and on the
+  participant-facing registration paths.
 - Delete teams
 - Admin overrides (audit-logged): change captain, add a member by email, move a member to another team
 - Override a team's challenge selection (global admins): assign a challenge to a team that

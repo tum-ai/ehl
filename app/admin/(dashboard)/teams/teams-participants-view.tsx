@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { QUERY_LIMITS, MIN_TEAM_SIZE } from "@/lib/config/limits";
+import { QUERY_LIMITS } from "@/lib/config/limits";
 import { LimitBanner } from "@/components/admin/limit-banner";
 import { DeleteTeamButton } from "./delete-team-button";
 import { DeleteParticipantButton } from "./delete-participant-button";
@@ -12,6 +12,7 @@ import { TeamAdminControls } from "./team-admin-controls";
 import { TeamChallengeControl } from "./team-challenge-control";
 import { ChangeEmailButton } from "./change-email-button";
 import { filterTeams, filterParticipants } from "./team-search";
+import { memberLabel, successorLabel } from "./removal-consequence";
 import type { Team, TeamMember, Profile, Chapter } from "@/lib/types";
 import type { ParticipantWithTeam } from "@/lib/queries/teams";
 
@@ -226,28 +227,25 @@ function TeamsTable({
                   {members.length > 0 ? (
                     <div className="space-y-0.5">
                       {members.map((m) => (
-                        <p key={m.userId} className="flex items-center gap-1.5 text-sm ad-text-secondary">
-                          <span>
-                            {m.profile?.name || m.profile?.email || m.userId.slice(0, 8)}
-                          </span>
-                          {m.role === "president" ? (
+                        <p key={m.userId} className="flex items-start gap-1.5 text-sm ad-text-secondary">
+                          <span>{memberLabel(m)}</span>
+                          {m.role === "president" && (
                             <span className="text-[10px] font-bold uppercase ad-text-gold">
                               Capt
                             </span>
-                          ) : members.length > MIN_TEAM_SIZE ? (
-                            <RemoveMemberButton
-                              teamId={team.id}
-                              userId={m.userId}
-                              memberName={m.profile?.name || m.profile?.email || "member"}
-                            />
-                          ) : (
-                            <span
-                              className="cursor-help text-[10px] ad-text-muted"
-                              title={`Cannot remove: a team must keep at least ${MIN_TEAM_SIZE} members`}
-                            >
-                              (min {MIN_TEAM_SIZE})
-                            </span>
                           )}
+                          {/* Every member is removable, captain included. The
+                              consequence (promotion, dropping below the minimum,
+                              emptying the team) is named in the confirm step. */}
+                          <RemoveMemberButton
+                            teamId={team.id}
+                            userId={m.userId}
+                            memberName={memberLabel(m)}
+                            teamName={team.name}
+                            rosterSize={members.length}
+                            isCaptain={m.role === "president"}
+                            successorName={successorLabel(members, m.userId)}
+                          />
                         </p>
                       ))}
                     </div>

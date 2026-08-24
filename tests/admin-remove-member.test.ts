@@ -1,10 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// adminRemoveMember lets a global admin remove a member from a team. The
-// invariants under test: global-admin only, the president can never be removed,
-// the target must actually be on the team, and a removal must leave the team
-// with at least MIN_TEAM_SIZE (default 2) members. Only when all checks pass is
-// the delete issued.
+// adminRemoveMember lets a global admin remove a member from a team.
+//
+// Munich-2 changed what this action is for. It used to refuse a removal that
+// would drop the team below MIN_TEAM_SIZE and never offered the captain at all,
+// so the only thing an operator could do with a no-show was MOVE them, and on
+// the day that meant editing rows by hand. An admin can now remove anybody,
+// captain included; MIN_TEAM_SIZE stays a hard rule only where participants act
+// on their own behalf (challenge registration).
+//
+// The invariants that remain: global-admin only, the target must actually be on
+// the team, a team never ends up with a president who is no longer on it, and
+// the caller is TOLD what the removal did (remaining count, below-minimum,
+// emptied, who was promoted) rather than being silently refused.
 const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
   getActingUserId: vi.fn(),
@@ -62,6 +70,7 @@ function makeAdminClient(opts: {
       update: () => ((state.op = "update"), builder),
       delete: () => ((state.op = "delete"), builder),
       eq: (k: string, v: unknown) => (state.filters.push([k, v]), builder),
+      order: () => builder,
       in: (k: string, v: unknown) => (state.filters.push([k, v]), builder),
       single: () => resolve(),
       maybeSingle: () => resolve(),
@@ -80,24 +89,22 @@ function makeAdminClient(opts: {
   };
 }
 
-// Build a responder for a team whose president is PRESIDENT and whose roster is
-// the given user IDs.
+// Responder for a team whose president is PRESIDENT and whose roster is the
+// given user IDs, ordered oldest-joined first (which is the order the action
+// asks for, and the order that decides who gets promoted).
 function teamResponder(rosterUserIds: string[]) {
-  // The action selects the roster once (data), then re-counts after the delete
-  // (head:true -> count). Track calls so the post-delete count reflects the
-  // member having been removed.
-  let memberSelects = 0;
   return ({ table, op }: { table: string; op: string }) => {
     if (table === "teams" && op === "select")
       return { data: { president_user_id: PRESIDENT } };
     if (table === "team_members" && op === "select") {
-      memberSelects += 1;
-      // First select = roster (with role); second = post-delete head count.
-      if (memberSelects === 1)
-        return { data: rosterUserIds.map((user_id) => ({ user_id, role: "member" })) };
-      return { count: rosterUserIds.length - 1, data: null };
+      return {
+        data: rosterUserIds.map((user_id, i) => ({
+          user_id,
+          role: user_id === PRESIDENT ? "president" : "member",
+          joined_at: `2026-08-0${i + 1}T00:00:00Z`,
+        })),
+      };
     }
-    if (table === "team_members" && op === "delete") return { error: null };
     return { data: null, error: null };
   };
 }
@@ -131,16 +138,6 @@ describe("adminRemoveMember", () => {
     expect(result.error).toMatch(/not found/i);
   });
 
-  it("refuses to remove the team president", async () => {
-    const calls: Array<{ table: string; op: string }> = [];
-    mocks.createAdminClient.mockReturnValue(
-      makeAdminClient({ calls, responder: teamResponder([PRESIDENT, "user-2", "user-3"]) })
-    );
-    const result = await adminRemoveMember(TEAM, PRESIDENT);
-    expect(result.error).toMatch(/president/i);
-    expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(false);
-  });
-
   it("refuses to remove a user who is not on the team", async () => {
     const calls: Array<{ table: string; op: string }> = [];
     mocks.createAdminClient.mockReturnValue(
@@ -151,72 +148,142 @@ describe("adminRemoveMember", () => {
     expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(false);
   });
 
-  it("blocks a removal that would leave fewer than 2 members", async () => {
-    // Roster of 2 -> removal would leave 1, below MIN_TEAM_SIZE.
-    const calls: Array<{ table: string; op: string }> = [];
-    mocks.createAdminClient.mockReturnValue(
-      makeAdminClient({ calls, responder: teamResponder([PRESIDENT, "user-2"]) })
-    );
-    const result = await adminRemoveMember(TEAM, "user-2");
-    expect(result.error).toMatch(/fewer than 2 members/i);
-    expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(false);
-    expect(mocks.logEvent).not.toHaveBeenCalled();
-  });
-
-  it("removes a member when at least 2 would remain", async () => {
-    // Roster of 3 -> removal leaves 2, at MIN_TEAM_SIZE.
+  it("removes an ordinary member and reports what remains", async () => {
     const calls: Array<{ table: string; op: string }> = [];
     mocks.createAdminClient.mockReturnValue(
       makeAdminClient({ calls, responder: teamResponder([PRESIDENT, "user-2", "user-3"]) })
     );
     const result = await adminRemoveMember(TEAM, "user-2");
-    expect(result).toEqual({ success: true });
+    expect(result).toMatchObject({
+      success: true,
+      remaining: 2,
+      belowMinimum: false,
+      teamEmptied: false,
+      promotedUserId: null,
+      wasCaptain: false,
+    });
     expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(true);
+  });
+
+  // The Munich-2 change: this used to be refused outright.
+  it("ALLOWS a removal that drops the team below the minimum, and flags it", async () => {
+    const calls: Array<{ table: string; op: string }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls, responder: teamResponder([PRESIDENT, "user-2"]) })
+    );
+    const result = await adminRemoveMember(TEAM, "user-2");
+    expect(result.error).toBeUndefined();
+    expect(result).toMatchObject({ success: true, remaining: 1, belowMinimum: true });
+    expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(true);
+  });
+
+  it("records the below-minimum removal in the audit log", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls: [], responder: teamResponder([PRESIDENT, "user-2"]) })
+    );
+    await adminRemoveMember(TEAM, "user-2");
     expect(mocks.logEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "team.member_removed",
         entityId: TEAM,
-        delta: { deleted: { user_id: "user-2" } },
+        delta: expect.objectContaining({
+          deleted: { user_id: "user-2", was_captain: false },
+          remaining: 1,
+          below_minimum: true,
+        }),
       })
     );
   });
 
-  it("compensates (re-inserts) and errors if a concurrent removal dropped the team below the minimum", async () => {
-    // The initial roster read shows 3 (so the pre-delete check passes), but the
-    // post-delete head count returns 1 — a concurrent removal raced in. The
-    // action must re-insert the removed row and report the floor error, not log
-    // a successful removal.
+  // The other half of the Munich-2 change: the captain had no Remove control at
+  // all, so a captain who never showed up could only be worked around.
+  it("removes the CAPTAIN and promotes the longest-tenured survivor", async () => {
     const calls: Array<{ table: string; op: string }> = [];
-    let memberSelects = 0;
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: teamResponder([PRESIDENT, "user-2", "user-3"]),
+      })
+    );
+    const result = await adminRemoveMember(TEAM, PRESIDENT);
+    expect(result).toMatchObject({
+      success: true,
+      wasCaptain: true,
+      promotedUserId: "user-2", // oldest joined_at among the survivors
+      remaining: 2,
+    });
+    expect(calls.some((c) => c.table === "teams" && c.op === "update")).toBe(true);
+    expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(true);
+  });
+
+  // Promotion must land before the delete: if the delete then fails, the team
+  // still has a valid president. The reverse order can leave a team with none.
+  it("promotes BEFORE deleting the captain", async () => {
+    const calls: Array<{ table: string; op: string }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls, responder: teamResponder([PRESIDENT, "user-2", "user-3"]) })
+    );
+    await adminRemoveMember(TEAM, PRESIDENT);
+    const promoteIdx = calls.findIndex((c) => c.table === "teams" && c.op === "update");
+    const deleteIdx = calls.findIndex(
+      (c) => c.table === "team_members" && c.op === "delete"
+    );
+    expect(promoteIdx).toBeGreaterThanOrEqual(0);
+    expect(promoteIdx).toBeLessThan(deleteIdx);
+  });
+
+  it("does not delete the member if the promotion fails", async () => {
+    const calls: Array<{ table: string; op: string }> = [];
     mocks.createAdminClient.mockReturnValue(
       makeAdminClient({
         calls,
         responder: ({ table, op }) => {
           if (table === "teams" && op === "select")
             return { data: { president_user_id: PRESIDENT } };
-          if (table === "team_members" && op === "select") {
-            memberSelects += 1;
-            if (memberSelects === 1)
-              return {
-                data: [PRESIDENT, "user-2", "user-3"].map((user_id) => ({
-                  user_id,
-                  role: "member",
-                })),
-              };
-            return { count: 1, data: null }; // post-delete: a race dropped it to 1
-          }
-          if (table === "team_members" && op === "delete") return { error: null };
-          if (table === "team_members" && op === "insert") return { error: null };
+          if (table === "teams" && op === "update")
+            return { error: { message: "db down" } };
+          if (table === "team_members" && op === "select")
+            return {
+              data: [PRESIDENT, "user-2"].map((user_id, i) => ({
+                user_id,
+                role: user_id === PRESIDENT ? "president" : "member",
+                joined_at: `2026-08-0${i + 1}T00:00:00Z`,
+              })),
+            };
           return { data: null, error: null };
         },
       })
     );
-    const result = await adminRemoveMember(TEAM, "user-2");
-    expect(result.error).toMatch(/fewer than 2 members/i);
-    // It deleted, then compensated with a re-insert, and did NOT log a removal.
-    expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(true);
-    expect(calls.some((c) => c.table === "team_members" && c.op === "insert")).toBe(true);
-    expect(mocks.logEvent).not.toHaveBeenCalled();
+    const result = await adminRemoveMember(TEAM, PRESIDENT);
+    expect(result.error).toMatch(/promote a new captain/i);
+    expect(calls.some((c) => c.table === "team_members" && c.op === "delete")).toBe(false);
+  });
+
+  it("empties the team when the last member is removed, and clears the president", async () => {
+    const calls: Array<{ table: string; op: string }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls, responder: teamResponder([PRESIDENT]) })
+    );
+    const result = await adminRemoveMember(TEAM, PRESIDENT);
+    expect(result).toMatchObject({
+      success: true,
+      remaining: 0,
+      teamEmptied: true,
+      belowMinimum: true,
+      promotedUserId: null,
+    });
+    // No promotion is possible, so the president pointer is nulled instead of
+    // being left pointing at somebody who is no longer on the team.
+    expect(calls.some((c) => c.table === "teams" && c.op === "update")).toBe(true);
+  });
+
+  it("does not delete the team itself when it is emptied", async () => {
+    const calls: Array<{ table: string; op: string }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls, responder: teamResponder([PRESIDENT]) })
+    );
+    await adminRemoveMember(TEAM, PRESIDENT);
+    expect(calls.some((c) => c.table === "teams" && c.op === "delete")).toBe(false);
   });
 });
 
