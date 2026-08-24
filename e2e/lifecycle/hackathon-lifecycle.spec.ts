@@ -2248,4 +2248,53 @@ test.describe.serial("Hackathon Lifecycle", () => {
       await admin.from("teams").delete().eq("id", teamId);
     }
   });
+
+  // The admin Teams page is used on a laptop at an event. Two separate
+  // guarantees, because they failed for different reasons:
+  //
+  // 1. The PAGE must never scroll sideways, at any size. It used to, because
+  //    <main> is a flex item and defaulted to min-width:auto, so it could not
+  //    shrink below its widest child and dragged the whole layout with it. That
+  //    is what pushed the Actions column off-screen.
+  // 2. At a normal laptop width (1440, MacBook Air / 13" Pro) the table itself
+  //    must fit, so nothing is hidden behind a horizontal scroll. Below that the
+  //    table's own overflow-x container may scroll: that is the intended
+  //    fallback for genuinely narrow screens, not a defect.
+  test("16.2 Admin Teams page fits without horizontal scrolling", async ({ page }) => {
+    await loginAsAdmin(page);
+
+    for (const width of [1280, 1440]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/admin/teams");
+      await page.waitForLoadState("networkidle");
+
+      for (const tab of ["Teams", "Participants"]) {
+        if (tab === "Participants") {
+          await page.getByRole("button", { name: "Participants", exact: true }).click();
+          await page.waitForTimeout(500);
+        }
+
+        const doc = await page.evaluate(() => ({
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+        }));
+        expect(
+          doc.scrollWidth,
+          `${tab} tab makes the PAGE scroll sideways at ${width} (${doc.scrollWidth} > ${doc.clientWidth})`
+        ).toBeLessThanOrEqual(doc.clientWidth + 1);
+
+        if (width >= 1440) {
+          const box = page.locator("div.overflow-x-auto").first();
+          const m = await box.evaluate((el) => ({
+            scrollWidth: el.scrollWidth,
+            clientWidth: el.clientWidth,
+          }));
+          expect(
+            m.scrollWidth - m.clientWidth,
+            `${tab} table overflows by ${m.scrollWidth - m.clientWidth}px at ${width}`
+          ).toBeLessThanOrEqual(0);
+        }
+      }
+    }
+  });
 });

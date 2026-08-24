@@ -197,14 +197,14 @@ function TeamsTable({
     <div className="mt-8 overflow-x-auto rounded-2xl ad-border ad-bg-card ui-card-subtle">
       <table className="w-full">
         <thead>
-          <tr className="border-b ad-border text-left text-xs font-bold uppercase tracking-wider ad-text-muted">
-            <th className="px-6 py-4">Team</th>
-            <th className="px-6 py-4">Members</th>
-            {activeChapter && <th className="px-6 py-4 text-center">Check-In</th>}
-            {showChallenge && <th className="px-6 py-4">Challenge</th>}
-            <th className="px-6 py-4">University</th>
-            <th className="px-6 py-4 text-center">Status</th>
-            <th className="px-6 py-4 text-right">Actions</th>
+          <tr className="border-b ad-border text-left text-[11px] font-bold uppercase tracking-wide ad-text-muted [&>th]:whitespace-nowrap">
+            <th className="px-3 py-2.5">Team</th>
+            <th className="px-3 py-2.5">Members</th>
+            {activeChapter && <th className="px-3 py-2.5 text-center">Check-In</th>}
+            {showChallenge && <th className="px-3 py-2.5">Challenge</th>}
+            <th className="px-3 py-2.5">University</th>
+            <th className="px-3 py-2.5 text-center">Status</th>
+            <th className="px-3 py-2.5 text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -224,20 +224,23 @@ function TeamsTable({
                 key={team.id}
                 className="border-b ad-border ad-bg-card-hover transition-colors"
               >
-                <td className="px-6 py-4">
+                <td className="px-3 py-2.5">
                   <Link
                     href={`/team/${team.slug}`}
-                    className="font-semibold ad-text hover:text-purple-700 transition-colors"
+                    className="block max-w-[10rem] truncate font-semibold ad-text transition-colors hover:text-purple-700"
+                    title={team.name}
                   >
                     {team.name}
                   </Link>
                 </td>
-                <td className="px-6 py-4">
+                <td className="px-3 py-2.5">
                   {members.length > 0 ? (
                     <div className="space-y-0.5">
                       {members.map((m) => (
-                        <p key={m.userId} className="flex items-center gap-1.5 whitespace-nowrap text-sm ad-text-secondary">
-                          <span>{memberLabel(m)}</span>
+                        <p key={m.userId} className="flex items-center gap-1.5 text-sm ad-text-secondary">
+                          <span className="max-w-[10rem] truncate" title={memberLabel(m)}>
+                            {memberLabel(m)}
+                          </span>
                           {m.role === "president" && (
                             <span className="text-[10px] font-bold uppercase ad-text-gold">
                               Capt
@@ -263,7 +266,7 @@ function TeamsTable({
                   )}
                 </td>
                 {activeChapter && (
-                  <td className="px-6 py-4 text-center">
+                  <td className="px-3 py-2.5 text-center">
                     {checkin ? (
                       <span
                         className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
@@ -280,7 +283,7 @@ function TeamsTable({
                   </td>
                 )}
                 {showChallenge && (
-                  <td className="px-6 py-4">
+                  <td className="px-3 py-2.5">
                     <TeamChallengeControl
                       teamId={team.id}
                       chapterId={activeChapter!.id}
@@ -289,14 +292,16 @@ function TeamsTable({
                     />
                   </td>
                 )}
-                <td className="px-6 py-4 text-sm ad-text-muted">
-                  {team.university || "-"}
+                <td className="px-3 py-2.5 text-sm ad-text-muted">
+                  <span className="block max-w-[9rem] truncate" title={team.university || ""}>
+                    {team.university || "-"}
+                  </span>
                 </td>
-                <td className="px-6 py-4 text-center">
+                <td className="px-3 py-2.5 text-center">
                   <Badge variant="completed" light>Active</Badge>
                 </td>
-                <td className="px-6 py-4 text-right align-top">
-                  <div className="flex items-center justify-end gap-3">
+                <td className="px-3 py-2.5 text-right align-top">
+                  <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                     <Link
                       href={`/team/${team.slug}`}
                       className="text-sm font-medium ad-text-link transition-colors"
@@ -340,13 +345,13 @@ function ParticipantsTable({
       <div className="overflow-x-auto rounded-2xl ad-border ad-bg-card ui-card-subtle">
         <table className="w-full">
           <thead>
-            <tr className="border-b ad-border text-left text-xs font-bold uppercase tracking-wider ad-text-muted">
-              <th className="px-6 py-4">Name</th>
-              <th className="px-6 py-4">Email</th>
-              <th className="px-6 py-4">Team</th>
-              <th className="px-6 py-4">Role</th>
-              {activeChapter && <th className="px-6 py-4 text-center">Check-In</th>}
-              <th className="px-6 py-4 text-right">Actions</th>
+            <tr className="border-b ad-border text-left text-[11px] font-bold uppercase tracking-wide ad-text-muted [&>th]:whitespace-nowrap">
+              <th className="px-3 py-2.5">Name</th>
+              <th className="px-3 py-2.5">Email</th>
+              <th className="px-3 py-2.5">Team</th>
+              <th className="px-3 py-2.5">Role</th>
+              {activeChapter && <th className="px-3 py-2.5 text-center">Check-In</th>}
+              <th className="px-3 py-2.5 text-right">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -362,20 +367,25 @@ function ParticipantsTable({
                 key={p.id}
                 className="border-b ad-border ad-bg-card-hover transition-colors"
               >
-                <td className="px-6 py-4 text-sm font-medium ad-text">
-                  {p.name || "-"}
+                <td className="px-3 py-2.5 text-sm font-medium ad-text">
+                  <span className="block max-w-[12rem] truncate" title={p.name || ""}>
+                    {p.name || "-"}
+                  </span>
                 </td>
-                <td className="px-6 py-4 text-sm ad-text-secondary">
-                  <span className="inline-flex items-center gap-2">
-                    {p.email}
+                <td className="px-3 py-2.5 text-sm ad-text-secondary">
+                  <span className="inline-flex max-w-[15rem] items-center gap-2">
+                    <span className="truncate" title={p.email}>
+                      {p.email}
+                    </span>
                     <ChangeEmailButton userId={p.id} currentEmail={p.email} />
                   </span>
                 </td>
-                <td className="px-6 py-4 text-sm">
+                <td className="px-3 py-2.5 text-sm">
                   {p.teamSlug ? (
                     <Link
                       href={`/team/${p.teamSlug}`}
-                      className="font-medium ad-text-link hover:underline"
+                      className="block max-w-[12rem] truncate font-medium ad-text-link hover:underline"
+                      title={p.teamName ?? ""}
                     >
                       {p.teamName}
                     </Link>
@@ -383,7 +393,7 @@ function ParticipantsTable({
                     <span className="ad-text-muted">-</span>
                   )}
                 </td>
-                <td className="px-6 py-4 text-sm">
+                <td className="px-3 py-2.5 text-sm">
                   {p.teamRole === "president" ? (
                     <span className="text-xs font-bold uppercase ad-text-gold">Captain</span>
                   ) : p.teamRole === "member" ? (
@@ -393,7 +403,7 @@ function ParticipantsTable({
                   )}
                 </td>
                 {activeChapter && (
-                  <td className="px-6 py-4 text-center">
+                  <td className="px-3 py-2.5 text-center">
                     {p.checkedIn ? (
                       <span className="inline-flex items-center gap-1 text-green-600">
                         <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
@@ -411,7 +421,7 @@ function ParticipantsTable({
                     )}
                   </td>
                 )}
-                <td className="px-6 py-4 text-right">
+                <td className="px-3 py-2.5 text-right">
                   <DeleteParticipantButton
                     userId={p.id}
                     name={p.name || ""}
