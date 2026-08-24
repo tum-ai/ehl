@@ -353,6 +353,21 @@ Every database query that could return unbounded rows has a configurable limit. 
 3. When a query hits its limit, the UI shows a yellow `LimitBanner` warning
 4. Users are NEVER shown silently truncated data
 
+**A configured limit is not the only ceiling.** PostgREST caps every response at `max_rows`
+(1000 by default: `supabase/config.toml`, and Settings -> API -> Max rows on a hosted
+project). The cap is server-side and silent, so `.limit(25000)` simply returns 1000 rows.
+A limit set above 1000 is therefore inert *and* disables the warning, because a
+`LimitBanner` that infers truncation from `count >= limit` compares 1000 against 25000 and
+renders nothing. That combination shipped once and made the admin Teams page stop at
+exactly 1000 participants in silence.
+
+Any query whose limit exceeds `max_rows` must read through `fetchPaged()`
+(`lib/queries/paged.ts`), which walks `.range()` windows and reports a `truncated` flag
+that the banner consumes as fact. Queries currently paged: teams, all team members,
+participants, and per-chapter check-ins. Queries whose limits still exceed the ceiling
+without paging, and so remain capped at 1000 today: applications per chapter, application
+stats, screening scores, and admin stats applications.
+
 ### Current defaults
 
 | Limit | Default | Env var |

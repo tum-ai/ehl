@@ -1,11 +1,13 @@
 import {
-  getTeams,
-  getAllTeamMembers,
   getChaptersAdmin,
   getChallengesForChapter,
   getChapterRegistrationsByTeam,
 } from "@/lib/queries";
-import { getAllParticipantsWithTeams } from "@/lib/queries/teams";
+import {
+  getTeamsPaged,
+  getAllTeamMembersPaged,
+  getAllParticipantsWithTeamsPaged,
+} from "@/lib/queries/teams";
 import { TeamsAndParticipantsView } from "./teams-participants-view";
 import { requireGlobalAdminPage } from "@/lib/admin-auth";
 
@@ -26,11 +28,18 @@ export default async function AdminTeamsPage() {
   const eventStatuses = new Set(["preparation", "challenge_selection", "hacking", "submissions_open", "pitching"]);
   const activeChapter = chapters.find((c) => eventStatuses.has(c.status)) ?? null;
 
-  const [teams, allMembers, participants] = await Promise.all([
-    getTeams(),
-    getAllTeamMembers(),
-    getAllParticipantsWithTeams(activeChapter?.id),
+  // Paged reads: a plain .limit() cannot exceed PostgREST's server-side
+  // max_rows (1000), which is what capped this page at exactly 1000
+  // participants with no banner to say so. Each read also reports whether more
+  // rows exist, which is the only honest input to a LimitBanner.
+  const [teamsPage, membersPage, participantsPage] = await Promise.all([
+    getTeamsPaged(),
+    getAllTeamMembersPaged(),
+    getAllParticipantsWithTeamsPaged(activeChapter?.id),
   ]);
+  const teams = teamsPage.rows;
+  const allMembers = membersPage.rows;
+  const participants = participantsPage.rows;
 
   // Challenge-override data: only load when the active chapter still allows it
   // and its submission deadline (if any) has not passed.
@@ -57,6 +66,9 @@ export default async function AdminTeamsPage() {
       challengeOverrideOpen={overrideOpen}
       challenges={challenges.map((c) => ({ id: c.id, title: c.title }))}
       registrationsByTeam={registrationsByTeamEntries}
+      teamsTruncated={teamsPage.truncated}
+      membersTruncated={membersPage.truncated}
+      participantsTruncated={participantsPage.truncated}
     />
   );
 }
