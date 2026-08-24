@@ -918,13 +918,22 @@ test.describe.serial("Hackathon Lifecycle", () => {
       expect(notes?.length).toBeGreaterThanOrEqual(1);
       expect(notes?.some((n) => (n.body as string).includes("cannot attend Paris"))).toBe(true);
 
-      // The transition is recorded in the immutable event_log.
-      const { data: events } = await admin
-        .from("event_log")
-        .select("action")
-        .eq("entity_id", appId)
-        .eq("action", "application.cancelled");
-      expect(events?.length).toBeGreaterThanOrEqual(1);
+      // The transition is recorded in the immutable event_log. Polled for the
+      // same reason as the walk-in assertion below: logEvent() defers its
+      // insert through after(), so a single read can race the write.
+      await expect
+        .poll(
+          async () => {
+            const { data: events } = await admin
+              .from("event_log")
+              .select("action")
+              .eq("entity_id", appId)
+              .eq("action", "application.cancelled");
+            return events?.length ?? 0;
+          },
+          { timeout: 15000 }
+        )
+        .toBeGreaterThanOrEqual(1);
 
       // Cancellation is terminal: there is no reverse-to-accepted action.
       await expect(
@@ -1006,12 +1015,26 @@ test.describe.serial("Hackathon Lifecycle", () => {
     expect(walkinProfile?.role).toBe("participant");
 
     // The walk-in_registered event was logged.
-    const { data: events } = await admin
-      .from("event_log")
-      .select("action")
-      .eq("entity_id", appRow!.id as string)
-      .eq("action", "application.walk_in_registered");
-    expect(events?.length).toBeGreaterThanOrEqual(1);
+    //
+    // logEvent() is deliberately fire-and-forget: it defers the insert through
+    // next/server's after(), which runs AFTER the response the browser already
+    // acted on. So a point-in-time read here races the write and can observe
+    // zero rows even though the row lands moments later. Poll, matching how
+    // this file already reads other deferred writes (see the check-in assertion
+    // just below). The assertion itself is unchanged: at least one row.
+    await expect
+      .poll(
+        async () => {
+          const { data: events } = await admin
+            .from("event_log")
+            .select("action")
+            .eq("entity_id", appRow!.id as string)
+            .eq("action", "application.walk_in_registered");
+          return events?.length ?? 0;
+        },
+        { timeout: 15000 }
+      )
+      .toBeGreaterThanOrEqual(1);
 
     // Now run the EXISTING admin check-in flow on the walk-in's check_in_token
     // (the personal check-in QR is unchanged by this feature).
