@@ -16,6 +16,7 @@ import {
 import { getSafeRedirect, getSiteUrl } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, authLimiter, resetLimiter, resetEmailLimiter } from "@/lib/ratelimit";
+import { getLockingTeamId } from "@/lib/team-membership";
 
 export async function signIn(formData: FormData, redirectTo?: string) {
   const email = formData.get("email") as string;
@@ -478,15 +479,15 @@ export async function inviteJury(
     }
   }
 
-  // Check for dual-role conflict: jury members must not be active team members
-  const { data: teamMembership } = await adminClient
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", userId)
-    .limit(1)
-    .single();
+  // Check for dual-role conflict: jury members must not be ACTIVE team members.
+  // "Active" means a team registered for a chapter that has not completed, the
+  // same condition the 00035 chapter-lock trigger uses. A user can hold several
+  // team_members rows (Data Integrity 7), so the old `.limit(1).single()` read
+  // an arbitrary one: anybody who had ever been on a team, including in a
+  // finished season, was refused as jury forever.
+  const lockingTeamId = await getLockingTeamId(adminClient, userId);
 
-  if (teamMembership) {
+  if (lockingTeamId) {
     return { error: `This user is an active team member and cannot serve as jury. Remove them from their team first.` };
   }
 

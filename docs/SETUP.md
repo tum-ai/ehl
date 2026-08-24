@@ -415,9 +415,10 @@ All query limits have sensible defaults. Override via env vars if you need highe
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LIMIT_TEAMS` | 500 | Max teams loaded per query |
-| `LIMIT_ALL_TEAM_MEMBERS` | 2500 | Max team members loaded |
+| `LIMIT_TEAMS` | 5000 | Max teams loaded per query |
+| `LIMIT_ALL_TEAM_MEMBERS` | 25000 | Max team members loaded |
 | `LIMIT_PROFILES` | 1000 | Max profiles loaded |
+| `LIMIT_PARTICIPANTS` | 25000 | Max participants listed on the admin Teams page |
 | `LIMIT_APPLICATIONS_PER_CHAPTER` | 2000 | Max applications per chapter |
 | `LIMIT_APPLICATION_STATS` | 5000 | Max application stats rows |
 | `LIMIT_SCREENING_SCORES` | 5000 | Max screening scores |

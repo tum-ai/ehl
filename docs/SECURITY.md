@@ -349,7 +349,7 @@ Every database query that could return unbounded rows has a configurable limit. 
 ### How limits work
 
 1. All limits are defined in `lib/config/limits.ts` as `QUERY_LIMITS`
-2. Each limit has a default value and an env var override (e.g. `LIMIT_TEAMS=500`)
+2. Each limit has a default value and an env var override (e.g. `LIMIT_TEAMS=5000`)
 3. When a query hits its limit, the UI shows a yellow `LimitBanner` warning
 4. Users are NEVER shown silently truncated data
 
@@ -357,9 +357,10 @@ Every database query that could return unbounded rows has a configurable limit. 
 
 | Limit | Default | Env var |
 |-------|---------|---------|
-| Teams | 500 | `LIMIT_TEAMS` |
-| All team members | 2,500 | `LIMIT_ALL_TEAM_MEMBERS` |
+| Teams | 5,000 | `LIMIT_TEAMS` |
+| All team members | 25,000 | `LIMIT_ALL_TEAM_MEMBERS` |
 | Profiles | 1,000 | `LIMIT_PROFILES` |
+| Participants (admin Teams page) | 25,000 | `LIMIT_PARTICIPANTS` |
 | Applications per chapter | 2,000 | `LIMIT_APPLICATIONS_PER_CHAPTER` |
 | Application stats | 5,000 | `LIMIT_APPLICATION_STATS` |
 | Screening scores | 5,000 | `LIMIT_SCREENING_SCORES` |

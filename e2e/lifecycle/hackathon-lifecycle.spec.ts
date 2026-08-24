@@ -918,13 +918,22 @@ test.describe.serial("Hackathon Lifecycle", () => {
       expect(notes?.length).toBeGreaterThanOrEqual(1);
       expect(notes?.some((n) => (n.body as string).includes("cannot attend Paris"))).toBe(true);
 
-      // The transition is recorded in the immutable event_log.
-      const { data: events } = await admin
-        .from("event_log")
-        .select("action")
-        .eq("entity_id", appId)
-        .eq("action", "application.cancelled");
-      expect(events?.length).toBeGreaterThanOrEqual(1);
+      // The transition is recorded in the immutable event_log. Polled for the
+      // same reason as the walk-in assertion below: logEvent() defers its
+      // insert through after(), so a single read can race the write.
+      await expect
+        .poll(
+          async () => {
+            const { data: events } = await admin
+              .from("event_log")
+              .select("action")
+              .eq("entity_id", appId)
+              .eq("action", "application.cancelled");
+            return events?.length ?? 0;
+          },
+          { timeout: 15000 }
+        )
+        .toBeGreaterThanOrEqual(1);
 
       // Cancellation is terminal: there is no reverse-to-accepted action.
       await expect(
@@ -1006,12 +1015,26 @@ test.describe.serial("Hackathon Lifecycle", () => {
     expect(walkinProfile?.role).toBe("participant");
 
     // The walk-in_registered event was logged.
-    const { data: events } = await admin
-      .from("event_log")
-      .select("action")
-      .eq("entity_id", appRow!.id as string)
-      .eq("action", "application.walk_in_registered");
-    expect(events?.length).toBeGreaterThanOrEqual(1);
+    //
+    // logEvent() is deliberately fire-and-forget: it defers the insert through
+    // next/server's after(), which runs AFTER the response the browser already
+    // acted on. So a point-in-time read here races the write and can observe
+    // zero rows even though the row lands moments later. Poll, matching how
+    // this file already reads other deferred writes (see the check-in assertion
+    // just below). The assertion itself is unchanged: at least one row.
+    await expect
+      .poll(
+        async () => {
+          const { data: events } = await admin
+            .from("event_log")
+            .select("action")
+            .eq("entity_id", appRow!.id as string)
+            .eq("action", "application.walk_in_registered");
+          return events?.length ?? 0;
+        },
+        { timeout: 15000 }
+      )
+      .toBeGreaterThanOrEqual(1);
 
     // Now run the EXISTING admin check-in flow on the walk-in's check_in_token
     // (the personal check-in QR is unchanged by this feature).
@@ -2131,6 +2154,98 @@ test.describe.serial("Hackathon Lifecycle", () => {
         .update({ looking_for_members: originalTeam?.looking_for_members ?? false })
         .eq("id", teamAlphaId);
       await admin.from("chapters").delete().eq("id", chapter.id);
+    }
+  });
+
+  // Munich-2 regression: the Teams page hid the Remove control whenever a team
+  // was at MIN_TEAM_SIZE and never offered it for the captain, so an operator
+  // faced with a no-show could only MOVE people, and the real fix was done by
+  // hand in the database. Both restrictions are gone; the confirm step now
+  // states the consequence instead of refusing.
+  test("16.1 Admin can remove a member below the minimum, and the captain", async ({ page }) => {
+    const admin = getAdminClient();
+    const { createTeam, addTeamMember } = await import("../helpers/data-factory");
+
+    const captainId = await createParticipant({
+      email: `e2e-removal-captain-${RUN_ID}@example.com`,
+      name: "E2E Removal Captain",
+    });
+    const memberId = await createParticipant({
+      email: `e2e-removal-member-${RUN_ID}@example.com`,
+      name: "E2E Removal Member",
+    });
+
+    const teamName = `E2E Removal ${RUN_ID}`;
+    const teamId = await createTeam({ name: teamName, presidentUserId: captainId });
+    await addTeamMember(teamId, memberId);
+
+    try {
+      await loginAsAdmin(page);
+      await page.goto("/admin/teams");
+      await page.waitForLoadState("networkidle");
+
+      // The Teams tab now has a search box; use it to reach this team directly
+      // rather than relying on it being visible in an unfiltered list.
+      const search = page.getByPlaceholder(/Search teams by name/i);
+      await search.fill(teamName);
+
+      const row = page.locator("tr", { hasText: teamName });
+      await expect(row).toBeVisible({ timeout: 15000 });
+      // Searching by a MEMBER's name must find the same team.
+      await search.fill("E2E Removal Member");
+      await expect(page.locator("tr", { hasText: teamName })).toBeVisible();
+      await search.fill(teamName);
+
+      // Removing the ordinary member drops the team to 1, below MIN_TEAM_SIZE.
+      // The old UI showed "(min 2)" here instead of a button.
+      const memberLine = row.locator("p", { hasText: "E2E Removal Member" });
+      await memberLine.getByRole("button").click();
+      await expect(row.getByText(/below the minimum of 2/i)).toBeVisible();
+      await row.getByRole("button", { name: /Confirm remove/i }).click();
+      await page.waitForLoadState("networkidle");
+
+      await expect
+        .poll(async () => {
+          const { data } = await admin
+            .from("team_members")
+            .select("user_id")
+            .eq("team_id", teamId);
+          return (data ?? []).length;
+        }, { timeout: 15000 })
+        .toBe(1);
+
+      // Now remove the captain: the last member. The team is emptied, not deleted.
+      await page.reload();
+      await page.waitForLoadState("networkidle");
+      await page.getByPlaceholder(/Search teams by name/i).fill(teamName);
+
+      const captainRow = page.locator("tr", { hasText: teamName });
+      await captainRow.locator("p", { hasText: "E2E Removal Captain" }).getByRole("button").click();
+      await expect(captainRow.getByText(/last member/i)).toBeVisible();
+      await captainRow.getByRole("button", { name: /Confirm remove/i }).click();
+      await page.waitForLoadState("networkidle");
+
+      await expect
+        .poll(async () => {
+          const { data } = await admin
+            .from("team_members")
+            .select("user_id")
+            .eq("team_id", teamId);
+          return (data ?? []).length;
+        }, { timeout: 15000 })
+        .toBe(0);
+
+      // The team itself survives: deleting it stays a separate, deliberate act.
+      const { data: team } = await admin
+        .from("teams")
+        .select("id, president_user_id")
+        .eq("id", teamId)
+        .single();
+      expect(team?.id).toBe(teamId);
+      expect(team?.president_user_id).toBeNull();
+    } finally {
+      await admin.from("team_members").delete().eq("team_id", teamId);
+      await admin.from("teams").delete().eq("id", teamId);
     }
   });
 });

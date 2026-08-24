@@ -14,39 +14,24 @@ import { MAX_TEAM_SIZE } from "@/lib/config/limits";
 import { slugify } from "@/lib/utils";
 import { revalidatePath } from "next/cache";
 import { randomUUID } from "crypto";
+import { getCurrentMembership, getLockingTeamId } from "@/lib/team-membership";
 
 /**
- * Check if a user is locked to their current team because
- * the team has a challenge_registration for a chapter that
- * is not yet completed. Returns an error message or null.
+ * Check if a user is locked to a team because that team has a
+ * challenge_registration for a chapter that is not yet completed.
+ * Returns an error message or null.
+ *
+ * Considers ALL of the user's memberships (a user can hold several across
+ * completed chapters), matching the DB-level 00035 insert trigger: any active
+ * registration locks them in place.
  */
 async function getChapterLockError(
   adminClient: SupabaseClient,
   userId: string
 ): Promise<string | null> {
-  // Find the user's current team
-  const { data: membership } = await adminClient
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", userId)
-    .single();
+  const lockingTeamId = await getLockingTeamId(adminClient, userId);
 
-  if (!membership) return null; // no team, no lock
-
-  // Check if that team has any challenge_registration for a non-completed chapter
-  const { data: registrations } = await adminClient
-    .from("challenge_registrations")
-    .select("chapter_id, chapters!inner(status)")
-    .eq("team_id", membership.team_id as string);
-
-  if (!registrations || registrations.length === 0) return null;
-
-  const locked = registrations.some((r) => {
-    const chapter = r.chapters as unknown as { status: string };
-    return chapter.status !== "completed";
-  });
-
-  if (locked) {
+  if (lockingTeamId) {
     return "You cannot change teams while your current team is registered for an active chapter.";
   }
 
@@ -110,11 +95,7 @@ export async function acceptTeamInvite(token: string) {
   if (lockError) return { error: lockError };
 
   // If user is already on a team (but not locked), remove them first
-  const { data: existingMembership } = await adminClient
-    .from("team_members")
-    .select("team_id, role")
-    .eq("user_id", user.id)
-    .single();
+  const existingMembership = await getCurrentMembership(adminClient, user.id);
 
   if (existingMembership) {
     if (existingMembership.role === "president") {
@@ -123,7 +104,7 @@ export async function acceptTeamInvite(token: string) {
     await adminClient
       .from("team_members")
       .delete()
-      .eq("team_id", existingMembership.team_id as string)
+      .eq("team_id", existingMembership.teamId)
       .eq("user_id", user.id);
   }
 
@@ -138,7 +119,7 @@ export async function acceptTeamInvite(token: string) {
     // Rollback: re-add user to their old team if they were removed
     if (existingMembership) {
       await adminClient.from("team_members").insert({
-        team_id: existingMembership.team_id,
+        team_id: existingMembership.teamId,
         user_id: user.id,
         role: existingMembership.role,
       });
@@ -487,12 +468,7 @@ export async function requestToJoinTeam(teamId: string) {
   if (lockError) return { error: lockError };
 
   // Check if user already has a team
-  const { data: existingMembership } = await adminClient
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
+  const existingMembership = await getCurrentMembership(adminClient, user.id);
 
   if (existingMembership) {
     return { error: "You are already a member of a team." };
@@ -634,11 +610,10 @@ export async function resolveDashboardJoinRequest(
     }
 
     // If user is already on another team (but not locked), remove them first
-    const { data: existingMembership } = await adminClient
-      .from("team_members")
-      .select("team_id, role")
-      .eq("user_id", request.user_id as string)
-      .single();
+    const existingMembership = await getCurrentMembership(
+      adminClient,
+      request.user_id as string
+    );
 
     if (existingMembership) {
       if (existingMembership.role === "president") {
@@ -647,7 +622,7 @@ export async function resolveDashboardJoinRequest(
       await adminClient
         .from("team_members")
         .delete()
-        .eq("team_id", existingMembership.team_id as string)
+        .eq("team_id", existingMembership.teamId)
         .eq("user_id", request.user_id as string);
     }
 
@@ -686,12 +661,7 @@ export async function createTeam(teamName: string, university?: string, city?: s
   const adminClient = createAdminClient();
 
   // Check user doesn't already have a team
-  const { data: existingMembership } = await adminClient
-    .from("team_members")
-    .select("team_id")
-    .eq("user_id", user.id)
-    .limit(1)
-    .single();
+  const existingMembership = await getCurrentMembership(adminClient, user.id);
 
   if (existingMembership) {
     return { error: "You are already on a team." };
@@ -762,11 +732,7 @@ export async function leaveTeam() {
   const adminClient = createAdminClient();
 
   // Get user's team membership
-  const { data: membership } = await adminClient
-    .from("team_members")
-    .select("team_id, role")
-    .eq("user_id", user.id)
-    .single();
+  const membership = await getCurrentMembership(adminClient, user.id);
 
   if (!membership) {
     return { error: "You are not on a team." };
@@ -784,13 +750,13 @@ export async function leaveTeam() {
   await adminClient
     .from("team_members")
     .delete()
-    .eq("team_id", membership.team_id)
+    .eq("team_id", membership.teamId)
     .eq("user_id", user.id);
 
   logEvent({
     action: "team.member_left",
     entityType: "team",
-    entityId: membership.team_id as string,
+    entityId: membership.teamId,
     actorId: user.id,
     actorType: "participant",
     delta: { deleted: { user_id: user.id } },

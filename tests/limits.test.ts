@@ -16,10 +16,16 @@ afterEach(() => {
   vi.resetModules();
 });
 
+// TEAMS_DEFAULT is the shipped fallback for LIMIT_TEAMS. It was raised from 500
+// to 5000 when the admin Teams page stopped truncating: a cap that a real event
+// can reach turns "this person is not registered" into something the page says
+// out loud. Pinned here so a change to it is deliberate, not incidental.
+const TEAMS_DEFAULT = 5000;
+
 describe("QUERY_LIMITS envInt", () => {
   it("uses the fallback when the env var is unset", async () => {
     const limits = await loadLimitsWith({ LIMIT_TEAMS: undefined });
-    expect(limits.teams).toBe(500);
+    expect(limits.teams).toBe(TEAMS_DEFAULT);
   });
 
   it("parses a valid integer override", async () => {
@@ -29,12 +35,12 @@ describe("QUERY_LIMITS envInt", () => {
 
   it("falls back when the value is non-numeric", async () => {
     const limits = await loadLimitsWith({ LIMIT_TEAMS: "abc" });
-    expect(limits.teams).toBe(500);
+    expect(limits.teams).toBe(TEAMS_DEFAULT);
   });
 
   it("falls back on empty string", async () => {
     const limits = await loadLimitsWith({ LIMIT_TEAMS: "" });
-    expect(limits.teams).toBe(500);
+    expect(limits.teams).toBe(TEAMS_DEFAULT);
   });
 
   it("documents current behavior for '0' (parses to 0, which disables the query)", async () => {

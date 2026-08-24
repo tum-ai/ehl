@@ -4,6 +4,12 @@ import type { Team, TeamMember, Profile, TeamJoinRequest, TeamInvite } from "../
 import { getClient } from "./client";
 import { toTeam, toTeamMember, toProfile, toJoinRequest, toTeamInvite } from "./mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
+import {
+  getCurrentMembership,
+  getActiveChapterTeamIds,
+  pickCurrentMembership,
+  type MembershipRow,
+} from "@/lib/team-membership";
 
 // ─── Team Queries ─────────────────────────────────────────
 
@@ -33,23 +39,21 @@ export async function getTeamForUser(
   // Uses admin client: team_members RLS requires auth, but this runs
   // server-side for public/participant pages. Read-only, no write risk.
   const supabase = createAdminClient();
-  const { data: membership } = await supabase
-    .from("team_members")
-    .select("team_id, role")
-    .eq("user_id", userId)
-    .single();
+  // A user may hold several memberships (past teams from completed chapters),
+  // so this resolves the current one instead of failing on a multi-row result.
+  const membership = await getCurrentMembership(supabase, userId);
   if (!membership) return null;
 
   const { data: teamRow } = await supabase
     .from("teams")
     .select("*")
-    .eq("id", membership.team_id as string)
+    .eq("id", membership.teamId)
     .single();
   if (!teamRow) return null;
 
   return {
     team: toTeam(teamRow),
-    role: membership.role as "president" | "member",
+    role: membership.role,
   };
 }
 
@@ -395,30 +399,66 @@ export async function getAllParticipantsWithTeams(
 ): Promise<ParticipantWithTeam[]> {
   const supabase = createAdminClient();
 
-  // Get all participant profiles
+  // Get all participant profiles. Capped with `participants` (people), not
+  // `allTeamMembers` (membership rows): they are different quantities, and
+  // using the membership cap here quietly under-counted the tab it feeds.
   const { data: profiles } = await supabase
     .from("profiles")
     .select("id, email, name")
     .eq("role", "participant")
     .order("name")
-    .limit(QUERY_LIMITS.allTeamMembers);
+    .limit(QUERY_LIMITS.participants);
 
   if (!profiles) return [];
 
-  // Get team memberships
+  // Get team memberships.
+  //
+  // A user can hold SEVERAL team_members rows (Data Integrity 7), so a plain
+  // Map.set() keyed on user_id is last-write-wins: whoever changed teams
+  // between chapters showed up on the admin Teams page under whichever row
+  // PostgREST happened to return last, often a team from a finished chapter.
+  // Collect every row per user and let pickCurrentMembership decide, using the
+  // same rule the participant-facing paths use.
   const { data: memberships } = await supabase
     .from("team_members")
-    .select("user_id, team_id, role, teams(name, slug)")
+    .select("user_id, team_id, role, joined_at, teams(name, slug)")
     .limit(QUERY_LIMITS.allTeamMembers);
 
-  const memberMap = new Map<string, { teamId: string; teamName: string; teamSlug: string; role: string }>();
+  type TeamIdentity = { teamName: string; teamSlug: string };
+  const teamIdentity = new Map<string, TeamIdentity>();
+  const rowsByUser = new Map<string, MembershipRow[]>();
+
   for (const m of memberships ?? []) {
     const team = m.teams as unknown as { name: string; slug: string } | null;
-    memberMap.set(m.user_id as string, {
-      teamId: m.team_id as string,
+    const teamId = m.team_id as string;
+    teamIdentity.set(teamId, {
       teamName: team?.name ?? "",
       teamSlug: team?.slug ?? "",
-      role: m.role as string,
+    });
+
+    const userId = m.user_id as string;
+    const rows = rowsByUser.get(userId) ?? [];
+    rows.push({
+      teamId,
+      role: m.role === "president" ? "president" : "member",
+      joinedAt: (m.joined_at as string | null) ?? null,
+    });
+    rowsByUser.set(userId, rows);
+  }
+
+  // One chapter lookup for every team on the page, rather than per user.
+  const activeTeamIds = await getActiveChapterTeamIds(supabase, [...teamIdentity.keys()]);
+
+  const memberMap = new Map<string, { teamId: string; teamName: string; teamSlug: string; role: string }>();
+  for (const [userId, rows] of rowsByUser) {
+    const current = pickCurrentMembership(rows, activeTeamIds);
+    if (!current) continue;
+    const identity = teamIdentity.get(current.teamId);
+    memberMap.set(userId, {
+      teamId: current.teamId,
+      teamName: identity?.teamName ?? "",
+      teamSlug: identity?.teamSlug ?? "",
+      role: current.role,
     });
   }
 
@@ -431,7 +471,7 @@ export async function getAllParticipantsWithTeams(
       .select("email, status, checked_in_at")
       .eq("chapter_id", chapterId)
       .eq("status", "checked_in")
-      .limit(QUERY_LIMITS.allTeamMembers);
+      .limit(QUERY_LIMITS.participants);
     for (const app of apps ?? []) {
       checkedInEmails.add((app.email as string).toLowerCase());
       if (app.checked_in_at) {

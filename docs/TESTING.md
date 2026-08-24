@@ -347,6 +347,32 @@ test.describe("Feature: Team Photos", () => {
 });
 ```
 
+### Pattern: Static-Analysis Guard Test
+
+Some bugs are a *shape of code*, not a single wrong line: the code reads perfectly in
+review and is wrong everywhere it appears. Behavioural tests fix the instances you know
+about; they do nothing about the next one someone writes next month.
+
+For those, add a unit test that scans the source tree and fails on the shape itself. Two
+in this repo:
+
+| Test | Fails when |
+|------|-----------|
+| `tests/migration-checks.test.ts` | a migration file has no probe entry in `scripts/migration-checks.ts` |
+| `tests/team-membership-lookup-guard.test.ts` | a `.from("team_members")` chain filters on `user_id` alone and ends in `.single()`/`.maybeSingle()` (the multi-row class, `CLAUDE.md` Data Integrity 7) |
+
+Structure such a test with three cases, not one:
+
+1. **The sweep** over `lib/` and `app/`, asserting an empty offender list. Put the fix in
+   the assertion's comment: whoever trips it should not have to go read the test.
+2. **A positive control** with the risky shape inline, so the matcher is proven to catch
+   what it claims. A guard that silently stopped matching is worse than no guard.
+3. **Negative controls** for the shapes that are legitimately fine (here: `team_id` +
+   `user_id`, which is a unique pair, and multi-row reads with no `.single()`).
+
+Keep the matcher deliberately narrow. A guard that over-matches gets muted with an
+allowlist within a month, and then it protects nothing.
+
 ### Pattern: UI Test with API Fallback
 
 The recommended pattern for testing UI flows:

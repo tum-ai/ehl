@@ -19,9 +19,19 @@ function envInt(key: string, fallback: number): number {
 }
 
 export const QUERY_LIMITS = {
-  teams: envInt("LIMIT_TEAMS", 500),
-  allTeamMembers: envInt("LIMIT_ALL_TEAM_MEMBERS", 2500),
+  // Teams and their members back the admin Teams page, which is how an operator
+  // finds a person on an event day. Truncation there is not a degraded view, it
+  // is a person who appears not to exist, so these sit far above what a single
+  // season can produce (Season 1 peak: ~60 teams / ~250 members per match) and
+  // the LimitBanner stays as the never-silent backstop if a deployment ever
+  // outgrows them.
+  teams: envInt("LIMIT_TEAMS", 5000),
+  allTeamMembers: envInt("LIMIT_ALL_TEAM_MEMBERS", 25000),
   profiles: envInt("LIMIT_PROFILES", 1000),
+  // Participants listed on the admin Teams page ("Participants" tab). Separate
+  // from `profiles` and from `allTeamMembers`: this counts PEOPLE, and the page
+  // used to cap it with the membership limit, which is a different quantity.
+  participants: envInt("LIMIT_PARTICIPANTS", 25000),
   applicationsPerChapter: envInt("LIMIT_APPLICATIONS_PER_CHAPTER", 2000),
   applicationStats: envInt("LIMIT_APPLICATION_STATS", 5000),
   screeningScores: envInt("LIMIT_SCREENING_SCORES", 5000),
@@ -70,8 +80,15 @@ export const MAX_TEAM_SIZE = envInt("MAX_TEAM_SIZE", 5);
 // cancelling an attendee, to drop a registration that would fall below it.
 export const MIN_CHALLENGE_ROSTER = envInt("MIN_CHALLENGE_ROSTER", 2);
 
-// Minimum members a team must keep after an admin removes someone. A domain
-// invariant enforced on admin member removal (lib/actions/admin.ts): a removal
-// that would drop the team below this is rejected, so an admin can never leave a
-// team too small to compete. The president always counts toward this total.
+// Minimum members a team is expected to keep. The president counts toward it.
+//
+// Enforced as a HARD rule where participants act on their own behalf: a move
+// that would drop the source team below it is refused (adminMoveMember), and
+// registration paths honour MIN_CHALLENGE_ROSTER above.
+//
+// For adminRemoveMember it is a WARNING THRESHOLD, not a refusal. Blocking the
+// admin there meant that at Munich-2 the only thing an operator could do with a
+// no-show on a two-person team was move them somewhere else, so the real fix
+// happened by hand in the database. The action now reports `belowMinimum` and
+// the UI names the consequence in the confirm step instead.
 export const MIN_TEAM_SIZE = envInt("MIN_TEAM_SIZE", 2);
