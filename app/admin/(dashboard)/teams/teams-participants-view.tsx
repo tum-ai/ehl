@@ -3,7 +3,6 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { QUERY_LIMITS } from "@/lib/config/limits";
 import { LimitBanner } from "@/components/admin/limit-banner";
 import { DeleteTeamButton } from "./delete-team-button";
 import { DeleteParticipantButton } from "./delete-participant-button";
@@ -31,6 +30,9 @@ interface Props {
   challengeOverrideOpen: boolean;
   challenges: ChallengeOption[];
   registrationsByTeam: [string, string][];
+  teamsTruncated: boolean;
+  membersTruncated: boolean;
+  participantsTruncated: boolean;
 }
 
 export function TeamsAndParticipantsView({
@@ -41,6 +43,9 @@ export function TeamsAndParticipantsView({
   challengeOverrideOpen,
   challenges,
   registrationsByTeam,
+  teamsTruncated,
+  membersTruncated,
+  participantsTruncated,
 }: Props) {
   const [view, setView] = useState<View>("teams");
   const [search, setSearch] = useState("");
@@ -108,11 +113,15 @@ export function TeamsAndParticipantsView({
       </div>
 
       <div className="mt-4 space-y-2">
-        <LimitBanner count={teams.length} limit={QUERY_LIMITS.teams} label="teams" />
-        <LimitBanner count={allMembers.length} limit={QUERY_LIMITS.allTeamMembers} label="team members" />
+        <LimitBanner truncated={teamsTruncated} count={teams.length} label="teams" />
         <LimitBanner
+          truncated={membersTruncated}
+          count={allMembers.length}
+          label="team members"
+        />
+        <LimitBanner
+          truncated={participantsTruncated}
           count={participants.length}
-          limit={QUERY_LIMITS.participants}
           label="participants"
         />
       </div>
@@ -227,7 +236,7 @@ function TeamsTable({
                   {members.length > 0 ? (
                     <div className="space-y-0.5">
                       {members.map((m) => (
-                        <p key={m.userId} className="flex items-start gap-1.5 text-sm ad-text-secondary">
+                        <p key={m.userId} className="flex items-center gap-1.5 whitespace-nowrap text-sm ad-text-secondary">
                           <span>{memberLabel(m)}</span>
                           {m.role === "president" && (
                             <span className="text-[10px] font-bold uppercase ad-text-gold">

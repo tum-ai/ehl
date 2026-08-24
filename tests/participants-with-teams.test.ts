@@ -23,6 +23,9 @@ const state = {
   applications: [] as { email: string; status: string; checked_in_at: string | null }[],
 };
 
+/** PostgREST's server-side ceiling; see supabase/config.toml `max_rows`. */
+const SERVER_MAX_ROWS = 1000;
+
 function fakeAdminClient() {
   const from = (table: string) => {
     const filters: Record<string, unknown> = {};
@@ -49,9 +52,29 @@ function fakeAdminClient() {
         return builder;
       },
       order: () => builder,
-      limit: () => Promise.resolve({ data: rows(), error: null }),
+      // PostgREST applies max_rows to .limit() too: asking for 25000 returns
+      // 1000 and says nothing. The mock must reproduce that, otherwise a test
+      // suite "passes" against exactly the code that shipped the bug.
+      limit: (n: number) =>
+        Promise.resolve({
+          data: rows().slice(0, Math.min(n ?? SERVER_MAX_ROWS, SERVER_MAX_ROWS)),
+          error: null,
+        }),
+      // The queries page with .range() now, because PostgREST caps every
+      // response at max_rows (1000) server-side and .limit() cannot exceed it.
+      // This mock enforces the SAME cap, so a query that stopped paging would
+      // fail here exactly as it did in production.
+      range: (from: number, to: number) => {
+        const all = rows();
+        const requested = to - from + 1;
+        const capped = Math.min(requested, SERVER_MAX_ROWS);
+        return Promise.resolve({ data: all.slice(from, from + capped), error: null });
+      },
       then: (resolve: (v: unknown) => unknown, reject?: (e: unknown) => unknown) =>
-        Promise.resolve({ data: rows(), error: null }).then(resolve, reject),
+        Promise.resolve({ data: rows().slice(0, SERVER_MAX_ROWS), error: null }).then(
+          resolve,
+          reject
+        ),
     };
     return builder;
   };
@@ -66,7 +89,11 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => fakeAdminClient(),
 }));
 
-import { getAllParticipantsWithTeams } from "@/lib/queries/teams";
+import {
+  getAllParticipantsWithTeams,
+  getAllParticipantsWithTeamsPaged,
+} from "@/lib/queries/teams";
+import { QUERY_LIMITS } from "@/lib/config/limits";
 
 const OLD_TEAM = { name: "Old Guard", slug: "old-guard" };
 const NEW_TEAM = { name: "Current Crew", slug: "current-crew" };
@@ -156,5 +183,69 @@ describe("getAllParticipantsWithTeams", () => {
     expect(p.email).toBe("ada@example.com");
     expect(p.checkedIn).toBe(true);
     expect(p.checkedInAt).toBe("2026-08-23T09:00:00Z");
+  });
+});
+
+/**
+ * The regression this suite previously could not see.
+ *
+ * Every fixture above is a handful of rows, so the query "worked" while a plain
+ * .limit(25000) was silently capped at 1000 by PostgREST server-side. The admin
+ * Teams page showed exactly 1000 participants and, because LimitBanner compared
+ * 1000 against the configured 25000, said nothing at all.
+ */
+describe("getAllParticipantsWithTeams past the server-side row ceiling", () => {
+  function seedParticipants(n: number) {
+    state.profiles = Array.from({ length: n }, (_, i) => ({
+      id: `u${i}`,
+      email: `p${String(i).padStart(5, "0")}@example.com`,
+      name: `Person ${i}`,
+    }));
+  }
+
+  it("returns MORE than the 1000-row server cap", async () => {
+    seedParticipants(2500);
+    const people = await getAllParticipantsWithTeams();
+    expect(people.length).toBe(2500);
+  });
+
+  it("does not stop at exactly 1000", async () => {
+    seedParticipants(1001);
+    const people = await getAllParticipantsWithTeams();
+    expect(people.length).not.toBe(1000);
+    expect(people.length).toBe(1001);
+  });
+
+  it("preserves order across page boundaries, with no gaps or repeats", async () => {
+    seedParticipants(2500);
+    const people = await getAllParticipantsWithTeams();
+    expect(people[0].email).toBe("p00000@example.com");
+    expect(people[999].email).toBe("p00999@example.com");
+    // The row straddling the first page boundary is the one a broken loop drops.
+    expect(people[1000].email).toBe("p01000@example.com");
+    expect(people[2499].email).toBe("p02499@example.com");
+    expect(new Set(people.map((p) => p.id)).size).toBe(2500);
+  });
+
+  it("reports truncated=false when the data simply ends", async () => {
+    seedParticipants(1500);
+    const { rows, truncated } = await getAllParticipantsWithTeamsPaged();
+    expect(rows.length).toBe(1500);
+    expect(truncated).toBe(false);
+  });
+
+  it("reports truncated=true when rows are left unread beyond the limit", async () => {
+    // One row past the configured participants limit.
+    seedParticipants(QUERY_LIMITS.participants + 1);
+    const { rows, truncated } = await getAllParticipantsWithTeamsPaged();
+    expect(rows.length).toBe(QUERY_LIMITS.participants);
+    expect(truncated).toBe(true);
+  });
+
+  it("handles an exact multiple of the page size without a phantom extra page", async () => {
+    seedParticipants(2000);
+    const { rows, truncated } = await getAllParticipantsWithTeamsPaged();
+    expect(rows.length).toBe(2000);
+    expect(truncated).toBe(false);
   });
 });

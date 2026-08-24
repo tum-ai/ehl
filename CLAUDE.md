@@ -193,6 +193,7 @@ lib/
   flag-utils.ts         — LinkedIn/GitHub username extraction, name normalization for flag matching
   scoring.ts            — Point calculations
   team-membership.ts    — Resolves a user's CURRENT team when they hold several memberships (see Data Integrity 7)
+  queries/paged.ts      — fetchPaged(): windowed reads that beat PostgREST's max_rows ceiling (see Data Integrity 8)
   showcase-shared.ts    — Partner-showcase consent predicate + derived SQL filter + types
   drive-urls.ts         — Client-safe Google Drive photo URL builders (thumbnail, viewer)
   report-client-error.ts — Shared error-boundary reporter (redacts secret URL tokens before any sink)
@@ -274,6 +275,19 @@ This is an **open-source public repository**. Every commit, branch name, PR titl
    `tests/team-membership-lookup-guard.test.ts` statically fails the build on any
    `.from("team_members")` chain that filters on `user_id` alone and ends in
    `.single()`/`.maybeSingle()`; `team_id` + `user_id` is a unique pair and stays allowed.
+
+8. **PostgREST caps EVERY response at `max_rows` (1000).** The cap is applied server-side
+   and silently: `.limit(25000)` returns 1000 rows and nothing in the response says it was
+   cut. Raising a `QUERY_LIMITS` value above 1000 therefore changes nothing except to break
+   the truncation warning, because `LimitBanner`'s old `count >= limit` test compares 1000
+   against 25000 and stays quiet. That shipped once: the admin Teams page showed exactly
+   1000 participants with no banner. Any query whose limit exceeds 1000 MUST read through
+   `fetchPaged()` in `lib/queries/paged.ts` (which walks `.range()` windows) and MUST pass
+   the returned `truncated` flag to `LimitBanner` instead of letting it infer. The setting
+   lives in `supabase/config.toml` (`max_rows`) and, for a hosted project, in
+   Settings -> API -> Max rows. Note several limits still exceed it without paging
+   (`applicationsPerChapter` 2000, `applicationStats`/`screeningScores` 5000,
+   `adminStatsApplications` 10000): those reads are capped at 1000 today.
 
 ### Code Style
 - Server Components by default. Only `"use client"` when interactive (forms, toggles, state)

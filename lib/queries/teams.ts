@@ -4,6 +4,7 @@ import type { Team, TeamMember, Profile, TeamJoinRequest, TeamInvite } from "../
 import { getClient } from "./client";
 import { toTeam, toTeamMember, toProfile, toJoinRequest, toTeamInvite } from "./mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
+import { fetchPaged } from "./paged";
 import {
   getCurrentMembership,
   getActiveChapterTeamIds,
@@ -14,13 +15,21 @@ import {
 // ─── Team Queries ─────────────────────────────────────────
 
 export async function getTeams(): Promise<Team[]> {
+  return (await getTeamsPaged()).rows;
+}
+
+/**
+ * Every team, read in windows so PostgREST's server-side `max_rows` ceiling
+ * (1000 by default) cannot silently cap the result, plus whether more rows
+ * exist beyond QUERY_LIMITS.teams.
+ */
+export async function getTeamsPaged(): Promise<{ rows: Team[]; truncated: boolean }> {
   const supabase = getClient();
-  const { data } = await supabase
-    .from("teams")
-    .select("*")
-    .order("name")
-    .limit(QUERY_LIMITS.teams);
-  return (data ?? []).map(toTeam);
+  const { rows, truncated } = await fetchPaged<Record<string, unknown>>(
+    () => supabase.from("teams").select("*").order("name"),
+    QUERY_LIMITS.teams
+  );
+  return { rows: rows.map(toTeam), truncated };
 }
 
 export async function getTeamBySlug(slug: string): Promise<Team | null> {
@@ -109,16 +118,27 @@ export async function getAllTeamMembers(): Promise<
 > {
   // Uses admin client: team_members RLS requires auth, but this runs
   // server-side for admin pages. Read-only, no write risk.
+  return (await getAllTeamMembersPaged()).rows;
+}
+
+export async function getAllTeamMembersPaged(): Promise<{
+  rows: (TeamMember & { profile?: Profile })[];
+  truncated: boolean;
+}> {
+  // Uses admin client: team_members RLS requires auth, but this runs
+  // server-side for admin pages. Read-only, no write risk.
   const supabase = createAdminClient();
-  const { data } = await supabase
-    .from("team_members")
-    .select("*, profiles(*)")
-    .order("role")
-    .limit(QUERY_LIMITS.allTeamMembers);
-  return (data ?? []).map((row: Record<string, unknown>) => ({
-    ...toTeamMember(row),
-    profile: row.profiles ? toProfile(row.profiles as Record<string, unknown>) : undefined,
-  }));
+  const { rows, truncated } = await fetchPaged<Record<string, unknown>>(
+    () => supabase.from("team_members").select("*, profiles(*)").order("role"),
+    QUERY_LIMITS.allTeamMembers
+  );
+  return {
+    rows: rows.map((row) => ({
+      ...toTeamMember(row),
+      profile: row.profiles ? toProfile(row.profiles as Record<string, unknown>) : undefined,
+    })),
+    truncated,
+  };
 }
 
 // ─── Teams Looking for Members ────────────────────────────
@@ -397,19 +417,27 @@ export interface ParticipantWithTeam {
 export async function getAllParticipantsWithTeams(
   chapterId?: string
 ): Promise<ParticipantWithTeam[]> {
+  return (await getAllParticipantsWithTeamsPaged(chapterId)).rows;
+}
+
+export async function getAllParticipantsWithTeamsPaged(
+  chapterId?: string
+): Promise<{ rows: ParticipantWithTeam[]; truncated: boolean }> {
   const supabase = createAdminClient();
 
   // Get all participant profiles. Capped with `participants` (people), not
   // `allTeamMembers` (membership rows): they are different quantities, and
   // using the membership cap here quietly under-counted the tab it feeds.
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, email, name")
-    .eq("role", "participant")
-    .order("name")
-    .limit(QUERY_LIMITS.participants);
+  //
+  // Read in windows: a plain .limit() cannot exceed PostgREST's server-side
+  // max_rows (1000), which is what made this page stop at exactly 1000 people
+  // with no banner to say so.
+  const { rows: profiles, truncated } = await fetchPaged<Record<string, unknown>>(
+    () => supabase.from("profiles").select("id, email, name").eq("role", "participant").order("name"),
+    QUERY_LIMITS.participants
+  );
 
-  if (!profiles) return [];
+  if (profiles.length === 0) return { rows: [], truncated: false };
 
   // Get team memberships.
   //
@@ -419,16 +447,16 @@ export async function getAllParticipantsWithTeams(
   // PostgREST happened to return last, often a team from a finished chapter.
   // Collect every row per user and let pickCurrentMembership decide, using the
   // same rule the participant-facing paths use.
-  const { data: memberships } = await supabase
-    .from("team_members")
-    .select("user_id, team_id, role, joined_at, teams(name, slug)")
-    .limit(QUERY_LIMITS.allTeamMembers);
+  const { rows: memberships } = await fetchPaged<Record<string, unknown>>(
+    () => supabase.from("team_members").select("user_id, team_id, role, joined_at, teams(name, slug)"),
+    QUERY_LIMITS.allTeamMembers
+  );
 
   type TeamIdentity = { teamName: string; teamSlug: string };
   const teamIdentity = new Map<string, TeamIdentity>();
   const rowsByUser = new Map<string, MembershipRow[]>();
 
-  for (const m of memberships ?? []) {
+  for (const m of memberships) {
     const team = m.teams as unknown as { name: string; slug: string } | null;
     const teamId = m.team_id as string;
     teamIdentity.set(teamId, {
@@ -466,13 +494,19 @@ export async function getAllParticipantsWithTeams(
   const checkedInEmails = new Set<string>();
   const checkedInAtMap = new Map<string, string>();
   if (chapterId) {
-    const { data: apps } = await supabase
-      .from("applications")
-      .select("email, status, checked_in_at")
-      .eq("chapter_id", chapterId)
-      .eq("status", "checked_in")
-      .limit(QUERY_LIMITS.participants);
-    for (const app of apps ?? []) {
+    // Also paged: a large chapter can have more checked-in applicants than the
+    // server-side ceiling, and a short read here would mark real attendees as
+    // "Not In" rather than failing loudly.
+    const { rows: apps } = await fetchPaged<Record<string, unknown>>(
+      () =>
+        supabase
+          .from("applications")
+          .select("email, status, checked_in_at")
+          .eq("chapter_id", chapterId)
+          .eq("status", "checked_in"),
+      QUERY_LIMITS.participants
+    );
+    for (const app of apps) {
       checkedInEmails.add((app.email as string).toLowerCase());
       if (app.checked_in_at) {
         checkedInAtMap.set((app.email as string).toLowerCase(), app.checked_in_at as string);
@@ -480,7 +514,7 @@ export async function getAllParticipantsWithTeams(
     }
   }
 
-  return profiles.map((p) => {
+  const rows = profiles.map((p) => {
     const email = (p.email as string).toLowerCase();
     const membership = memberMap.get(p.id as string);
     return {
@@ -495,4 +529,6 @@ export async function getAllParticipantsWithTeams(
       checkedInAt: checkedInAtMap.get(email) ?? null,
     };
   });
+
+  return { rows, truncated };
 }

@@ -424,12 +424,15 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
   any member's name or email**, because an operator on an event day is holding a person, not
   a team name. Participants match on name, email, or team. A live "N of M" count sits beside
   the box, and an empty result says so rather than showing a blank table.
-- No harsh truncation: the teams, members, and participants caps sit far above what a single
-  season produces, and a `LimitBanner` still appears if a deployment ever reaches one, so a
-  missing row is never silent. The move-member target list always covers every team, not just
-  the rows currently matching the search.
+- No harsh truncation: teams, members and participants are read in pages, so PostgREST's
+  server-side 1000-row ceiling cannot cap the list (it previously stopped the page at exactly
+  1000 participants). A `LimitBanner` appears only when rows are genuinely withheld, driven by
+  the query rather than inferred from a count, so a missing row is never silent. The
+  move-member target list always covers every team, not just the rows matching the search.
 - Change team status
-- Remove any individual member, **including the captain**. Removing the captain promotes the
+- Remove any individual member, **including the captain**, via a labelled "Remove" control on
+  every member row (it was previously a 10px unlabelled glyph, so operators could not find it
+  and reached for "move to another team" instead). Removing the captain promotes the
   longest-tenured remaining member (the promotion is written before the delete, so a team is
   never left with no president); removing the last member leaves the team empty and clears
   its president, and deleting the now-empty team stays a separate, deliberate click.
