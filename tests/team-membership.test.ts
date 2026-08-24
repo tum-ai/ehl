@@ -293,6 +293,41 @@ describe("getLockingTeamId", () => {
     expect(await getLockingTeamId(fakeClient(makeState()), "user-1")).toBeNull();
   });
 
+  // inviteJury (lib/actions/auth.ts) refuses anyone who is an ACTIVE team
+  // member. It used to read that with `.limit(1).single()` on user_id, which
+  // picked an arbitrary row, so a person whose only membership sat on a
+  // finished chapter was barred from ever serving as jury. getLockingTeamId is
+  // now the single source of truth for "active team member".
+  it("does not treat a purely historical membership as an active team member", async () => {
+    const state = makeState({
+      memberships: [
+        { team_id: "team-old", role: "president", joined_at: OLD.joinedAt },
+        { team_id: "team-older", role: "member", joined_at: "2026-01-04T09:00:00.000Z" },
+      ],
+      registrations: [
+        { team_id: "team-old", status: "completed" },
+        { team_id: "team-older", status: "completed" },
+      ],
+    });
+
+    expect(await getLockingTeamId(fakeClient(state), "user-1")).toBeNull();
+  });
+
+  it("still treats a user with one active and one finished team as active", async () => {
+    const state = makeState({
+      memberships: [
+        { team_id: "team-old", role: "member", joined_at: OLD.joinedAt },
+        { team_id: "team-new", role: "member", joined_at: NEW.joinedAt },
+      ],
+      registrations: [
+        { team_id: "team-old", status: "completed" },
+        { team_id: "team-new", status: "hacking" },
+      ],
+    });
+
+    expect(await getLockingTeamId(fakeClient(state), "user-1")).toBe("team-new");
+  });
+
   it("does not lock a team that has no challenge registration at all", async () => {
     const state = makeState({
       memberships: [{ team_id: "team-new", role: "member", joined_at: NEW.joinedAt }],

@@ -4,7 +4,12 @@ import type { Team, TeamMember, Profile, TeamJoinRequest, TeamInvite } from "../
 import { getClient } from "./client";
 import { toTeam, toTeamMember, toProfile, toJoinRequest, toTeamInvite } from "./mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
-import { getCurrentMembership } from "@/lib/team-membership";
+import {
+  getCurrentMembership,
+  getActiveChapterTeamIds,
+  pickCurrentMembership,
+  type MembershipRow,
+} from "@/lib/team-membership";
 
 // ─── Team Queries ─────────────────────────────────────────
 
@@ -404,20 +409,54 @@ export async function getAllParticipantsWithTeams(
 
   if (!profiles) return [];
 
-  // Get team memberships
+  // Get team memberships.
+  //
+  // A user can hold SEVERAL team_members rows (Data Integrity 7), so a plain
+  // Map.set() keyed on user_id is last-write-wins: whoever changed teams
+  // between chapters showed up on the admin Teams page under whichever row
+  // PostgREST happened to return last, often a team from a finished chapter.
+  // Collect every row per user and let pickCurrentMembership decide, using the
+  // same rule the participant-facing paths use.
   const { data: memberships } = await supabase
     .from("team_members")
-    .select("user_id, team_id, role, teams(name, slug)")
+    .select("user_id, team_id, role, joined_at, teams(name, slug)")
     .limit(QUERY_LIMITS.allTeamMembers);
 
-  const memberMap = new Map<string, { teamId: string; teamName: string; teamSlug: string; role: string }>();
+  type TeamIdentity = { teamName: string; teamSlug: string };
+  const teamIdentity = new Map<string, TeamIdentity>();
+  const rowsByUser = new Map<string, MembershipRow[]>();
+
   for (const m of memberships ?? []) {
     const team = m.teams as unknown as { name: string; slug: string } | null;
-    memberMap.set(m.user_id as string, {
-      teamId: m.team_id as string,
+    const teamId = m.team_id as string;
+    teamIdentity.set(teamId, {
       teamName: team?.name ?? "",
       teamSlug: team?.slug ?? "",
-      role: m.role as string,
+    });
+
+    const userId = m.user_id as string;
+    const rows = rowsByUser.get(userId) ?? [];
+    rows.push({
+      teamId,
+      role: m.role === "president" ? "president" : "member",
+      joinedAt: (m.joined_at as string | null) ?? null,
+    });
+    rowsByUser.set(userId, rows);
+  }
+
+  // One chapter lookup for every team on the page, rather than per user.
+  const activeTeamIds = await getActiveChapterTeamIds(supabase, [...teamIdentity.keys()]);
+
+  const memberMap = new Map<string, { teamId: string; teamName: string; teamSlug: string; role: string }>();
+  for (const [userId, rows] of rowsByUser) {
+    const current = pickCurrentMembership(rows, activeTeamIds);
+    if (!current) continue;
+    const identity = teamIdentity.get(current.teamId);
+    memberMap.set(userId, {
+      teamId: current.teamId,
+      teamName: identity?.teamName ?? "",
+      teamSlug: identity?.teamSlug ?? "",
+      role: current.role,
     });
   }
 

@@ -269,6 +269,11 @@ This is an **open-source public repository**. Every commit, branch name, PR titl
    changed teams). Use `getCurrentMembership()` from `lib/team-membership.ts`, which
    resolves the active-chapter team and falls back to the most recently joined one, or
    `getLockingTeamId()` when you need the chapter lock across all of a user's teams.
+   The same trap has two non-`.single()` shapes: `.limit(1).single()` SUCCEEDS and returns
+   an arbitrary row, and building a `Map` keyed on `user_id` in a loop is last-write-wins.
+   `tests/team-membership-lookup-guard.test.ts` statically fails the build on any
+   `.from("team_members")` chain that filters on `user_id` alone and ends in
+   `.single()`/`.maybeSingle()`; `team_id` + `user_id` is a unique pair and stays allowed.
 
 ### Code Style
 - Server Components by default. Only `"use client"` when interactive (forms, toggles, state)

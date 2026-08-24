@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { Section } from "@/components/ui/section";
 import { ConfirmInvite } from "./confirm-invite";
+import { getCurrentMembership } from "@/lib/team-membership";
 
 export default async function InvitePage({
   params,
@@ -61,14 +62,15 @@ export default async function InvitePage({
     }
 
     // Does the user already belong to another team? (informs the confirm copy)
-    const { data: existingMembership } = await adminClient
-      .from("team_members")
-      .select("team_id")
-      .eq("user_id", user.id)
-      .maybeSingle();
+    // A user can hold several team_members rows (Data Integrity 7), so
+    // `.maybeSingle()` here used to fail on the multi-row result and return
+    // null: the confirm screen then quietly dropped the warning that accepting
+    // would remove them from their current team, for exactly the users most
+    // likely to need it.
+    const existingMembership = await getCurrentMembership(adminClient, user.id);
 
     const onAnotherTeam =
-      !!existingMembership && existingMembership.team_id !== invite.team_id;
+      !!existingMembership && existingMembership.teamId !== invite.team_id;
 
     // Explicit confirmation step: accepting is a state change and may remove
     // the user from their current team, so it must be a deliberate click.
