@@ -11,6 +11,7 @@ import { RemoveMemberButton } from "./remove-member-button";
 import { TeamAdminControls } from "./team-admin-controls";
 import { TeamChallengeControl } from "./team-challenge-control";
 import { ChangeEmailButton } from "./change-email-button";
+import { filterTeams, filterParticipants } from "./team-search";
 import type { Team, TeamMember, Profile, Chapter } from "@/lib/types";
 import type { ParticipantWithTeam } from "@/lib/queries/teams";
 
@@ -52,14 +53,12 @@ export function TeamsAndParticipantsView({
     membersByTeam.set(member.teamId, existing);
   }
 
-  const filteredParticipants = search
-    ? participants.filter(
-        (p) =>
-          (p.name ?? "").toLowerCase().includes(search.toLowerCase()) ||
-          p.email.toLowerCase().includes(search.toLowerCase()) ||
-          (p.teamName ?? "").toLowerCase().includes(search.toLowerCase())
-      )
-    : participants;
+  // One search box serves both tabs. Teams match on member name/email too: an
+  // operator on an event day is almost always holding a person, not a team.
+  const filteredParticipants = filterParticipants(participants, search);
+  const filteredTeams = filterTeams(teams, membersByTeam, search);
+  const visibleCount = view === "teams" ? filteredTeams.length : filteredParticipants.length;
+  const totalCount = view === "teams" ? teams.length : participants.length;
 
   // Group participants by team for check-in summary
   const teamCheckinMap = new Map<string, { total: number; checkedIn: number }>();
@@ -110,25 +109,47 @@ export function TeamsAndParticipantsView({
       <div className="mt-4 space-y-2">
         <LimitBanner count={teams.length} limit={QUERY_LIMITS.teams} label="teams" />
         <LimitBanner count={allMembers.length} limit={QUERY_LIMITS.allTeamMembers} label="team members" />
+        <LimitBanner
+          count={participants.length}
+          limit={QUERY_LIMITS.participants}
+          label="participants"
+        />
+      </div>
+
+      <div className="mt-6 flex items-center gap-4">
+        <input
+          type="text"
+          placeholder={
+            view === "teams"
+              ? "Search teams by name, university, city, or member..."
+              : "Search by name, email, or team..."
+          }
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full max-w-md rounded-lg border ad-border bg-white px-4 py-2 text-sm ad-text placeholder:ad-text-muted focus:outline-none focus:ring-2 focus:ring-purple-500"
+        />
+        <span className="whitespace-nowrap text-sm ad-text-muted">
+          {search ? `${visibleCount} of ${totalCount}` : `${totalCount} total`}
+        </span>
       </div>
 
       {view === "teams" ? (
         <TeamsTable
-          teams={teams}
+          teams={filteredTeams}
           membersByTeam={membersByTeam}
           teamCheckinMap={teamCheckinMap}
           activeChapter={activeChapter}
           challengeOverrideOpen={challengeOverrideOpen}
           challenges={challenges}
           registrationMap={registrationMap}
+          allTeams={teams}
+          searchActive={!!search.trim()}
         />
       ) : (
         <ParticipantsTable
           participants={filteredParticipants}
-          totalCount={participants.length}
-          search={search}
-          onSearchChange={setSearch}
           activeChapter={activeChapter}
+          searchActive={!!search.trim()}
         />
       )}
     </div>
@@ -143,6 +164,8 @@ function TeamsTable({
   challengeOverrideOpen,
   challenges,
   registrationMap,
+  allTeams,
+  searchActive,
 }: {
   teams: Team[];
   membersByTeam: Map<string, (TeamMember & { profile?: Profile })[]>;
@@ -151,8 +174,15 @@ function TeamsTable({
   challengeOverrideOpen: boolean;
   challenges: ChallengeOption[];
   registrationMap: Map<string, string>;
+  /** Every team, not just the filtered rows: the move-member target list must
+   *  stay complete or a search would silently shrink where a member can go. */
+  allTeams: Team[];
+  searchActive: boolean;
 }) {
   const showChallenge = challengeOverrideOpen && !!activeChapter;
+  // Team, Members, University, Status, Actions, plus Check-In and Challenge
+  // when those columns are shown.
+  const columnCount = 5 + (activeChapter ? 1 : 0) + (showChallenge ? 1 : 0);
   return (
     <div className="mt-8 overflow-x-auto rounded-2xl ad-border ad-bg-card ui-card-subtle">
       <table className="w-full">
@@ -168,6 +198,13 @@ function TeamsTable({
           </tr>
         </thead>
         <tbody>
+          {teams.length === 0 && (
+            <tr>
+              <td colSpan={columnCount} className="px-6 py-10 text-center text-sm ad-text-muted">
+                {searchActive ? "No teams match that search." : "No teams yet."}
+              </td>
+            </tr>
+          )}
           {teams.map((team) => {
             const members = membersByTeam.get(team.id) ?? [];
             const checkin = teamCheckinMap.get(team.id);
@@ -266,7 +303,7 @@ function TeamsTable({
                         role: m.role,
                         name: m.profile?.name || m.profile?.email || m.userId.slice(0, 8),
                       }))}
-                      allTeams={teams.map((t) => ({ id: t.id, name: t.name }))}
+                      allTeams={allTeams.map((t) => ({ id: t.id, name: t.name }))}
                     />
                     <DeleteTeamButton teamId={team.id} teamName={team.name} />
                   </div>
@@ -282,35 +319,18 @@ function TeamsTable({
 
 function ParticipantsTable({
   participants,
-  totalCount,
-  search,
-  onSearchChange,
   activeChapter,
+  searchActive,
 }: {
   participants: ParticipantWithTeam[];
-  totalCount: number;
-  search: string;
-  onSearchChange: (s: string) => void;
   activeChapter: Chapter | null;
+  searchActive: boolean;
 }) {
+  // Name, Email, Team, Role, Actions, plus Check-In when a chapter is running.
+  const columnCount = 5 + (activeChapter ? 1 : 0);
   return (
-    <div className="mt-6">
-      <div className="flex items-center gap-4">
-        <input
-          type="text"
-          placeholder="Search by name, email, or team..."
-          value={search}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full max-w-md rounded-lg border ad-border bg-white px-4 py-2 text-sm ad-text placeholder:ad-text-muted focus:outline-none focus:ring-2 focus:ring-purple-500"
-        />
-        {search && (
-          <span className="text-sm ad-text-muted">
-            {participants.length} of {totalCount}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-4 overflow-x-auto rounded-2xl ad-border ad-bg-card ui-card-subtle">
+    <div className="mt-4">
+      <div className="overflow-x-auto rounded-2xl ad-border ad-bg-card ui-card-subtle">
         <table className="w-full">
           <thead>
             <tr className="border-b ad-border text-left text-xs font-bold uppercase tracking-wider ad-text-muted">
@@ -323,6 +343,13 @@ function ParticipantsTable({
             </tr>
           </thead>
           <tbody>
+            {participants.length === 0 && (
+              <tr>
+                <td colSpan={columnCount} className="px-6 py-10 text-center text-sm ad-text-muted">
+                  {searchActive ? "No participants match that search." : "No participants yet."}
+                </td>
+              </tr>
+            )}
             {participants.map((p) => (
               <tr
                 key={p.id}

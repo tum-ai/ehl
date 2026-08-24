@@ -420,6 +420,14 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 
 ### Team Oversight (`/admin/teams`)
 - View all teams with member lists
+- One search box serves both tabs. Teams match on team name, university, city, slug, **and
+  any member's name or email**, because an operator on an event day is holding a person, not
+  a team name. Participants match on name, email, or team. A live "N of M" count sits beside
+  the box, and an empty result says so rather than showing a blank table.
+- No harsh truncation: the teams, members, and participants caps sit far above what a single
+  season produces, and a `LimitBanner` still appears if a deployment ever reaches one, so a
+  missing row is never silent. The move-member target list always covers every team, not just
+  the rows currently matching the search.
 - Change team status
 - Remove individual members (never the captain; blocked if the team would drop below `MIN_TEAM_SIZE`, default 2)
 - Delete teams

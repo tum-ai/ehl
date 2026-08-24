@@ -399,13 +399,15 @@ export async function getAllParticipantsWithTeams(
 ): Promise<ParticipantWithTeam[]> {
   const supabase = createAdminClient();
 
-  // Get all participant profiles
+  // Get all participant profiles. Capped with `participants` (people), not
+  // `allTeamMembers` (membership rows): they are different quantities, and
+  // using the membership cap here quietly under-counted the tab it feeds.
   const { data: profiles } = await supabase
     .from("profiles")
     .select("id, email, name")
     .eq("role", "participant")
     .order("name")
-    .limit(QUERY_LIMITS.allTeamMembers);
+    .limit(QUERY_LIMITS.participants);
 
   if (!profiles) return [];
 
@@ -469,7 +471,7 @@ export async function getAllParticipantsWithTeams(
       .select("email, status, checked_in_at")
       .eq("chapter_id", chapterId)
       .eq("status", "checked_in")
-      .limit(QUERY_LIMITS.allTeamMembers);
+      .limit(QUERY_LIMITS.participants);
     for (const app of apps ?? []) {
       checkedInEmails.add((app.email as string).toLowerCase());
       if (app.checked_in_at) {
