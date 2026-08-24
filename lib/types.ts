@@ -231,6 +231,12 @@ export interface CheckpointBranchCheck {
   // The ref that actually resolved (for example, "entire/checkpoints/v1" or
   // "refs/entire/checkpoints/WV/<checkpoint-id>").
   resolvedRef: string | null;
+  // True when GitHub would not let us read the repository at all (it is
+  // private with no ehl-gg access, renamed, deleted, or our token is expired).
+  // Distinct from branchExists=false, which means "we read the repo and it
+  // genuinely carries no Entire record". Both fail the gate, but they need
+  // opposite instructions, so never collapse them into one message.
+  repoUnreadable: boolean;
   // True when the branch exists and has at least one prompt: passes the gate.
   satisfiesGate: boolean;
   // Non-fatal notes (e.g. "counted prompts via metadata fallback",

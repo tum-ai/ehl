@@ -115,12 +115,25 @@ async function getGitHubToken(): Promise<string | null> {
 }
 
 /**
- * User-facing error shown when the Entire hard gate fails. Distinguishes the two
- * failure modes (no branch at all vs. branch present but no prompt) so teams know
- * exactly what to fix. Kept here so the submit action and the live verify-repo
- * pre-check show identical wording.
+ * User-facing error shown when the Entire hard gate fails. Distinguishes the
+ * three failure modes (repo unreadable vs. no checkpoint data vs. data present
+ * but no prompt) so teams know exactly what to fix. Kept here so the submit
+ * action and the live verify-repo pre-check show identical wording.
+ *
+ * The unreadable case matters most: it used to be reported as "your repository
+ * has no Entire checkpoint branch", which told teams to redo work they had
+ * already done correctly while the real cause (a private repo ehl-gg cannot
+ * see, or an expired token) went unmentioned.
  */
 export function entireGateErrorMessage(check: CheckpointBranchCheck): string {
+  if (check.repoUnreadable) {
+    return (
+      "We could not read your repository on GitHub. If it is private, invite " +
+      "\"ehl-gg\" as a collaborator (or make the repository public), then click Verify " +
+      "again. If you renamed or moved it, paste the current URL. This is not a problem " +
+      "with your Entire session record: we never got far enough to look at it."
+    );
+  }
   if (!check.branchExists) {
     return (
       "This challenge requires an Entire session record, but your repository has no " +
@@ -230,6 +243,35 @@ export function extractCheckpointTrailer(commitMessage: string): string | null {
 type TreeItem = { path: string; type: string };
 
 /**
+ * Can we read this repository at all?
+ *
+ * Only called on the failure path, when no checkpoint tree was found, so it
+ * costs one extra GitHub call precisely when we are about to block a team and
+ * need to tell them the right thing. A 401/403/404 on the repo endpoint means
+ * the repo is private without ehl-gg access, renamed/deleted, or our token is
+ * expired: in every one of those cases the absence of Entire data is something
+ * we never actually observed.
+ *
+ * Any other outcome (2xx, rate limit, network error) is treated as readable, so
+ * a transient blip can never invent a "your repo is private" accusation.
+ */
+async function probeRepoAccess(
+  owner: string,
+  repo: string,
+  headers: Record<string, string>
+): Promise<{ readable: boolean; status: number | null }> {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
+    if (res.status === 401 || res.status === 403 || res.status === 404) {
+      return { readable: false, status: res.status };
+    }
+    return { readable: true, status: res.status };
+  } catch {
+    return { readable: true, status: null };
+  }
+}
+
+/**
  * Resolve which candidate ref actually exists on the repo and return its
  * recursive tree. Returns null if no Entire branch/ref is present.
  *
@@ -319,6 +361,7 @@ export async function checkCheckpointBranch(
     promptCount: 0,
     checkpointCount: 0,
     resolvedRef: null,
+    repoUnreadable: false,
     satisfiesGate: false,
     notes,
   };
@@ -337,6 +380,17 @@ export async function checkCheckpointBranch(
   }
 
   if (!tree) {
+    // Absence of checkpoint data and inability to read the repo look identical
+    // from the tree endpoint (both 404). Ask the repo endpoint which one it is
+    // before we tell the team what to fix.
+    const access = await probeRepoAccess(owner, repo, headers);
+    if (!access.readable) {
+      notes.push(
+        `Repository ${owner}/${repo} is not readable (HTTP ${access.status}); ` +
+          "no conclusion drawn about its Entire record."
+      );
+      return { ...empty, repoUnreadable: true };
+    }
     notes.push("No recognized Entire checkpoint branch or ref found.");
     return empty;
   }
@@ -398,6 +452,7 @@ export async function checkCheckpointBranch(
     promptCount,
     checkpointCount,
     resolvedRef: tree.ref,
+    repoUnreadable: false,
     satisfiesGate: branchExists && promptCount >= 1,
     notes,
   };
