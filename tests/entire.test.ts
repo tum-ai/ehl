@@ -94,6 +94,7 @@ describe("entireGateErrorMessage", () => {
     promptCount: 0,
     checkpointCount: 0,
     resolvedRef: null,
+    repoUnreadable: false,
     satisfiesGate: false,
     notes: [],
   };
@@ -107,6 +108,27 @@ describe("entireGateErrorMessage", () => {
   it("gives a 'no prompts' message when the branch exists but is empty", () => {
     const msg = entireGateErrorMessage({ ...base, branchExists: true });
     expect(msg).toMatch(/could not find any captured prompts/i);
+  });
+
+  // An unreadable repo used to be reported as "you have no checkpoint branch",
+  // which sent teams off to redo work they had already done correctly.
+  it("gives an access message, not a 'no branch' message, when the repo is unreadable", () => {
+    const msg = entireGateErrorMessage({ ...base, repoUnreadable: true });
+    expect(msg).toMatch(/could not read your repository/i);
+    expect(msg).toMatch(/ehl-gg/);
+    expect(msg).not.toMatch(/entire enable/);
+    expect(msg).not.toMatch(/recognized Entire checkpoint branch or ref/i);
+  });
+
+  // repoUnreadable must win even when the other fields look like the ordinary
+  // "no branch" case, which is exactly the shape checkCheckpointBranch returns.
+  it("prefers the access message over the branch message", () => {
+    const msg = entireGateErrorMessage({
+      ...base,
+      branchExists: false,
+      repoUnreadable: true,
+    });
+    expect(msg).toMatch(/could not read your repository/i);
   });
 });
 
@@ -163,12 +185,47 @@ describe("checkCheckpointBranch", () => {
     vi.unstubAllEnvs();
   });
 
-  it("reports no branch when all candidate refs 404", async () => {
-    globalThis.fetch = mockFetch(() => ({ status: 404 }));
+  // The repo endpoint (no path suffix) is the access probe; every other URL is
+  // ref/tree/blob traffic. Keeping them apart is what lets us tell "this repo
+  // has no Entire record" from "we were never allowed to look".
+  const isRepoProbe = (url: string) => /\/repos\/[^/]+\/[^/]+$/.test(url);
+
+  it("reports no branch when the repo is readable but all candidate refs 404", async () => {
+    globalThis.fetch = mockFetch((url) =>
+      isRepoProbe(url) ? { json: { private: false } } : { status: 404 }
+    );
     const r = await checkCheckpointBranch("o", "r");
     expect(r.branchExists).toBe(false);
     expect(r.satisfiesGate).toBe(false);
     expect(r.resolvedRef).toBeNull();
+    expect(r.repoUnreadable).toBe(false);
+    expect(entireGateErrorMessage(r)).toMatch(/entire enable/);
+  });
+
+  // Munich-2: a private repo without ehl-gg access 404s exactly like a repo with
+  // no checkpoint data, and teams were told to redo work they had already done.
+  it("reports repoUnreadable when the repo itself is not accessible", async () => {
+    globalThis.fetch = mockFetch(() => ({ status: 404 }));
+    const r = await checkCheckpointBranch("o", "r");
+    expect(r.repoUnreadable).toBe(true);
+    expect(r.branchExists).toBe(false);
+    expect(r.satisfiesGate).toBe(false);
+    expect(entireGateErrorMessage(r)).toMatch(/could not read your repository/i);
+  });
+
+  it.each([401, 403])("treats HTTP %i on the repo as unreadable", async (status) => {
+    globalThis.fetch = mockFetch((url) => (isRepoProbe(url) ? { status } : { status: 404 }));
+    const r = await checkCheckpointBranch("o", "r");
+    expect(r.repoUnreadable).toBe(true);
+  });
+
+  // A rate limit or a blip must never be turned into "your repo is private".
+  it("does not claim unreadable when the probe fails transiently", async () => {
+    globalThis.fetch = mockFetch((url) =>
+      isRepoProbe(url) ? { status: 500 } : { status: 404 }
+    );
+    const r = await checkCheckpointBranch("o", "r");
+    expect(r.repoUnreadable).toBe(false);
   });
 
   it("passes the gate on a clean Claude-style checkpoint with prompt.txt", async () => {
