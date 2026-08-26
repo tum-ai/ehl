@@ -18,6 +18,8 @@ interface ChapterEditWrapperProps {
     heroImageUrl: string | null;
     photoAlbumUrl: string | null;
     challengeRegistrationEnabled: boolean;
+    requireCv: boolean;
+    requireMotivation: boolean;
     applicationDeadline: string | null;
     challengeSelectionDeadline: string | null;
     submissionDeadline: string | null;

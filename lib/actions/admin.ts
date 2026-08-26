@@ -297,6 +297,8 @@ export async function updateChapterDetails(
     heroImageUrl: string | null;
     photoAlbumUrl: string | null;
     challengeRegistrationEnabled: boolean;
+    requireCv: boolean;
+    requireMotivation: boolean;
     applicationDeadline?: string | null;
     challengeSelectionDeadline?: string | null;
     submissionDeadline?: string | null;
@@ -317,6 +319,8 @@ export async function updateChapterDetails(
       hero_image_url: data.heroImageUrl,
       photo_album_url: data.photoAlbumUrl || null,
       challenge_registration_enabled: data.challengeRegistrationEnabled,
+      require_cv: data.requireCv,
+      require_motivation: data.requireMotivation,
       application_deadline: data.applicationDeadline ?? null,
       challenge_selection_deadline: data.challengeSelectionDeadline ?? null,
       submission_deadline: data.submissionDeadline ?? null,

@@ -19,6 +19,8 @@ interface ChapterEditFormProps {
     heroImageUrl: string | null;
     photoAlbumUrl: string | null;
     challengeRegistrationEnabled: boolean;
+    requireCv: boolean;
+    requireMotivation: boolean;
     applicationDeadline: string | null;
     challengeSelectionDeadline: string | null;
     submissionDeadline: string | null;
@@ -41,6 +43,8 @@ export function ChapterEditForm({ chapterId, initialData, onSaved }: ChapterEdit
   const [heroUrl, setHeroUrl] = useState(initialData.heroImageUrl);
   const [photoAlbumUrl, setPhotoAlbumUrl] = useState(initialData.photoAlbumUrl || "");
   const [challengeRegEnabled, setChallengeRegEnabled] = useState(initialData.challengeRegistrationEnabled);
+  const [requireCv, setRequireCv] = useState(initialData.requireCv);
+  const [requireMotivation, setRequireMotivation] = useState(initialData.requireMotivation);
   const [appDeadline, setAppDeadline] = useState(toLocalDatetime(initialData.applicationDeadline));
   const [csDeadline, setCsDeadline] = useState(toLocalDatetime(initialData.challengeSelectionDeadline));
   const [subDeadline, setSubDeadline] = useState(toLocalDatetime(initialData.submissionDeadline));
@@ -91,6 +95,8 @@ export function ChapterEditForm({ chapterId, initialData, onSaved }: ChapterEdit
       computedDate !== initialData.date ||
       computedDateEnd !== initialData.dateEnd ||
       challengeRegEnabled !== initialData.challengeRegistrationEnabled ||
+      requireCv !== initialData.requireCv ||
+      requireMotivation !== initialData.requireMotivation ||
       appDeadline !== toLocalDatetime(initialData.applicationDeadline) ||
       csDeadline !== toLocalDatetime(initialData.challengeSelectionDeadline) ||
       subDeadline !== toLocalDatetime(initialData.submissionDeadline)
@@ -155,6 +161,8 @@ export function ChapterEditForm({ chapterId, initialData, onSaved }: ChapterEdit
       heroImageUrl: heroUrl,
       photoAlbumUrl: photoAlbumUrl || null,
       challengeRegistrationEnabled: challengeRegEnabled,
+      requireCv,
+      requireMotivation,
       applicationDeadline: appDeadline ? new Date(appDeadline).toISOString() : null,
       challengeSelectionDeadline: csDeadline ? new Date(csDeadline).toISOString() : null,
       submissionDeadline: subDeadline ? new Date(subDeadline).toISOString() : null,
@@ -383,6 +391,24 @@ export function ChapterEditForm({ chapterId, initialData, onSaved }: ChapterEdit
             onChange={setChallengeRegEnabled}
             label="Challenge Registration Enabled"
             description="When enabled, team presidents can select a challenge at the event."
+          />
+        </div>
+
+        {/* Application requirements. These gate the PUBLIC apply form only: the
+            event-day walk-in form keeps the CV optional and never shows the
+            motivation question. */}
+        <div className="border-t ad-border pt-4 space-y-4">
+          <Toggle
+            checked={requireCv}
+            onChange={setRequireCv}
+            label="Require CV"
+            description="Applicants must upload a PDF CV to submit. Public application form only, not walk-in registration."
+          />
+          <Toggle
+            checked={requireMotivation}
+            onChange={setRequireMotivation}
+            label="Require Motivation Answer"
+            description={'Adds a required question: "What motivated you to apply for this hackathon, and what do you hope to get out of it?"'}
           />
         </div>
       </div>
