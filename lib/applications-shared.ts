@@ -40,6 +40,9 @@ export function buildApplicationInsert(
     tshirtSize: formData.get("tshirtSize") || "M",
     discoverySource: JSON.parse((formData.get("discoverySource") as string) || "[]"),
     discoverySourceOther: formData.get("discoverySourceOther") || null,
+    // Only asked when the chapter sets require_motivation; the walk-in form never
+    // sends it, so those rows store null.
+    motivation: formData.get("motivation") || null,
     additionalNotes: formData.get("additionalNotes") || null,
   };
 

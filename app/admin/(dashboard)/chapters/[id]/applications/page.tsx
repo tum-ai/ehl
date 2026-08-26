@@ -734,6 +734,12 @@ export default function AdminApplicationsPage({
                         <p className="mt-1 ad-text-secondary">{fd.hackathonExperience}</p>
                       </div>
                     )}
+                    {fd.motivation && (
+                      <div>
+                        <span className="ad-text-muted">Motivation:</span>
+                        <p className="mt-1 ad-text-secondary">{fd.motivation}</p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -1315,6 +1321,12 @@ export default function AdminApplicationsPage({
                   <div>
                     <span className="ad-text-muted">Experience:</span>
                     <p className="mt-1 ad-text-secondary">{activeApp.formData.hackathonExperience}</p>
+                  </div>
+                )}
+                {activeApp.formData?.motivation && (
+                  <div>
+                    <span className="ad-text-muted">Motivation:</span>
+                    <p className="mt-1 ad-text-secondary">{activeApp.formData.motivation}</p>
                   </div>
                 )}
                 <DetailRow label="LinkedIn" value={activeApp.formData?.linkedIn} />

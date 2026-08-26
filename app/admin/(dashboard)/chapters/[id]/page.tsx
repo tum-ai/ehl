@@ -222,6 +222,8 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
             heroImageUrl: chapter.heroImageUrl,
             photoAlbumUrl: chapter.photoAlbumUrl,
             challengeRegistrationEnabled: chapter.challengeRegistrationEnabled,
+            requireCv: chapter.requireCv,
+            requireMotivation: chapter.requireMotivation,
             applicationDeadline: chapter.applicationDeadline,
             challengeSelectionDeadline: chapter.challengeSelectionDeadline,
             submissionDeadline: chapter.submissionDeadline,

@@ -64,7 +64,9 @@ export async function submitApplication(formData: FormData) {
   // Verify chapter is accepting applications
   const { data: chapter } = await adminClient
     .from("chapters")
-    .select("id, name, city, country, date, date_end, slug, status")
+    .select(
+      "id, name, city, country, date, date_end, slug, status, require_cv, require_motivation"
+    )
     .eq("id", chapterId)
     .single();
 
@@ -133,6 +135,20 @@ export async function submitApplication(formData: FormData) {
     if (ext !== "pdf") {
       return { error: "CV must be a PDF file." };
     }
+  }
+
+  // Per-chapter requirements (00064), re-checked against the chapter row rather
+  // than trusted from the client: the form's own required-ness lives entirely in
+  // getMissingFields() on the client, which a non-browser caller simply skips.
+  // Both run BEFORE the insert, so a rejected submission leaves no row behind.
+  if (chapter.require_motivation) {
+    const motivation = (formData.get("motivation") as string)?.trim();
+    if (!motivation) {
+      return { error: "Please answer the motivation question." };
+    }
+  }
+  if (chapter.require_cv && !hasCv) {
+    return { error: "A CV (PDF) is required for this match." };
   }
 
   // Insert application first (without CV), so the application is saved even

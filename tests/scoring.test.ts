@@ -63,6 +63,8 @@ const emptyChapter: Chapter = {
   challengeRegistrationEnabled: false,
   applicationDeadline: null,
   challengeSelectionDeadline: null,
+  requireCv: false,
+  requireMotivation: false,
 };
 
 // ─── PLACEMENT_POINTS constant ──────────────────────────────

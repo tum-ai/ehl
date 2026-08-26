@@ -61,6 +61,8 @@ export function toChapter(row: Record<string, unknown>): Chapter {
     challengeRegistrationEnabled: (row.challenge_registration_enabled as boolean) ?? false,
     applicationDeadline: (row.application_deadline as string) ?? null,
     challengeSelectionDeadline: (row.challenge_selection_deadline as string) ?? null,
+    requireCv: (row.require_cv as boolean) ?? false,
+    requireMotivation: (row.require_motivation as boolean) ?? false,
   };
 }
 

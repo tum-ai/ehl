@@ -97,7 +97,13 @@ Requires participant account (email + password).
 ### Applications (`/apply/<chapter-slug>`)
 - Per-chapter application form
 - Fields: motivation, skills, experience, dietary restrictions
-- CV upload (PDF, stored in Google Drive)
+- CV upload (PDF, stored in Google Drive). Optional by default, behind a
+  "Do you want to upload your CV?" gate; **mandatory** when the chapter has
+  "Require CV" on
+- Optional per-chapter motivation question ("What motivated you to apply for this
+  hackathon, and what do you hope to get out of it?"), shown and required only when
+  the chapter has "Require Motivation Answer" on. Both requirements are re-checked
+  server-side against the chapter row, not just in the browser
 - Team member listing (auto-populated from team)
 - Consent checkboxes
 - Application status tracking (pending, accepted, rejected, waitlisted)
@@ -362,6 +368,11 @@ There are two kinds of admin:
 ### Chapter Management (`/admin/chapters`)
 - Create new chapters (matches)
 - Edit name, city, country, description, dates, deadlines
+- Per-chapter application requirements (global admins): "Require CV" and "Require
+  Motivation Answer" toggles decide which fields the public apply form makes
+  mandatory, per chapter, without a deploy. They apply to `/apply/<slug>` only:
+  event-day walk-in registration keeps the CV optional and never shows the
+  motivation question
 - Upload hero image
 - Status progression: draft > announced > applications_open > screening > registration_open > submissions_open > pitching > completed
 - Readiness checks prevent premature status advances (e.g. "at least one challenge exists")
