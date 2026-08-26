@@ -34,9 +34,20 @@ interface ApplicationFormProps {
     formData: Record<string, unknown>;
   } | null;
   currentTeam?: { teamId: string; teamName: string } | null;
+  /** Per-chapter application requirements (chapters.require_cv / require_motivation). */
+  requireCv?: boolean;
+  requireMotivation?: boolean;
 }
 
-export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfile, currentTeam }: ApplicationFormProps) {
+export function ApplicationForm({
+  chapterId,
+  chapterName,
+  chapterSlug,
+  userProfile,
+  currentTeam,
+  requireCv = false,
+  requireMotivation = false,
+}: ApplicationFormProps) {
   const isLoggedIn = !!userProfile;
 
   const [loading, setLoading] = useState(false);
@@ -286,6 +297,8 @@ export function ApplicationForm({ chapterId, chapterName, chapterSlug, userProfi
             ref={fieldsRef}
             userProfile={userProfile}
             existingTeam={existingTeam}
+            cvMode={requireCv ? "required" : "gated"}
+            requireMotivation={requireMotivation}
           />
 
           {error && (

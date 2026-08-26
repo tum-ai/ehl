@@ -35,11 +35,21 @@ export interface ApplicationFieldsProps {
   /** A team matched to this person, offered as a "rejoin" option. */
   existingTeam?: { teamId: string; teamName: string } | null;
   /**
-   * Walk-in: the CV is always optional (no "do you want to upload" gate), so the
-   * field shows a plain optional file input. Apply: the user first answers a
-   * required yes/no, then optionally uploads.
+   * How the CV field behaves:
+   * - "optional": plain optional file input, no gate (walk-in — people register
+   *   at the door on a phone and rarely have a PDF on hand).
+   * - "gated": the user first answers a required yes/no, then optionally uploads
+   *   (the historical apply-form behavior).
+   * - "required": no yes/no gate at all, a file must be attached to submit
+   *   (chapters with require_cv on).
    */
-  cvAlwaysOptional?: boolean;
+  cvMode?: "optional" | "gated" | "required";
+  /**
+   * Show and require the motivation question (chapters with require_motivation
+   * on). When false the question is not rendered at all, so no chapter collects
+   * a stray empty answer.
+   */
+  requireMotivation?: boolean;
 }
 
 const UNIVERSITIES = [
@@ -193,7 +203,7 @@ export const ApplicationFields = forwardRef<
   ApplicationFieldsHandle,
   ApplicationFieldsProps
 >(function ApplicationFields(
-  { userProfile, existingTeam, cvAlwaysOptional = false },
+  { userProfile, existingTeam, cvMode = "gated", requireMotivation = false },
   ref
 ) {
   const [firstName, setFirstName] = useState(userProfile?.firstName ?? "");
@@ -266,7 +276,15 @@ export const ApplicationFields = forwardRef<
         if (!tshirtCut) missing.push("T-Shirt Cut");
         if (!tshirtSize) missing.push("T-Shirt Size");
         if (discoverySource.length === 0) missing.push("How did you find out about us");
-        if (!cvAlwaysOptional && !wantsCv) missing.push("CV Upload Decision");
+        if (requireMotivation) {
+          const motivation = (form.elements.namedItem("motivation") as HTMLTextAreaElement)?.value;
+          if (!motivation?.trim()) missing.push("Motivation");
+        }
+        if (cvMode === "gated" && !wantsCv) missing.push("CV Upload Decision");
+        if (cvMode === "required") {
+          const cvInput = form.elements.namedItem("cv") as HTMLInputElement | null;
+          if (!cvInput?.files?.length) missing.push("CV");
+        }
         return missing;
       },
       populate(formData: FormData) {
@@ -321,11 +339,12 @@ export const ApplicationFields = forwardRef<
       wantsCv,
       rejoinTeam,
       existingTeam,
-      cvAlwaysOptional,
+      cvMode,
+      requireMotivation,
     ]
   );
 
-  const showCvInput = cvAlwaysOptional || wantsCv === "true";
+  const showCvInput = cvMode !== "gated" || wantsCv === "true";
 
   return (
     <>
@@ -461,6 +480,20 @@ export const ApplicationFields = forwardRef<
               className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
             />
           </div>
+          {requireMotivation && (
+            <div>
+              <label className="block text-sm text-text-muted">
+                What motivated you to apply for this hackathon, and what do you hope to get out of it? <span className="text-error">*</span>
+              </label>
+              <textarea
+                name="motivation"
+                required
+                rows={4}
+                placeholder="Tell us what draws you to this event and what you want to take away from it..."
+                className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+              />
+            </div>
+          )}
           <InputField label="LinkedIn / Social Media" name="linkedIn" placeholder="https://linkedin.com/in/..." />
           <InputField label="GitHub" name="github" placeholder="https://github.com/..." />
           <InputField label="Website / Blog" name="website" placeholder="https://..." />
@@ -644,7 +677,7 @@ export const ApplicationFields = forwardRef<
       <Card className="mb-6">
         <h2 className="text-lg font-bold">CV Upload</h2>
         <div className="mt-4 space-y-4">
-          {!cvAlwaysOptional && (
+          {cvMode === "gated" && (
             <RadioGroup
               label="Do you want to upload your CV?"
               name="wantsCv"
@@ -660,7 +693,9 @@ export const ApplicationFields = forwardRef<
           {showCvInput && (
             <div>
               <label className="block text-sm text-text-muted">
-                CV (PDF, max {CV_MAX_LABEL}){cvAlwaysOptional ? ", optional" : ""}
+                CV (PDF, max {CV_MAX_LABEL})
+                {cvMode === "optional" && ", optional"}
+                {cvMode === "required" && <span className="text-error"> *</span>}
               </label>
               <input
                 type="file"

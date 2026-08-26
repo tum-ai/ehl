@@ -98,6 +98,8 @@ export default async function ApplyPage({ params }: PageProps) {
         chapterSlug={chapter.slug}
         userProfile={userProfile}
         currentTeam={currentTeam}
+        requireCv={chapter.requireCv}
+        requireMotivation={chapter.requireMotivation}
       />
     </Section>
   );

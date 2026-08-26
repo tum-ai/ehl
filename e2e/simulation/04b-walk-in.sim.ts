@@ -106,7 +106,7 @@ test.describe("Simulation: walk-in registration (real UI)", () => {
     await fillApplicationFields(page, {
       firstName: "Walkin",
       lastName: "Tester",
-      cvAlwaysOptional: true,
+      cvMode: "optional",
     });
     await page.getByRole("button", { name: /register & create account/i }).click();
 
@@ -249,7 +249,7 @@ test.describe("Simulation: walk-in registration (real UI)", () => {
     await fillApplicationFields(page, {
       firstName: "Existing",
       lastName: "Walkin",
-      cvAlwaysOptional: true,
+      cvMode: "optional",
     });
     await page.getByRole("button", { name: /register & create account|register/i }).click();
 
@@ -283,7 +283,7 @@ test.describe("Simulation: walk-in registration (real UI)", () => {
     await fillApplicationFields(page, {
       firstName: "Existing",
       lastName: "Walkin",
-      cvAlwaysOptional: true,
+      cvMode: "optional",
     });
     await page.getByRole("button", { name: /register & create account|register/i }).click();
     await expect(page.getByRole("img", { name: "Your check-in QR code" })).toBeVisible({ timeout: 20000 });

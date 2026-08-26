@@ -279,7 +279,7 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
         </div>
       </Card>
 
-      <ApplicationFields ref={fieldsRef} cvAlwaysOptional />
+      <ApplicationFields ref={fieldsRef} cvMode="optional" />
 
       {error && (
         <div ref={errorRef} className="mb-6 rounded-lg border border-error/20 bg-error/5 p-4">

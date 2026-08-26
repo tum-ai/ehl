@@ -683,10 +683,16 @@ export async function fillApplicationFields(
     firstName: string;
     lastName: string;
     withCv?: boolean;
-    // The walk-in form renders ApplicationFields with cvAlwaysOptional=true, so
-    // there is NO "Do you want to upload your CV?" radio — the CV input is always
-    // shown and optional. Set this so the helper skips that radio.
-    cvAlwaysOptional?: boolean;
+    /**
+     * Mirrors the ApplicationFields `cvMode` prop:
+     * - "gated" (default): the apply form's "Do you want to upload your CV?" radio
+     *   is present and must be answered.
+     * - "optional": walk-in — no radio, the CV input is always shown.
+     * - "required": a chapter with require_cv on — no radio, a file is mandatory.
+     */
+    cvMode?: "optional" | "gated" | "required";
+    /** Chapters with require_motivation on render an extra required textarea. */
+    withMotivation?: string;
   }
 ): Promise<void> {
   await page.locator('input[name="firstName"]').fill(opts.firstName);
@@ -711,8 +717,13 @@ export async function fillApplicationFields(
   await selectRadio(page, "tshirtSize", "M");
   await page.getByText("LinkedIn", { exact: true }).click();
 
-  if (opts.cvAlwaysOptional) {
-    // Walk-in: no "want CV?" radio; the CV input is always present and optional.
+  if (opts.withMotivation) {
+    await page.locator('textarea[name="motivation"]').fill(opts.withMotivation);
+  }
+
+  const cvMode = opts.cvMode ?? "gated";
+  if (cvMode !== "gated") {
+    // No "want CV?" radio in either non-gated mode; the CV input is always shown.
     if (opts.withCv) {
       await page.locator('input[name="cv"]').setInputFiles({
         name: "cv.pdf",
