@@ -79,12 +79,16 @@ describe("toChapter", () => {
       code_review_enabled: true,
       photo_album_url: "https://photos.com/album",
       challenge_registration_enabled: true,
+      require_cv: true,
+      require_motivation: true,
     };
     const chapter = toChapter(row);
     expect(chapter.id).toBe("c1");
     expect(chapter.codeReviewEnabled).toBe(true);
     expect(chapter.challengeRegistrationEnabled).toBe(true);
     expect(chapter.photoAlbumUrl).toBe("https://photos.com/album");
+    expect(chapter.requireCv).toBe(true);
+    expect(chapter.requireMotivation).toBe(true);
   });
 
   it("defaults codeReviewEnabled to false when null", () => {
@@ -96,6 +100,10 @@ describe("toChapter", () => {
     const chapter = toChapter(row);
     expect(chapter.codeReviewEnabled).toBe(false);
     expect(chapter.challengeRegistrationEnabled).toBe(false);
+    // A DB that predates 00064 must read as "no extra requirements", never
+    // undefined: the apply form and submitApplication both branch on these.
+    expect(chapter.requireCv).toBe(false);
+    expect(chapter.requireMotivation).toBe(false);
     expect(chapter.date).toBeNull();
     expect(chapter.dateEnd).toBeNull();
     expect(chapter.heroImageUrl).toBeNull();

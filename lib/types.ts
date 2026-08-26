@@ -80,6 +80,13 @@ export interface Chapter {
   challengeRegistrationEnabled: boolean;
   applicationDeadline: string | null;
   challengeSelectionDeadline: string | null;
+  /**
+   * Per-chapter application requirements (00064). They gate the PUBLIC apply
+   * form only: the event-day walk-in form keeps the CV optional and never shows
+   * the motivation question, since people register at the door on a phone.
+   */
+  requireCv: boolean;
+  requireMotivation: boolean;
 }
 
 /**
@@ -443,6 +450,12 @@ export interface ApplicationFormData {
   tshirtSize: string;
   discoverySource: string[];
   discoverySourceOther: string | null;
+  /**
+   * Asked only when the chapter sets require_motivation (00064), so rows from
+   * before that flag (and every walk-in row) have no key at all. Optional here
+   * on purpose: every reader must tolerate undefined.
+   */
+  motivation?: string | null;
   additionalNotes: string | null;
 }
 

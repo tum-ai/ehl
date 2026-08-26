@@ -367,6 +367,23 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        and has_function_privilege('authenticated', 'public.get_upcoming_event_recruiting()', 'execute')
      ) as present`,
   },
+  {
+    // Per-chapter application requirements: whether the public apply form makes
+    // the CV upload and the motivation question mandatory. Both default false,
+    // so a DB missing this migration behaves exactly like every chapter before it.
+    prefix: "00064",
+    label: "chapter_application_requirements",
+    sql: `select (
+       exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'chapters' and column_name = 'require_cv'
+       )
+       and exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'chapters' and column_name = 'require_motivation'
+       )
+     ) as present`,
+  },
 ];
 
 /**
