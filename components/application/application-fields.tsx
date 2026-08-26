@@ -503,6 +503,16 @@ export const ApplicationFields = forwardRef<
       {/* Team */}
       <Card className="mb-6">
         <h2 className="text-lg font-bold">Team</h2>
+        {/* Naming teammates below does NOT apply on their behalf: each person needs
+            their own application row, so a team whose captain applied alone is only
+            one applicant to the screeners. Stated here, above the team question, so
+            it is read before the captain fills the member fields and assumes it is
+            done. */}
+        <p className="mt-3 rounded-lg border border-gold/20 bg-gold/5 px-4 py-3 text-sm text-gold">
+          <span className="font-bold">Note:</span> every team member has to apply
+          individually. It is not enough for the team captain to apply. Listing your
+          teammates below does not submit an application for them.
+        </p>
         <div className="mt-4 space-y-4">
           <RadioGroup
             label="Do you already have a team?"
