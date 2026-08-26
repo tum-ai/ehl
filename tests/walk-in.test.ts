@@ -12,6 +12,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 //   - a duplicate (chapter,email) application is refused, no account created
 //   - an EXISTING account email is refused ("sign in first"), no createUser, no insert
 //   - the CV is optional (omitted -> success)
+//   - the 00064 per-chapter requirements (require_cv / require_motivation) do NOT
+//     apply here: walk-ins stay submittable with neither
 //   - rotateWalkInToken is admin-guarded
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
@@ -466,6 +468,37 @@ describe("submitWalkInApplication", () => {
     const result = await submitWalkInApplication(baseForm()); // no cv field
     expect("success" in result && result.success).toBe(true);
     expect(mocks.uploadFile).not.toHaveBeenCalled();
+  });
+
+  it("stays exempt when the chapter requires a CV and a motivation answer", async () => {
+    // The 00064 per-chapter requirements gate the PUBLIC apply form only. Walk-ins
+    // register at the door on a phone, with no PDF on hand and no time to write an
+    // essay, so turning the flags on must not lock them out.
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const base = happyResponder("hacking");
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: (state) => {
+          const result = base(state) as { data?: Record<string, unknown> };
+          if (state.table === "chapters" && state.op === "select") {
+            return {
+              data: { ...result.data, require_cv: true, require_motivation: true },
+            };
+          }
+          return result;
+        },
+      })
+    );
+
+    const result = await submitWalkInApplication(baseForm()); // no cv, no motivation
+    expect("success" in result && result.success).toBe(true);
+    expect(mocks.uploadFile).not.toHaveBeenCalled();
+
+    // The question is never asked here, so the key is stored null.
+    const insert = calls.find((c) => c.table === "applications" && c.op === "insert");
+    expect((insert?.payload as { form_data: { motivation: string | null } }).form_data.motivation)
+      .toBeNull();
   });
 
   it("rejects a password shorter than 8 characters before any DB work", async () => {
