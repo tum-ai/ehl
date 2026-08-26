@@ -344,6 +344,11 @@ export default function AdminApplicationDetailPage({
               label="Hackathon Experience"
               value={fd.hackathonExperience || "None"}
             />
+            {/* Only asked when the chapter sets require_motivation, so rows from
+                other chapters (and every walk-in) simply omit the row. */}
+            {fd.motivation && (
+              <InfoField label="Motivation" value={fd.motivation} />
+            )}
             <InfoField label="LinkedIn" value={fd.linkedIn || "Not provided"} link={fd.linkedIn || undefined} />
             <InfoField label="GitHub" value={fd.github || "Not provided"} link={fd.github || undefined} />
             <InfoField label="Website" value={fd.website || "Not provided"} link={fd.website || undefined} />
