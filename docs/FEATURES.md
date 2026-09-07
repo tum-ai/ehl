@@ -153,6 +153,14 @@ Available to participants who are checked in at an event.
 - **The first answer is final.** The lock is enforced in the database (the update is
   conditional on `response IS NULL`), so a double click or a race cannot overwrite it.
   Someone whose plans change is told to reply to the acceptance email.
+- **The link expires after 48 hours** (`RSVP_WINDOW_HOURS`), measured from when the
+  request was emailed. The deadline is DERIVED from `email_sent_at` rather than stored,
+  so the email, the page and the server action always agree; changing the setting moves
+  the deadline for links already in flight. Expiry is enforced by the same SQL statement
+  that records the answer, so a submit landing just after the deadline cannot slip
+  through. An expired link shows a "this window has closed" page rather than a 404: it
+  guards only the recipient's own one-bit answer, so telling them why beats hiding that
+  their link was ever valid. An answer already given still shows after expiry.
 - The answer is recorded ONLY by a POST from a deliberate click. Opening the link writes
   nothing, because mail scanners fetch every URL in an email before the recipient sees it
   and a GET-recorded answer would be filled in by a robot.

@@ -40,6 +40,8 @@ export default async function RsvpPage({ params }: PageProps) {
       chapterCity={rsvp.chapterCity}
       chapterDate={rsvp.chapterDate}
       initialResponse={rsvp.response}
+      expired={rsvp.expired}
+      deadline={rsvp.deadline}
     />
   );
 }

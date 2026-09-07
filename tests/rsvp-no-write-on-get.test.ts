@@ -48,6 +48,7 @@ const ROW = {
   application_id: "app-1",
   response: null,
   responded_at: null,
+  email_sent_at: new Date().toISOString(),
   applications: {
     first_name: "Ada",
     chapters: {

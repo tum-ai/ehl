@@ -46,6 +46,7 @@ interface Call {
   op: "select" | "update" | "insert" | "delete";
   payload?: Record<string, unknown>;
   isFilters: [string, unknown][];
+  gtFilters: [string, unknown][];
 }
 
 /**
@@ -56,12 +57,16 @@ interface Call {
 function makeDb(responder: (call: Call) => { data?: unknown; error?: unknown }) {
   const calls: Call[] = [];
   const from = vi.fn((table: string) => {
-    const call: Call = { table, op: "select", isFilters: [] };
+    const call: Call = { table, op: "select", isFilters: [], gtFilters: [] };
     const builder: Record<string, unknown> = {
       select: () => builder,
       eq: () => builder,
       is: (col: string, val: unknown) => {
         call.isFilters.push([col, val]);
+        return builder;
+      },
+      gt: (col: string, val: unknown) => {
+        call.gtFilters.push([col, val]);
         return builder;
       },
       update: (payload: Record<string, unknown>) => {
@@ -195,6 +200,55 @@ describe("submitRsvp", () => {
     }
     expect(writes(calls)).toHaveLength(0);
     expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+  });
+
+  it("enforces the 48h window in the SAME statement as the write", async () => {
+    // Not a read-then-write gap: a submit landing a millisecond after the
+    // deadline must not slip through.
+    const { db, calls } = makeDb((call) =>
+      call.op === "update" ? { data: { application_id: "app-1", response: "yes" } } : {}
+    );
+    mocks.createAdminClient.mockReturnValue(db);
+
+    await submitRsvp(TOKEN, "yes");
+
+    const update = writes(calls).find((c) => c.op === "update");
+    expect(update?.gtFilters.map(([col]) => col)).toContain("email_sent_at");
+  });
+
+  it("refuses an expired token, names the reason, and writes nothing", async () => {
+    const longAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+    const { db, calls } = makeDb((call) => {
+      // The guarded update matches no row because the window has closed.
+      if (call.op === "update") return { data: null };
+      return { data: { response: null, email_sent_at: longAgo } };
+    });
+    mocks.createAdminClient.mockReturnValue(db);
+
+    const result = await submitRsvp(TOKEN, "yes");
+
+    expect(result).toEqual({
+      error:
+        "This RSVP link has expired. Please contact the organisers if you still want your spot.",
+    });
+    // Only the guarded no-op update was attempted; nothing was recorded.
+    expect(writes(calls)).toHaveLength(1);
+    expect(mocks.logEvent).not.toHaveBeenCalled();
+  });
+
+  it("still reports a standing answer on an expired token, not the expiry error", async () => {
+    const longAgo = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+    const { db } = makeDb((call) => {
+      if (call.op === "update") return { data: null };
+      return { data: { response: "yes", email_sent_at: longAgo } };
+    });
+    mocks.createAdminClient.mockReturnValue(db);
+
+    expect(await submitRsvp(TOKEN, "no")).toEqual({
+      success: true,
+      response: "yes",
+      alreadyAnswered: true,
+    });
   });
 
   it("reports an unknown token as invalid rather than as an answer", async () => {

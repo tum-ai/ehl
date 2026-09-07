@@ -1,5 +1,6 @@
 import * as React from "react";
 import { EmailLayout, Heading, Text, Divider, InfoRow, Button } from "./layout";
+import { RSVP_WINDOW_HOURS } from "@/lib/rsvp-window";
 
 interface RsvpRequestEmailProps {
   firstName: string;
@@ -7,6 +8,8 @@ interface RsvpRequestEmailProps {
   chapterCity: string;
   chapterDate: string;
   rsvpToken: string;
+  /** Absolute deadline, already formatted (see formatRsvpDeadline). */
+  deadline: string;
 }
 
 /**
@@ -24,18 +27,21 @@ export function RsvpRequestEmail({
   chapterCity,
   chapterDate,
   rsvpToken,
+  deadline,
 }: RsvpRequestEmailProps) {
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ehl.gg";
 
   return (
-    <EmailLayout preview={`Are you coming? Confirm your spot at ${chapterName}`}>
-      <Heading>Are You Coming?</Heading>
+    <EmailLayout preview={`One click left: secure your spot at ${chapterName}`}>
+      <Heading>One Click Left</Heading>
+
+      <Text>Hey {firstName},</Text>
 
       <Text>
-        Hey {firstName}, you have a confirmed spot at the{" "}
-        <strong style={{ color: "#E8B84B" }}>{chapterName}</strong>. We are
-        finalising numbers for the venue and catering, so please let us know
-        whether you will be there.
+        Recently we sent you your acceptance for the{" "}
+        <strong style={{ color: "#E8B84B" }}>{chapterName}</strong>. Congrats,
+        you made the cut! 🎉 Now there is just one last step to lock in your spot
+        for real: your RSVP.
       </Text>
 
       <table cellPadding={0} cellSpacing={0} role="presentation" style={{ width: "100%", marginBottom: 16 }}>
@@ -43,25 +49,37 @@ export function RsvpRequestEmail({
           <InfoRow label="Match" value={chapterName} />
           <InfoRow label="Location" value={chapterCity} />
           <InfoRow label="Date" value={chapterDate} />
+          <InfoRow label="Respond by" value={deadline} />
         </tbody>
       </table>
 
       <Text>
-        It takes one click: the page below has a button for yes and a button for
-        no. Your answer is final once you send it, so pick the one that is true
-        today.
+        This event is pretty exclusive, and plenty of talented hackers are on the
+        waitlist hoping to take your place. If you do not confirm in time, your
+        spot goes to the next person in line, so do not miss your ticket!
       </Text>
 
       <Button href={`${baseUrl}/rsvp/${rsvpToken}`}>
-        Confirm Or Decline
+        Secure My Spot
       </Button>
+
+      <Text muted>
+        The link works for {RSVP_WINDOW_HOURS} hours, until {deadline}. It takes
+        one click: the page has a button to confirm and a button to decline, and
+        your answer is final once you send it.
+      </Text>
 
       <Divider />
 
-      <Text muted>
-        This does not change your spot or your registration, it only tells the
-        organisers whether to expect you. If you cannot make it, telling us early
-        lets someone on the waitlist take the place.
+      <Text>
+        We cannot wait to build, hack and turn {chapterName} upside down with you
+        for two days. See you soon! 🚀
+      </Text>
+
+      <Text>
+        Best,
+        <br />
+        Your Makeathon Team
       </Text>
     </EmailLayout>
   );

@@ -435,6 +435,7 @@ All query limits have sensible defaults. Override via env vars if you need highe
 | `LIMIT_CODE_REVIEW_QUEUE_DEPTH` | 200 | Max concurrent code reviews in queue |
 | `LIMIT_BROADCAST_RECIPIENTS` | 200 | Max recipients per chapter broadcast send (capped to fit the function timeout) |
 | `LIMIT_BROADCASTS` | 50 | Max broadcast history rows loaded in the admin composer |
+| `RSVP_WINDOW_HOURS` | 48 | Hours an applicant has to answer the RSVP request, measured from when it was emailed. After this the link stops accepting answers. Changing it moves the deadline for links already in flight, since the deadline is derived rather than stored |
 
 To change: go to **Vercel Dashboard > Settings > Environment Variables**, add the variable, redeploy.
 

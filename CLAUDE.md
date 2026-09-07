@@ -210,6 +210,9 @@ lib/
   showcase-shared.ts    — Partner-showcase consent predicate + derived SQL filter + types
   drive-urls.ts         — Client-safe Google Drive photo URL builders (thumbnail, viewer)
   report-client-error.ts — Shared error-boundary reporter (redacts secret URL tokens before any sink)
+  rsvp-window.ts        — the 48h RSVP response window (RSVP_WINDOW_HOURS), derived from
+                          application_rsvps.email_sent_at so the email, the page and the
+                          server action cannot disagree about the deadline
   rsvp-stats.ts         — countRsvps(): admin RSVP counters. "Not asked" counts only
                           status "accepted", the exact set sendRsvpEmails() mails, so the
                           card can never show work the button cannot clear

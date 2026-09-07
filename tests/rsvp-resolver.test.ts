@@ -52,10 +52,16 @@ function makeDb(result: { data?: unknown; error?: unknown }) {
   return { from: vi.fn(() => builder) };
 }
 
+/** Fresh enough that the 48h window is wide open. */
+const SENT_NOW = new Date().toISOString();
+/** Emailed 3 days ago: the window has closed. */
+const SENT_LONG_AGO = new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString();
+
 const LIVE_ROW = {
   application_id: "app-1",
   response: null,
   responded_at: null,
+  email_sent_at: SENT_NOW,
   applications: {
     first_name: "Ada",
     chapters: {
@@ -86,6 +92,8 @@ describe("getRsvpByToken", () => {
       chapterDate: expect.any(String),
       response: null,
       respondedAt: null,
+      expired: false,
+      deadline: expect.any(String),
     });
   });
 
@@ -107,7 +115,15 @@ describe("getRsvpByToken", () => {
 
   it("returns null when the joined application is missing", async () => {
     mocks.createAdminClient.mockReturnValue(
-      makeDb({ data: { application_id: "app-1", response: null, responded_at: null, applications: null } })
+      makeDb({
+        data: {
+          application_id: "app-1",
+          response: null,
+          responded_at: null,
+          email_sent_at: SENT_NOW,
+          applications: null,
+        },
+      })
     );
     expect(await getRsvpByToken(TOKEN)).toBeNull();
   });
@@ -140,6 +156,34 @@ describe("getRsvpByToken", () => {
 
     expect(await getRsvpByToken(TOKEN)).toBeNull();
     expect(db.from).not.toHaveBeenCalled();
+  });
+
+  it("still RESOLVES an expired link, flagged as expired rather than 404ing", async () => {
+    // Deliberately not a uniform null like the showcase resolver: this token
+    // guards a one-bit self-report by the one person it was mailed to, so
+    // telling them the window closed beats hiding that their link was valid.
+    mocks.createAdminClient.mockReturnValue(
+      makeDb({ data: { ...LIVE_ROW, email_sent_at: SENT_LONG_AGO } })
+    );
+    const result = await getRsvpByToken(TOKEN);
+    expect(result?.expired).toBe(true);
+    expect(result?.response).toBeNull();
+  });
+
+  it("reports a fresh link as not expired", async () => {
+    mocks.createAdminClient.mockReturnValue(makeDb({ data: LIVE_ROW }));
+    expect((await getRsvpByToken(TOKEN))?.expired).toBe(false);
+  });
+
+  it("keeps an answer visible even after the window closed", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      makeDb({
+        data: { ...LIVE_ROW, response: "yes", responded_at: SENT_NOW, email_sent_at: SENT_LONG_AGO },
+      })
+    );
+    const result = await getRsvpByToken(TOKEN);
+    expect(result?.response).toBe("yes");
+    expect(result?.expired).toBe(true);
   });
 
   it("returns null (never throws) for a MALFORMED token, without querying", async () => {

@@ -13,8 +13,8 @@ import { submitRsvp, type RsvpResponse } from "@/lib/actions/rsvp";
  * URL in an email before the recipient sees it. The page itself is read-only
  * and the answer travels over a POST server action from here.
  *
- * The first answer is final, so once a response exists this renders the
- * recorded answer and no buttons at all.
+ * Three terminal states, in priority order: answered (the first answer is
+ * final), expired (the window closed with no answer), and open.
  */
 export function RsvpButtons({
   token,
@@ -23,6 +23,8 @@ export function RsvpButtons({
   chapterCity,
   chapterDate,
   initialResponse,
+  expired,
+  deadline,
 }: {
   token: string;
   firstName: string;
@@ -30,6 +32,8 @@ export function RsvpButtons({
   chapterCity: string;
   chapterDate: string;
   initialResponse: RsvpResponse | null;
+  expired: boolean;
+  deadline: string;
 }) {
   const [response, setResponse] = useState<RsvpResponse | null>(initialResponse);
   const [pending, setPending] = useState<RsvpResponse | null>(null);
@@ -49,12 +53,16 @@ export function RsvpButtons({
     setPending(null);
   }
 
+  const heading = response
+    ? "Thanks, that is noted"
+    : expired
+      ? "This window has closed"
+      : "One click left";
+
   return (
     <Section className="relative overflow-hidden">
       <div className="relative mx-auto max-w-md text-center">
-        <h1 className="text-2xl font-black">
-          {response ? "Thanks, that is noted" : "Are you coming?"}
-        </h1>
+        <h1 className="text-2xl font-black">{heading}</h1>
 
         <p className="mt-3 text-text-secondary">
           Hey {firstName}, you have a spot at{" "}
@@ -68,7 +76,7 @@ export function RsvpButtons({
           <div className="mt-6 rounded-lg border border-gold/30 bg-gold/5 p-5">
             <p className="text-lg font-bold text-gold">
               {response === "yes"
-                ? "You confirmed your attendance."
+                ? "Your spot is secured."
                 : "You told us you cannot make it."}
             </p>
             <p className="mt-2 text-sm text-text-secondary">
@@ -81,11 +89,24 @@ export function RsvpButtons({
               and the organisers will sort it out.
             </p>
           </div>
+        ) : expired ? (
+          <div className="mt-6 rounded-lg border border-error/20 bg-error/5 p-5">
+            <p className="text-lg font-bold text-error">
+              Your RSVP window closed on {deadline}.
+            </p>
+            <p className="mt-2 text-sm text-text-secondary">
+              Spots that were not confirmed in time go to people on the waitlist.
+              If you still want to come, reply to your acceptance email and ask
+              the organisers, they may still be able to fit you in.
+            </p>
+          </div>
         ) : (
           <>
             <p className="mt-5 text-sm text-text-secondary">
-              Let the organisers know whether to expect you. Your answer is final
-              once you send it, and it does not change your spot either way.
+              Confirm by <strong className="text-gold">{deadline}</strong> to
+              lock in your spot. Plenty of hackers are on the waitlist, and
+              unconfirmed spots go to the next person in line. Your answer is
+              final once you send it.
             </p>
 
             {error && (
@@ -96,7 +117,7 @@ export function RsvpButtons({
 
             <div className="mt-6 flex flex-col justify-center gap-3 sm:flex-row">
               <Button onClick={() => handleAnswer("yes")} disabled={pending !== null}>
-                {pending === "yes" ? "Saving..." : "Confirm attendance"}
+                {pending === "yes" ? "Saving..." : "Secure my spot"}
               </Button>
               <Button
                 variant="secondary"

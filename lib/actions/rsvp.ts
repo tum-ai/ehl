@@ -9,6 +9,7 @@ import { formatDateRange } from "@/lib/utils";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 import { checkRateLimit, rsvpLimiter, rsvpTokenLimiter } from "@/lib/ratelimit";
 import { logEvent } from "@/lib/event-log";
+import { isRsvpExpired, rsvpCutoffIso, formatRsvpDeadline } from "@/lib/rsvp-window";
 
 // ─── Post-acceptance RSVP (statistics only) ──────────────────
 //
@@ -29,6 +30,10 @@ export interface ResolvedRsvp {
   /** null until the applicant has answered. The first answer is final. */
   response: RsvpResponse | null;
   respondedAt: string | null;
+  /** True once the response window has closed. Answers already given stand. */
+  expired: boolean;
+  /** Formatted deadline, shown to the applicant either way. */
+  deadline: string;
 }
 
 // Tokens are uuid_generate_v4() values. Postgres REJECTS a non-uuid literal in
@@ -84,7 +89,7 @@ export async function getRsvpByToken(token: string): Promise<ResolvedRsvp | null
   const { data: row, error } = await adminClient
     .from("application_rsvps")
     .select(
-      "application_id, response, responded_at, applications!inner(first_name, chapters!inner(name, city, country, date, date_end))"
+      "application_id, response, responded_at, email_sent_at, applications!inner(first_name, chapters!inner(name, city, country, date, date_end))"
     )
     .eq("rsvp_token", token)
     .maybeSingle();
@@ -114,6 +119,14 @@ export async function getRsvpByToken(token: string): Promise<ResolvedRsvp | null
     chapterDate: formatDateRange(chapter.date as string, chapter.date_end as string | null),
     response: isRsvpResponse(response) ? response : null,
     respondedAt: (row.responded_at as string) ?? null,
+    // An expired link is NOT a 404. Unlike the showcase token (which guards
+    // other people's personal data, so its expiry collapses into a uniform
+    // null), this token guards a one-bit self-report by the one person it was
+    // mailed to. Telling that person "the window closed" is worth far more than
+    // hiding that their own link was once valid, and a 404 would read as a
+    // broken link and generate support mail.
+    expired: isRsvpExpired(row.email_sent_at as string),
+    deadline: formatRsvpDeadline(row.email_sent_at as string),
   };
 }
 
@@ -141,11 +154,15 @@ export async function submitRsvp(
 
   const adminClient = createAdminClient();
 
+  // The window is enforced by the SAME statement that records the answer
+  // (email_sent_at must still be inside it), so a submit landing a millisecond
+  // after the deadline cannot slip through a read-then-write gap.
   const { data: updated, error } = await adminClient
     .from("application_rsvps")
     .update({ response, responded_at: new Date().toISOString() })
     .eq("rsvp_token", token)
     .is("response", null)
+    .gt("email_sent_at", rsvpCutoffIso())
     .select("application_id, response")
     .maybeSingle();
 
@@ -164,18 +181,26 @@ export async function submitRsvp(
     return { success: true, response, alreadyAnswered: false };
   }
 
-  // No row updated: either the token is unknown, or it was already answered.
+  // No row updated: the token is unknown, already answered, or expired.
   // Distinguish with a read so an already-answered applicant sees their answer
-  // rather than a scary error, while an unknown token stays a uniform failure.
+  // and an expired one is told why, while an unknown token stays a uniform
+  // failure.
   const { data: existing } = await adminClient
     .from("application_rsvps")
-    .select("response")
+    .select("response, email_sent_at")
     .eq("rsvp_token", token)
     .maybeSingle();
 
   const standing = existing?.response as string | null | undefined;
   if (isRsvpResponse(standing)) {
     return { success: true, response: standing, alreadyAnswered: true };
+  }
+
+  if (existing && isRsvpExpired(existing.email_sent_at as string)) {
+    return {
+      error:
+        "This RSVP link has expired. Please contact the organisers if you still want your spot.",
+    };
   }
 
   return { error: "Invalid RSVP link." };
@@ -251,11 +276,12 @@ export async function sendRsvpEmails(chapterId: string): Promise<
         chapterCity: `${chapter.city}, ${chapter.country}`,
         chapterDate: formatDateRange(chapter.date as string, chapter.date_end as string | null),
         rsvpToken: inserted.rsvp_token as string,
+        deadline: formatRsvpDeadline(new Date()),
       });
 
       await sendEmail({
         to: app.email as string,
-        subject: `Are you coming? Confirm your spot at ${chapter.name}`,
+        subject: `One click left: secure your spot at ${chapter.name}`,
         html,
         skipRateLimit: true,
       });
