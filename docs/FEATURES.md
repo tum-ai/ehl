@@ -446,6 +446,14 @@ There are two kinds of admin:
 
 ### Communications (`/admin/chapters/<id>/communications`)
 Global and chapter admins. Three tools for talking to a chapter's participants:
+- **Bulk sends are concurrent and time-budgeted.** Acceptance, rejection and RSVP
+  emails all run through `lib/bulk-send.ts`: 3 at a time (matching the SMTP pool in
+  `lib/email.ts`) under a 45s wall-clock budget, well inside the function timeout. One
+  press sends as many as fit, and anything the budget did not reach is reported as
+  "still pending: click again". Nobody is mailed twice, because a recipient is only
+  stamped as emailed once their send has actually succeeded, and a recipient the budget
+  skipped is left untouched. Failed addresses are named in the result rather than
+  silently logged.
 - **Customizable acceptance email**: an editable subject line and an optional custom
   message block per chapter. The fixed parts (QR code, check-in instructions, match
   details, button) are always included, so check-in is never affected. When left blank,
