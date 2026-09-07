@@ -142,6 +142,46 @@ Available to participants who are checked in at an event.
   the top of the hub. Visible to accepted participants even before they are checked in
   (the rest of the hub is gated on check-in). Edited under admin Communications.
 
+### RSVP (`/rsvp/<token>`)
+- Purely a headcount signal. An admin presses **Send RSVP Request** on the chapter's
+  applications page and every ACCEPTED applicant who has not already been asked gets a
+  standalone email with one button. The page behind it offers "Confirm attendance" and
+  "I cannot make it"; the answer is logged and nothing else happens.
+- Deliberately decoupled from the application workflow: it is NOT part of the acceptance
+  email, it never changes `applications.status`, and it has no effect on check-in, teams
+  or registration. It exists so organisers can plan catering and venue numbers.
+- **The first answer is final.** The lock is enforced in the database (the update is
+  conditional on `response IS NULL`), so a double click or a race cannot overwrite it.
+  Someone whose plans change is told to reply to the acceptance email.
+- **The link expires after 48 hours** (`RSVP_WINDOW_HOURS`), measured from when the
+  request was emailed. The deadline is DERIVED from `email_sent_at` rather than stored,
+  so the email, the page and the server action always agree; changing the setting moves
+  the deadline for links already in flight. Expiry is enforced by the same SQL statement
+  that records the answer, so a submit landing just after the deadline cannot slip
+  through. An expired link shows a "this window has closed" page rather than a 404: it
+  guards only the recipient's own one-bit answer, so telling them why beats hiding that
+  their link was ever valid. An answer already given still shows after expiry.
+- The answer is recorded ONLY by a POST from a deliberate click. Opening the link writes
+  nothing, because mail scanners fetch every URL in an email before the recipient sees it
+  and a GET-recorded answer would be filled in by a robot.
+- The RSVP token is an unguessable per-application UUID stored in the admin-only
+  `application_rsvps` table (never on the `applications` row, which the applicant can
+  read). A row exists only once someone has been asked, so pressing the send button twice
+  mails nobody twice and newly accepted people are picked up on the next press.
+- **One press mails everyone.** There is no fixed chunk: sends run 3 at a time (matching
+  the SMTP pool in `lib/email.ts`) under a 45s wall-clock budget. A realistic chapter goes
+  out in a single click; a pathologically large one stops cleanly and reports the rest as
+  `remaining` to press again, leaving no row behind for anyone it did not reach, so they
+  are not silently marked as asked.
+- Admin side: the applications page shows a per-row RSVP chip, an RSVP filter, and a
+  second row of stat cards (Confirmed / Declined / Awaiting / Not asked) matching the
+  status cards above it. "Not asked" counts only status `accepted`, exactly the set the
+  send button mails, so it always equals the work one press will clear. Checked-in
+  applicants are excluded there (they have arrived and are never sent a request) but
+  their earlier answers still count under Confirmed and Declined.
+- Roles: anyone holding the emailed link can answer it; sending and viewing are available
+  to global admins and to that chapter's local admins.
+
 ### Check-in (Admin side)
 - Admin scans participant QR code at `/admin/check-in`
 - QR code is embedded in the acceptance email

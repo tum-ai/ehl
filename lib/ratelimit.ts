@@ -75,6 +75,16 @@ export const applicationLimiter = makeLimiter("rl:apply", 500, "60 s", { limit: 
 // for a real event (a volunteer-supervised line), tight enough that a leaked token
 // can't be scripted into mass account creation. 60 per 60s per token.
 export const walkInTokenLimiter = makeLimiter("rl:walkin-token", 60, "60 s", { limit: 60, windowMs: 60_000 });
+// Post-acceptance RSVP page, keyed per IP: the token is the only gate on the
+// page, so throttle how fast one source can probe tokens. Deliberately generous
+// because a whole event's attendees can sit behind one university/venue NAT and
+// an emailed link gets opened in bursts. 120 per 60s per IP.
+export const rsvpLimiter = makeLimiter("rl:rsvp", 120, "60 s", { limit: 120, windowMs: 60_000 });
+// RSVP answer, keyed per RSVP token: the answer is locked after the first write,
+// so this is not about repeat submissions but about starving a script that has
+// scraped a link out of a forwarded email from hammering the write path. A real
+// person clicks once, maybe twice after a network hiccup. 10 per 60s per token.
+export const rsvpTokenLimiter = makeLimiter("rl:rsvp-token", 10, "60 s", { limit: 10, windowMs: 60_000 });
 // Partner showcase, keyed per IP: the token-gated showcase page exposes applicant
 // profiles and CVs. A holder is trusted, but the token lives in a URL that can
 // leak, so cap CV fetches per IP to blunt scripted mass-download of a leaked link

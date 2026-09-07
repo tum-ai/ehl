@@ -14,6 +14,9 @@ import {
   deleteApplication,
 } from "@/lib/actions/applications";
 import { submitScore, getMyScreenerId } from "@/lib/actions/screening";
+import { sendRsvpEmails } from "@/lib/actions/rsvp";
+import { formatDate } from "@/lib/utils";
+import { countRsvps } from "@/lib/rsvp-stats";
 import type { Application, ApplicationStatus, ApplicationFormData, FlagMatch } from "@/lib/types";
 import { createFlag } from "@/lib/actions/flags";
 
@@ -46,7 +49,16 @@ interface ScreeningInfo {
   tumaiVerification?: TumaiVerification;
 }
 
-type EnrichedApplication = Application & { screening: ScreeningInfo };
+interface RsvpInfo {
+  response: "yes" | "no" | null;
+  respondedAt: string | null;
+  emailSentAt: string | null;
+}
+
+// RSVP is a statistics side channel that lives in its own table, so it rides
+// alongside Application rather than inside it. `null` means the RSVP email was
+// never sent to this applicant, which is distinct from "sent, no answer yet".
+type EnrichedApplication = Application & { screening: ScreeningInfo; rsvp: RsvpInfo | null };
 
 interface Stats {
   total: number;
@@ -72,6 +84,7 @@ export default function AdminApplicationsPage({
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [leagueFilter, setLeagueFilter] = useState<string>("all");
+  const [rsvpFilter, setRsvpFilter] = useState<string>("all");
   const [sortCol, setSortCol] = useState<"name" | "email" | "score" | "league" | "status" | "date">("score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -148,6 +161,10 @@ export default function AdminApplicationsPage({
     if (leagueFilter === "noshow" && (app.screening?.noShows ?? 0) === 0) return false;
     if (leagueFilter === "tumai_mismatch" && !app.screening?.tumaiVerification?.mismatch && !app.screening?.tumaiVerification?.fuzzyMatch) return false;
     if (leagueFilter === "flagged" && (app.screening?.flags?.length ?? 0) === 0) return false;
+    if (rsvpFilter === "yes" && app.rsvp?.response !== "yes") return false;
+    if (rsvpFilter === "no" && app.rsvp?.response !== "no") return false;
+    if (rsvpFilter === "awaiting" && !(app.rsvp && app.rsvp.response === null)) return false;
+    if (rsvpFilter === "not_asked" && app.rsvp) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -205,6 +222,11 @@ export default function AdminApplicationsPage({
   const withPointsCount = applications.filter((a) => (a.screening?.totalPoints ?? 0) > 0).length;
   const scoredCount = applications.filter((a) => (a.screening?.scores?.length ?? 0) > 0).length;
   const flaggedCount = applications.filter((a) => (a.screening?.flags?.length ?? 0) > 0).length;
+
+  // RSVP counters, computed client-side from the loaded rows like the counters
+  // above, so the stats API route stays untouched. Shared with the tests via
+  // lib/rsvp-stats so "Not asked" cannot drift from what the send button mails.
+  const rsvpCounts = countRsvps(applications);
 
   // ─── Status locking helpers ─────────────────────────────────
 
@@ -439,6 +461,37 @@ export default function AdminApplicationsPage({
       setMessage({
         type: "error",
         text: "Sending did not finish (it may have timed out). Already-sent emails are recorded; click again to send the rest.",
+      });
+      await loadData(chapterId).catch(() => {});
+    } finally {
+      setActing(false);
+    }
+  }
+
+  async function handleSendRsvpEmails() {
+    if (!confirm("Send the RSVP request to every accepted applicant who has not received it yet?")) return;
+    setActing(true);
+    setMessage(null);
+    try {
+      const result = await sendRsvpEmails(chapterId);
+      if ("error" in result) {
+        setMessage({ type: "error", text: result.error });
+      } else {
+        setMessage({
+          type: result.failed.length > 0 ? "error" : "success",
+          text:
+            `Sent ${result.sent} RSVP request(s).` +
+            (result.remaining ? ` ${result.remaining} still pending: click again to continue.` : "") +
+            (result.failed.length > 0 ? ` Failed for: ${result.failed.join(", ")}.` : ""),
+        });
+      }
+      await loadData(chapterId);
+    } catch {
+      // Same reasoning as the bulk email button: sending is recorded per
+      // applicant, so a timeout is safe to resume by clicking again.
+      setMessage({
+        type: "error",
+        text: "Sending did not finish (it may have timed out). Already-sent requests are recorded; click again to send the rest.",
       });
       await loadData(chapterId).catch(() => {});
     } finally {
@@ -964,6 +1017,27 @@ export default function AdminApplicationsPage({
           </div>
         )}
 
+        {/* RSVP bar. Same shape as the status stats above, but counting a
+            different thing: who has answered the attendance request. Always
+            shown so "Not asked" tells you at a glance how many accepted people
+            still need the request sent. */}
+        <p className="mt-6 text-xs font-semibold uppercase tracking-wide ad-text-muted">
+          RSVP
+        </p>
+        <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: "Confirmed", value: rsvpCounts.confirmed, color: "ad-text-success" },
+            { label: "Declined", value: rsvpCounts.declined, color: "ad-text-error" },
+            { label: "Awaiting", value: rsvpCounts.awaiting, color: "ad-text-warning" },
+            { label: "Not asked", value: rsvpCounts.notAsked, color: "ad-text-muted" },
+          ].map((stat) => (
+            <Card key={stat.label} className="text-center">
+              <p className={`text-2xl font-mono font-bold ${stat.color}`}>{stat.value}</p>
+              <p className="mt-1 text-xs ad-text-muted">{stat.label}</p>
+            </Card>
+          ))}
+        </div>
+
         {/* Search + filters */}
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">
           <input
@@ -998,6 +1072,17 @@ export default function AdminApplicationsPage({
             <option value="noshow">Has No-Shows</option>
             <option value="flagged">Flagged</option>
             <option value="tumai_mismatch">TUM.ai Unverified</option>
+          </select>
+          <select
+            value={rsvpFilter}
+            onChange={(e) => setRsvpFilter(e.target.value)}
+            className="rounded-lg border ad-border ad-bg-card px-4 py-2.5 text-sm ad-text focus:outline-none"
+          >
+            <option value="all">All RSVP</option>
+            <option value="yes">RSVP: Confirmed</option>
+            <option value="no">RSVP: Declined</option>
+            <option value="awaiting">RSVP: Awaiting answer</option>
+            <option value="not_asked">RSVP: Not asked</option>
           </select>
         </div>
 
@@ -1039,6 +1124,9 @@ export default function AdminApplicationsPage({
             </div>
             <Button size="sm" variant="secondary" onClick={handleSendAllPendingEmails} disabled={acting}>
               Send All Pending Emails
+            </Button>
+            <Button size="sm" variant="secondary" onClick={handleSendRsvpEmails} disabled={acting}>
+              Send RSVP Request
             </Button>
           </div>
         </div>
@@ -1143,6 +1231,24 @@ export default function AdminApplicationsPage({
                     <td className="py-3 pr-4">
                       <div className="flex items-center gap-1.5">
                         {statusBadge(app.status)}
+                        {app.rsvp && (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                              app.rsvp.response === "yes"
+                                ? "ad-bg-success ad-text-success"
+                                : app.rsvp.response === "no"
+                                  ? "ad-bg-error ad-text-error"
+                                  : "ad-bg-warning ad-text-gold"
+                            }`}
+                            title={
+                              app.rsvp.response
+                                ? `RSVP ${app.rsvp.response === "yes" ? "confirmed" : "declined"}${app.rsvp.respondedAt ? ` on ${formatDate(app.rsvp.respondedAt)}` : ""}`
+                                : `RSVP request sent${app.rsvp.emailSentAt ? ` on ${formatDate(app.rsvp.emailSentAt)}` : ""}, no answer yet`
+                            }
+                          >
+                            {app.rsvp.response === "yes" ? "RSVP YES" : app.rsvp.response === "no" ? "RSVP NO" : "RSVP ?"}
+                          </span>
+                        )}
                         {locked && (
                           <span title="Status locked (email sent)">
                             <svg className="h-3.5 w-3.5 ad-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

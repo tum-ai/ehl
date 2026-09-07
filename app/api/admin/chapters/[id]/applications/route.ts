@@ -50,7 +50,44 @@ export async function GET(
     .order("created_at", { ascending: false })
     .limit(QUERY_LIMITS.applicationsPerChapter);
 
-  const applications = (appRows ?? []).map(toApplication);
+  const baseApplications = (appRows ?? []).map(toApplication);
+
+  // Post-acceptance RSVP answers. Kept OUT of toApplication (and out of the
+  // Application type) on purpose: RSVP lives in its own table and is a
+  // statistics side channel, so the application shape stays untouched and the
+  // feature can be removed without rippling through the mappers. A row exists
+  // only for applicants who have actually been sent the RSVP email, so a
+  // missing row means "not asked yet", which the UI distinguishes from
+  // "asked, no answer".
+  // Keyed on the application ids we are actually returning, not on the chapter.
+  // PostgREST caps EVERY response at max_rows (1000), so a separate chapter-wide
+  // read could be truncated to a different 1000 rows than the applications list
+  // and silently drop RSVP chips from rows that have one. Scoping to the ids in
+  // hand makes the two lists correspond exactly and keeps the read bounded by
+  // the applications query that already ran.
+  const applicationIds = baseApplications.map((a) => a.id);
+  const { data: rsvpRows } = applicationIds.length
+    ? await adminClient
+        .from("application_rsvps")
+        .select("application_id, response, responded_at, email_sent_at")
+        .in("application_id", applicationIds)
+    : { data: [] };
+
+  const rsvpByApplication = new Map(
+    (rsvpRows ?? []).map((r) => [
+      r.application_id as string,
+      {
+        response: (r.response as "yes" | "no" | null) ?? null,
+        respondedAt: (r.responded_at as string) ?? null,
+        emailSentAt: (r.email_sent_at as string) ?? null,
+      },
+    ])
+  );
+
+  const applications = baseApplications.map((app) => ({
+    ...app,
+    rsvp: rsvpByApplication.get(app.id) ?? null,
+  }));
 
   const url = new URL(request.url);
   const includeScreening = url.searchParams.get("preparation") === "true";

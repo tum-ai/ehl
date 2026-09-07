@@ -7,8 +7,8 @@ import { twMerge } from "tailwind-merge";
  *
  * Several routes carry an unguessable token IN THE PATH as the sole
  * authorization: /walk-in/<token>, /showcase/<token>, /invite/<token> (a team
- * invite is joinable by token alone, no email match), and
- * /api/showcase/<token>/cv/<applicationId>. Secrets also ride in QUERY PARAMS
+ * invite is joinable by token alone, no email match), /rsvp/<token> (the
+ * post-acceptance attendance link), and /api/showcase/<token>/cv/<applicationId>. Secrets also ride in QUERY PARAMS
  * (?token=, ?token_hash=, ?code=, ?invite=). If such a URL is logged verbatim
  * (e.g. a client-error report writing window.location.href to the append-only
  * event_log, or a stack trace containing the request URL), the live credential
@@ -19,7 +19,7 @@ import { twMerge } from "tailwind-merge";
  * Adding a new token-in-path route? Add its segment to SECRET_PATH_SEGMENTS —
  * tests/utils.test.ts pins the covered set.
  */
-const SECRET_PATH_SEGMENTS = ["showcase", "walk-in", "invite"] as const;
+const SECRET_PATH_SEGMENTS = ["showcase", "walk-in", "invite", "rsvp"] as const;
 const SECRET_QUERY_PARAMS = [
   "token",
   "token_hash",

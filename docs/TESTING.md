@@ -373,6 +373,24 @@ Structure such a test with three cases, not one:
 Keep the matcher deliberately narrow. A guard that over-matches gets muted with an
 allowlist within a month, and then it protects nothing.
 
+### Pattern: Absence-of-Writes Guard (emailed links)
+
+Any page reachable from a link in an email must be proven read-only, because mail
+scanners (Outlook Safe Links, provider prefetchers) fetch every URL in a message before
+the recipient opens it. A state change on GET is therefore performed by a robot, silently,
+for every scanned mailbox. This already cost us once on password reset, and it is exactly
+why RSVP records answers only on POST.
+
+Asserting "the right thing happened" does not catch this. Assert that **nothing** happened:
+drive the resolver through a Supabase mock that records `insert`/`update`/`upsert`/`delete`
+and expect the recorded list to be empty. `tests/rsvp-no-write-on-get.test.ts` is the model
+(`tests/walk-in.test.ts` uses the same style for its failure paths). Pair it with an E2E
+case that loads the link several times and then reads the database directly to confirm the
+value is still unset (`e2e/public/rsvp.spec.ts`).
+
+Write one of these for every new token-in-an-email page, alongside the usual resolver
+contract tests (unknown token to null, rate limit before any DB work, DB error throws).
+
 ### Pattern: UI Test with API Fallback
 
 The recommended pattern for testing UI flows:

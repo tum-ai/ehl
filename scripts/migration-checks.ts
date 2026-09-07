@@ -384,6 +384,30 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        )
      ) as present`,
   },
+  {
+    // Post-acceptance RSVP, kept in its own table so the token is not readable
+    // through the "Users read own applications" policy (RLS gates rows, not
+    // columns). Probe asserts the table, the unique token index the page lookup
+    // depends on, and the cascade delete that keeps rows from outliving their
+    // application (the 00058/00060 deletability lesson).
+    prefix: "00065",
+    label: "application_rsvp",
+    sql: `select (
+       exists (
+         select 1 from information_schema.tables
+         where table_schema = 'public' and table_name = 'application_rsvps'
+       )
+       and exists (
+         select 1 from pg_indexes
+         where schemaname = 'public' and tablename = 'application_rsvps'
+           and indexname = 'application_rsvps_token_unique'
+       )
+       and exists (
+         select 1 from pg_constraint
+         where conname = 'application_rsvps_application_id_fkey' and confdeltype = 'c'
+       )
+     ) as present`,
+  },
 ];
 
 /**
