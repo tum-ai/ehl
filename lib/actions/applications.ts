@@ -30,6 +30,7 @@ import { uploadFile } from "@/lib/gdrive";
 import QRCode from "qrcode";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, applicationLimiter, apiLimiter } from "@/lib/ratelimit";
+import { runBudgetedConcurrent } from "@/lib/bulk-send";
 import { logEvent } from "@/lib/event-log";
 
 // ─── Shared application-insert builder ───────────────────────
@@ -528,12 +529,20 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
   // when no row exists / fields are null, the email is byte-identical to legacy.
   const comms = await getChapterCommunications(chapterId as string);
 
+  // Already-emailed applicants are filtered out BEFORE the run, so `remaining`
+  // below counts only real work the budget did not get to.
+  const pending = applications.filter((app) => !app.acceptance_email_sent_at);
+
   let sent = 0;
   const failed: string[] = [];
-  for (const app of applications) {
-    // Skip if already emailed
-    if (app.acceptance_email_sent_at) continue;
 
+  // Concurrent and time-budgeted (see lib/bulk-send.ts). This used to be a
+  // sequential loop with no cap at all: selecting 85 applicants meant 85 SMTP
+  // round trips plus 85 QR renders in one request, which could exceed the
+  // function timeout and die mid-batch, leaving some sent and no record of how
+  // far it got. The acceptance_email_sent_at stamp made that recoverable, but
+  // only if the admin knew to press again.
+  const { skipped } = await runBudgetedConcurrent(pending, async (app) => {
     const chapter = app.chapters as Record<string, unknown>;
     const dateStr = formatDateRange(
       chapter.date as string,
@@ -592,12 +601,14 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
       console.error(`Failed to send acceptance email to ${app.email}:`, err);
       failed.push(app.email as string);
     }
-  }
+  });
+
+  const remaining = skipped.length;
 
   if (failed.length > 0) {
-    return { success: true, sent, error: `Failed to send to: ${failed.join(", ")}` };
+    return { success: true, sent, remaining, error: `Failed to send to: ${failed.join(", ")}` };
   }
-  return { success: true, sent };
+  return { success: true, sent, remaining };
 }
 
 // ─── Admin: Send rejection emails ──────────────────────────
