@@ -5,7 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireChapterAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderRsvpRequestEmail } from "@/lib/emails/render";
-import { formatDateRange } from "@/lib/utils";
+import { formatDateRange, runWithConcurrency } from "@/lib/utils";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 import { checkRateLimit, rsvpLimiter, rsvpTokenLimiter } from "@/lib/ratelimit";
 import { logEvent } from "@/lib/event-log";
@@ -213,10 +213,22 @@ export async function submitRsvp(
 // yet. Pressing the button twice mails nobody twice; newly accepted people are
 // picked up on the next press.
 //
-// Batched at 40 like sendBulkEmails() so the Vercel function cannot time out on
-// a large chapter; the caller re-presses to continue and `remaining` says how
-// many are left.
-const BATCH = 40;
+// ONE press mails everybody. There is no fixed chunk (sendBulkEmails() uses 40
+// and makes the admin click three times for 85 applicants). Instead this
+// borrows the two mechanisms the codebase already trusts elsewhere:
+//
+//   - concurrency, like sendCertificateEmails(): a job per recipient, each
+//     catching its own error, run SEND_CONCURRENCY-wide. lib/email.ts opens a
+//     pool with maxConnections: 3, which a sequential await loop never uses, so
+//     matching that number here is roughly a threefold speedup for free;
+//   - a wall-clock budget, like sendChapterBroadcast(): stop with time to spare
+//     before the function timeout and report what is left, rather than dying
+//     mid-send with no record of how far it got.
+//
+// So a realistic chapter goes out in one press, and a pathologically large one
+// still degrades safely into an accurate `remaining` instead of a timeout.
+const SEND_CONCURRENCY = 3;
+const SEND_BUDGET_MS = 45000;
 
 export async function sendRsvpEmails(chapterId: string): Promise<
   | { error: string }
@@ -247,11 +259,20 @@ export async function sendRsvpEmails(chapterId: string): Promise<
     return { success: true, sent: 0, remaining: 0, failed: [] };
   }
 
-  const batch = pending.slice(0, BATCH);
+  const deadline = Date.now() + SEND_BUDGET_MS;
   let sent = 0;
+  let skipped = 0;
   const failed: string[] = [];
 
-  for (const app of batch) {
+  const jobs = pending.map((app) => async () => {
+    // Checked INSIDE the job, before the insert: a recipient the budget did not
+    // reach must leave no row behind, or the next press would consider them
+    // already asked and they would never be mailed.
+    if (Date.now() > deadline) {
+      skipped++;
+      return;
+    }
+
     const chapter = (Array.isArray(app.chapters) ? app.chapters[0] : app.chapters) as Record<
       string,
       unknown
@@ -266,7 +287,7 @@ export async function sendRsvpEmails(chapterId: string): Promise<
 
     if (insertErr || !inserted?.rsvp_token) {
       failed.push(app.email as string);
-      continue;
+      return;
     }
 
     try {
@@ -293,7 +314,10 @@ export async function sendRsvpEmails(chapterId: string): Promise<
       await adminClient.from("application_rsvps").delete().eq("application_id", app.id);
       failed.push(app.email as string);
     }
-  }
+  });
+
+  // Every job catches its own error, so one bad address never stops the run.
+  await runWithConcurrency(jobs, SEND_CONCURRENCY);
 
   if (sent > 0) {
     logEvent({
@@ -302,9 +326,9 @@ export async function sendRsvpEmails(chapterId: string): Promise<
       entityId: chapterId,
       actorId: await getActingUserId(),
       actorType: "admin",
-      delta: { rsvp_emails: { sent, failed: failed.length } },
+      delta: { rsvp_emails: { sent, failed: failed.length, skipped } },
     });
   }
 
-  return { success: true, sent, remaining: Math.max(0, pending.length - batch.length), failed };
+  return { success: true, sent, remaining: skipped, failed };
 }

@@ -167,8 +167,12 @@ Available to participants who are checked in at an event.
 - The RSVP token is an unguessable per-application UUID stored in the admin-only
   `application_rsvps` table (never on the `applications` row, which the applicant can
   read). A row exists only once someone has been asked, so pressing the send button twice
-  mails nobody twice and newly accepted people are picked up on the next press. Sending is
-  batched at 40 per press, with the remainder reported.
+  mails nobody twice and newly accepted people are picked up on the next press.
+- **One press mails everyone.** There is no fixed chunk: sends run 3 at a time (matching
+  the SMTP pool in `lib/email.ts`) under a 45s wall-clock budget. A realistic chapter goes
+  out in a single click; a pathologically large one stops cleanly and reports the rest as
+  `remaining` to press again, leaving no row behind for anyone it did not reach, so they
+  are not silently marked as asked.
 - Admin side: the applications page shows a per-row RSVP chip, an RSVP filter, and a
   second row of stat cards (Confirmed / Declined / Awaiting / Not asked) matching the
   status cards above it. "Not asked" counts only status `accepted`, exactly the set the
