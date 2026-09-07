@@ -41,6 +41,9 @@ vi.mock("@/lib/emails/render", () => ({ renderRsvpRequestEmail: mocks.renderRsvp
 
 import { getRsvpByToken } from "@/lib/actions/rsvp";
 
+/** A well-formed token: this file is about write behavior, not token shape. */
+const SCANNER_TOKEN = "09bc21bb-0ec0-4aa1-903a-ba5ec01d41d4";
+
 const ROW = {
   application_id: "app-1",
   response: null,
@@ -102,7 +105,7 @@ describe("opening an RSVP link (the GET path)", () => {
     const { db, mutations } = makeRecordingDb(ROW);
     mocks.createAdminClient.mockReturnValue(db);
 
-    await getRsvpByToken("scanner-prefetched-token");
+    await getRsvpByToken(SCANNER_TOKEN);
 
     expect(mutations).toEqual([]);
   });
@@ -113,7 +116,7 @@ describe("opening an RSVP link (the GET path)", () => {
 
     // A scanner prefetch, the recipient's own open, and a browser preview.
     for (let i = 0; i < 3; i++) {
-      const result = await getRsvpByToken("scanner-prefetched-token");
+      const result = await getRsvpByToken(SCANNER_TOKEN);
       expect(result?.response).toBeNull();
     }
 
@@ -124,7 +127,7 @@ describe("opening an RSVP link (the GET path)", () => {
     const { db } = makeRecordingDb(ROW);
     mocks.createAdminClient.mockReturnValue(db);
 
-    await getRsvpByToken("scanner-prefetched-token");
+    await getRsvpByToken(SCANNER_TOKEN);
 
     expect(mocks.logEvent).not.toHaveBeenCalled();
   });
@@ -133,7 +136,7 @@ describe("opening an RSVP link (the GET path)", () => {
     const { db } = makeRecordingDb(ROW);
     mocks.createAdminClient.mockReturnValue(db);
 
-    await getRsvpByToken("scanner-prefetched-token");
+    await getRsvpByToken(SCANNER_TOKEN);
 
     expect(mocks.sendEmail).not.toHaveBeenCalled();
   });

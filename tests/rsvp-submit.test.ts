@@ -38,6 +38,9 @@ vi.mock("@/lib/emails/render", () => ({ renderRsvpRequestEmail: mocks.renderRsvp
 
 import { submitRsvp } from "@/lib/actions/rsvp";
 
+/** A well-formed token; the shape check rejects anything that is not a uuid. */
+const TOKEN = "09bc21bb-0ec0-4aa1-903a-ba5ec01d41d4";
+
 interface Call {
   table: string;
   op: "select" | "update" | "insert" | "delete";
@@ -109,7 +112,7 @@ describe("submitRsvp", () => {
     );
     mocks.createAdminClient.mockReturnValue(db);
 
-    const result = await submitRsvp("tok", answer);
+    const result = await submitRsvp(TOKEN, answer);
 
     expect(result).toEqual({ success: true, response: answer, alreadyAnswered: false });
     const update = writes(calls).find((c) => c.op === "update");
@@ -123,7 +126,7 @@ describe("submitRsvp", () => {
     );
     mocks.createAdminClient.mockReturnValue(db);
 
-    await submitRsvp("tok", "yes");
+    await submitRsvp(TOKEN, "yes");
 
     const update = writes(calls).find((c) => c.op === "update");
     expect(update?.isFilters).toContainEqual(["response", null]);
@@ -137,7 +140,7 @@ describe("submitRsvp", () => {
     });
     mocks.createAdminClient.mockReturnValue(db);
 
-    const result = await submitRsvp("tok", "no");
+    const result = await submitRsvp(TOKEN, "no");
 
     expect(result).toEqual({ success: true, response: "yes", alreadyAnswered: true });
     // The only write attempted was the guarded no-op update.
@@ -149,14 +152,14 @@ describe("submitRsvp", () => {
     const { db } = makeDb((call) => (call.op === "update" ? { data: null } : { data: { response: "no" } }));
     mocks.createAdminClient.mockReturnValue(db);
 
-    await submitRsvp("tok", "yes");
+    await submitRsvp(TOKEN, "yes");
     expect(mocks.logEvent).not.toHaveBeenCalled();
 
     const fresh = makeDb((call) =>
       call.op === "update" ? { data: { application_id: "app-2", response: "yes" } } : {}
     );
     mocks.createAdminClient.mockReturnValue(fresh.db);
-    await submitRsvp("tok", "yes");
+    await submitRsvp(TOKEN, "yes");
     expect(mocks.logEvent).toHaveBeenCalledWith(
       expect.objectContaining({ action: "application.rsvp_responded", entityId: "app-2" })
     );
@@ -166,7 +169,7 @@ describe("submitRsvp", () => {
     const { db, calls } = makeDb(() => ({}));
     mocks.createAdminClient.mockReturnValue(db);
 
-    const result = await submitRsvp("tok", "maybe" as unknown as "yes");
+    const result = await submitRsvp(TOKEN, "maybe" as unknown as "yes");
 
     expect(result).toEqual({ error: "Invalid response." });
     expect(writes(calls)).toHaveLength(0);
@@ -183,6 +186,17 @@ describe("submitRsvp", () => {
     expect(writes(calls)).toHaveLength(0);
   });
 
+  it("rejects a MALFORMED token before querying, rather than 500ing", async () => {
+    const { db, calls } = makeDb(() => ({}));
+    mocks.createAdminClient.mockReturnValue(db);
+
+    for (const bad of ["garbage", "123", "' OR 1=1--"]) {
+      expect(await submitRsvp(bad, "yes")).toEqual({ error: "Invalid RSVP link." });
+    }
+    expect(writes(calls)).toHaveLength(0);
+    expect(mocks.checkRateLimit).not.toHaveBeenCalled();
+  });
+
   it("reports an unknown token as invalid rather than as an answer", async () => {
     const { db } = makeDb(() => ({ data: null }));
     mocks.createAdminClient.mockReturnValue(db);
@@ -195,7 +209,7 @@ describe("submitRsvp", () => {
     const { db, calls } = makeDb(() => ({}));
     mocks.createAdminClient.mockReturnValue(db);
 
-    const result = await submitRsvp("tok", "yes");
+    const result = await submitRsvp(TOKEN, "yes");
 
     expect(result).toEqual({ error: "Too many requests" });
     expect(writes(calls)).toHaveLength(0);
@@ -207,11 +221,11 @@ describe("submitRsvp", () => {
     );
     mocks.createAdminClient.mockReturnValue(db);
 
-    await submitRsvp("tok", "yes");
+    await submitRsvp(TOKEN, "yes");
 
     expect(mocks.checkRateLimit).toHaveBeenCalledWith(
       { prefix: "rl:rsvp-token" },
-      "tok",
+      TOKEN,
       "rsvp-token"
     );
   });

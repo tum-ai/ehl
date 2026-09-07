@@ -289,6 +289,12 @@ describe("redactSecretTokens", () => {
     expect(out).toContain("/showcase/<redacted>");
   });
 
+  it("redacts an /rsvp/<token> path (post-acceptance attendance bearer link)", () => {
+    expect(
+      redactSecretTokens("https://ehl.gg/rsvp/09bc21bb-0ec0-4aa1-903a-ba5ec01d41d4")
+    ).toBe("https://ehl.gg/rsvp/<redacted>");
+  });
+
   it("redacts an /invite/<token> path (team-join bearer link)", () => {
     expect(redactSecretTokens("https://ehl.gg/invite/3f9a-team-invite")).toBe(
       "https://ehl.gg/invite/<redacted>"

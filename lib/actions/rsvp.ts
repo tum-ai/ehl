@@ -31,6 +31,20 @@ export interface ResolvedRsvp {
   respondedAt: string | null;
 }
 
+// Tokens are uuid_generate_v4() values. Postgres REJECTS a non-uuid literal in
+// `rsvp_token = ?` ("invalid input syntax for type uuid") rather than returning
+// no rows, and this module deliberately throws on DB errors, so without this
+// check a malformed token renders a 500 instead of a clean 404. That is not
+// hypothetical: mail clients wrap and truncate long URLs, so real recipients
+// arrive here with a mangled token. Shape-checking first also keeps the miss
+// response UNIFORM (a garbage token and an unknown token are indistinguishable)
+// and keeps junk out of the error reporting.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(token: string): boolean {
+  return UUID_RE.test(token);
+}
+
 /** Only these two values are ever stored. Anything else is rejected outright. */
 function isRsvpResponse(value: unknown): value is RsvpResponse {
   return value === "yes" || value === "no";
@@ -60,7 +74,7 @@ async function clientIp(): Promise<string> {
 // instead of collapsing to null: a Supabase outage must not make every emailed
 // RSVP link look permanently dead.
 export async function getRsvpByToken(token: string): Promise<ResolvedRsvp | null> {
-  if (!token) return null;
+  if (!token || !isUuid(token)) return null;
 
   const rl = await checkRateLimit(rsvpLimiter, await clientIp(), "rsvp");
   if (rl.limited) return null;
@@ -117,7 +131,7 @@ export async function submitRsvp(
   | { error: string }
   | { success: true; response: RsvpResponse; alreadyAnswered: boolean }
 > {
-  if (!token) return { error: "Invalid RSVP link." };
+  if (!token || !isUuid(token)) return { error: "Invalid RSVP link." };
   if (!isRsvpResponse(response)) return { error: "Invalid response." };
 
   const ipRl = await checkRateLimit(rsvpLimiter, await clientIp(), "rsvp");
