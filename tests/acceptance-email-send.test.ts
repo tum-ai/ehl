@@ -44,7 +44,11 @@ vi.mock("@/lib/emails/render", () => ({
 vi.mock("@/lib/queries", () => ({ getChapterCommunications: mocks.getChapterCommunications }));
 vi.mock("qrcode", () => ({ default: mocks.QRCode }));
 
-import { sendAcceptanceEmails, sendRejectionEmails } from "@/lib/actions/applications";
+import {
+  sendAcceptanceEmails,
+  sendRejectionEmails,
+  sendBulkEmails,
+} from "@/lib/actions/applications";
 
 const CHAPTER = "chapter-a";
 
@@ -323,5 +327,59 @@ describe("sendRejectionEmails", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("the shared send budget", () => {
+  it("CLAMPS a caller-supplied budget to the default", async () => {
+    // These are exported server actions, so a forged client request could
+    // otherwise ask for an arbitrarily long-running function.
+    vi.useFakeTimers();
+    try {
+      mocks.sendEmail.mockImplementation(async () => {
+        vi.advanceTimersByTime(20_000);
+      });
+
+      const rows = Array.from({ length: 10 }, (_, i) => application(`a${i}`));
+      const { db } = makeDb(rows);
+      mocks.createAdminClient.mockReturnValue(db);
+
+      const result = await sendAcceptanceEmails(
+        rows.map((r) => r.id),
+        { budgetMs: 10_000_000 }
+      );
+
+      // Honouring the request would have sent all 10; the clamp stops it early.
+      expect((result as { sent: number }).sent).toBeLessThan(10);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("falls back to the default for a nonsense budget", async () => {
+    const rows = Array.from({ length: 3 }, (_, i) => application(`a${i}`));
+    const { db } = makeDb(rows);
+    mocks.createAdminClient.mockReturnValue(db);
+
+    const result = await sendAcceptanceEmails(
+      rows.map((r) => r.id),
+      { budgetMs: -1 }
+    );
+
+    expect(result).toMatchObject({ success: true, sent: 3 });
+  });
+});
+
+describe("sendBulkEmails", () => {
+  it("no longer caps at 40 per press", async () => {
+    // It used to slice the pending set to 40 and tell the admin to click again,
+    // so 85 accepted applicants took three presses.
+    const rows = Array.from({ length: 85 }, (_, i) => application(`a${i}`));
+    const { db } = makeDb(rows);
+    mocks.createAdminClient.mockReturnValue(db);
+
+    const result = await sendBulkEmails(CHAPTER);
+
+    expect(result.acceptedSent).toBe(85);
   });
 });
