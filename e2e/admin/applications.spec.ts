@@ -208,6 +208,20 @@ test.describe("Admin applications", () => {
       }
     });
 
+    test("RSVP stat cards render the four counts", async ({ page }) => {
+      await page.goto(`/admin/chapters/${chapterId}/applications`);
+
+      const heading = page.getByRole("heading", { name: /screening/i });
+      const isVisible = await heading.isVisible().catch(() => false);
+
+      if (isVisible) {
+        await expect(page.getByText("RSVP", { exact: true })).toBeVisible();
+        for (const label of ["Confirmed", "Declined", "Awaiting", "Not asked"]) {
+          await expect(page.getByText(label, { exact: true })).toBeVisible();
+        }
+      }
+    });
+
     test("RSVP filter offers the four RSVP states", async ({ page }) => {
       await page.goto(`/admin/chapters/${chapterId}/applications`);
 

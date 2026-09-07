@@ -16,6 +16,7 @@ import {
 import { submitScore, getMyScreenerId } from "@/lib/actions/screening";
 import { sendRsvpEmails } from "@/lib/actions/rsvp";
 import { formatDate } from "@/lib/utils";
+import { countRsvps } from "@/lib/rsvp-stats";
 import type { Application, ApplicationStatus, ApplicationFormData, FlagMatch } from "@/lib/types";
 import { createFlag } from "@/lib/actions/flags";
 
@@ -223,13 +224,9 @@ export default function AdminApplicationsPage({
   const flaggedCount = applications.filter((a) => (a.screening?.flags?.length ?? 0) > 0).length;
 
   // RSVP counters, computed client-side from the loaded rows like the counters
-  // above, so the stats API route stays untouched. Only accepted applicants are
-  // ever asked, so "not asked" is scoped to them to keep the row meaningful.
-  const acceptedApps = applications.filter((a) => a.status === "accepted" || a.status === "checked_in");
-  const rsvpYesCount = applications.filter((a) => a.rsvp?.response === "yes").length;
-  const rsvpNoCount = applications.filter((a) => a.rsvp?.response === "no").length;
-  const rsvpAwaitingCount = applications.filter((a) => a.rsvp && a.rsvp.response === null).length;
-  const rsvpNotAskedCount = acceptedApps.filter((a) => !a.rsvp).length;
+  // above, so the stats API route stays untouched. Shared with the tests via
+  // lib/rsvp-stats so "Not asked" cannot drift from what the send button mails.
+  const rsvpCounts = countRsvps(applications);
 
   // ─── Status locking helpers ─────────────────────────────────
 
@@ -1019,15 +1016,27 @@ export default function AdminApplicationsPage({
             )}
           </div>
         )}
-        {(rsvpYesCount > 0 || rsvpNoCount > 0 || rsvpAwaitingCount > 0 || rsvpNotAskedCount > 0) && (
-          <div className="mt-2 flex flex-wrap items-center gap-x-5 gap-y-1 text-xs ad-text-secondary">
-            <span className="font-semibold ad-text">RSVP</span>
-            <span><span className="font-mono font-bold ad-text-success">{rsvpYesCount}</span> confirmed</span>
-            <span><span className="font-mono font-bold ad-text-error">{rsvpNoCount}</span> declined</span>
-            <span><span className="font-mono font-bold ad-text-warning">{rsvpAwaitingCount}</span> awaiting</span>
-            <span><span className="font-mono font-bold ad-text-muted">{rsvpNotAskedCount}</span> not asked</span>
-          </div>
-        )}
+
+        {/* RSVP bar. Same shape as the status stats above, but counting a
+            different thing: who has answered the attendance request. Always
+            shown so "Not asked" tells you at a glance how many accepted people
+            still need the request sent. */}
+        <p className="mt-6 text-xs font-semibold uppercase tracking-wide ad-text-muted">
+          RSVP
+        </p>
+        <div className="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: "Confirmed", value: rsvpCounts.confirmed, color: "ad-text-success" },
+            { label: "Declined", value: rsvpCounts.declined, color: "ad-text-error" },
+            { label: "Awaiting", value: rsvpCounts.awaiting, color: "ad-text-warning" },
+            { label: "Not asked", value: rsvpCounts.notAsked, color: "ad-text-muted" },
+          ].map((stat) => (
+            <Card key={stat.label} className="text-center">
+              <p className={`text-2xl font-mono font-bold ${stat.color}`}>{stat.value}</p>
+              <p className="mt-1 text-xs ad-text-muted">{stat.label}</p>
+            </Card>
+          ))}
+        </div>
 
         {/* Search + filters */}
         <div className="mt-6 flex flex-col gap-3 sm:flex-row">

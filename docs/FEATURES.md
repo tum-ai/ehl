@@ -161,8 +161,12 @@ Available to participants who are checked in at an event.
   read). A row exists only once someone has been asked, so pressing the send button twice
   mails nobody twice and newly accepted people are picked up on the next press. Sending is
   batched at 40 per press, with the remainder reported.
-- Admin side: the applications page shows a per-row RSVP chip, a
-  confirmed / declined / awaiting / not-asked counter row, and an RSVP filter.
+- Admin side: the applications page shows a per-row RSVP chip, an RSVP filter, and a
+  second row of stat cards (Confirmed / Declined / Awaiting / Not asked) matching the
+  status cards above it. "Not asked" counts only status `accepted`, exactly the set the
+  send button mails, so it always equals the work one press will clear. Checked-in
+  applicants are excluded there (they have arrived and are never sent a request) but
+  their earlier answers still count under Confirmed and Declined.
 - Roles: anyone holding the emailed link can answer it; sending and viewing are available
   to global admins and to that chapter's local admins.
 
