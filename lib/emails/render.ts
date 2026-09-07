@@ -16,6 +16,7 @@ import { AccountClaimEmail } from "./account-claim";
 import { CreateAccountInviteEmail } from "./create-account-invite";
 import { ChapterBroadcastEmail } from "./chapter-broadcast";
 import { CreditCodeEmail } from "./credit-code";
+import { RsvpRequestEmail } from "./rsvp-request";
 
 type WelcomeProps = Parameters<typeof WelcomeEmail>[0];
 type PasswordResetProps = Parameters<typeof PasswordResetEmail>[0];
@@ -33,6 +34,7 @@ type AccountClaimProps = Parameters<typeof AccountClaimEmail>[0];
 type CreateAccountInviteProps = Parameters<typeof CreateAccountInviteEmail>[0];
 type ChapterBroadcastProps = Parameters<typeof ChapterBroadcastEmail>[0];
 type CreditCodeProps = Parameters<typeof CreditCodeEmail>[0];
+type RsvpRequestProps = Parameters<typeof RsvpRequestEmail>[0];
 
 export async function renderWelcomeEmail(props: WelcomeProps): Promise<string> {
   return render(createElement(WelcomeEmail, props));
@@ -92,6 +94,10 @@ export async function renderCertificateEmail(props: CertificateProps): Promise<s
 
 export async function renderChapterBroadcastEmail(props: ChapterBroadcastProps): Promise<string> {
   return render(createElement(ChapterBroadcastEmail, props));
+}
+
+export async function renderRsvpRequestEmail(props: RsvpRequestProps): Promise<string> {
+  return render(createElement(RsvpRequestEmail, props));
 }
 
 export async function renderCreditCodeEmail(props: CreditCodeProps): Promise<string> {

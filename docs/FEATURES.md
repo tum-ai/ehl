@@ -142,6 +142,30 @@ Available to participants who are checked in at an event.
   the top of the hub. Visible to accepted participants even before they are checked in
   (the rest of the hub is gated on check-in). Edited under admin Communications.
 
+### RSVP (`/rsvp/<token>`)
+- Purely a headcount signal. An admin presses **Send RSVP Request** on the chapter's
+  applications page and every ACCEPTED applicant who has not already been asked gets a
+  standalone email with one button. The page behind it offers "Confirm attendance" and
+  "I cannot make it"; the answer is logged and nothing else happens.
+- Deliberately decoupled from the application workflow: it is NOT part of the acceptance
+  email, it never changes `applications.status`, and it has no effect on check-in, teams
+  or registration. It exists so organisers can plan catering and venue numbers.
+- **The first answer is final.** The lock is enforced in the database (the update is
+  conditional on `response IS NULL`), so a double click or a race cannot overwrite it.
+  Someone whose plans change is told to reply to the acceptance email.
+- The answer is recorded ONLY by a POST from a deliberate click. Opening the link writes
+  nothing, because mail scanners fetch every URL in an email before the recipient sees it
+  and a GET-recorded answer would be filled in by a robot.
+- The RSVP token is an unguessable per-application UUID stored in the admin-only
+  `application_rsvps` table (never on the `applications` row, which the applicant can
+  read). A row exists only once someone has been asked, so pressing the send button twice
+  mails nobody twice and newly accepted people are picked up on the next press. Sending is
+  batched at 40 per press, with the remainder reported.
+- Admin side: the applications page shows a per-row RSVP chip, a
+  confirmed / declined / awaiting / not-asked counter row, and an RSVP filter.
+- Roles: anyone holding the emailed link can answer it; sending and viewing are available
+  to global admins and to that chapter's local admins.
+
 ### Check-in (Admin side)
 - Admin scans participant QR code at `/admin/check-in`
 - QR code is embedded in the acceptance email

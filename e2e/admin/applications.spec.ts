@@ -200,6 +200,30 @@ test.describe("Admin applications", () => {
         await expect(
           page.getByRole("button", { name: /send all pending emails/i })
         ).toBeVisible();
+        // The RSVP request is a separate, always-on quick action: it is not
+        // part of the acceptance email and does not need a selection.
+        await expect(
+          page.getByRole("button", { name: /send rsvp request/i })
+        ).toBeVisible();
+      }
+    });
+
+    test("RSVP filter offers the four RSVP states", async ({ page }) => {
+      await page.goto(`/admin/chapters/${chapterId}/applications`);
+
+      const heading = page.getByRole("heading", { name: /screening/i });
+      const isVisible = await heading.isVisible().catch(() => false);
+
+      if (isVisible) {
+        const rsvpFilter = page.locator("select").filter({ hasText: "All RSVP" });
+        await expect(rsvpFilter).toBeVisible();
+        await expect(rsvpFilter.locator("option")).toHaveText([
+          "All RSVP",
+          "RSVP: Confirmed",
+          "RSVP: Declined",
+          "RSVP: Awaiting answer",
+          "RSVP: Not asked",
+        ]);
       }
     });
 

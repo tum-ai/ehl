@@ -92,7 +92,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-64 sequential migrations in `supabase/migrations/`. Key tables:
+65 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055),
   `teams`, `team_members`, `team_invites`, `team_join_requests`
@@ -105,6 +105,14 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 - `submissions`, `code_reviews`
 - `jury_assignments`, `jury_rankings`, `jury_feedback`
 - `applications`, `application_notes` (admin notes history), `screening_scores`, `verification_codes`, `participant_flags`
+- `application_rsvps` (post-acceptance RSVP, migration 00065: an admin-triggered
+  standalone email asks every accepted applicant to confirm or decline, and the
+  answer is logged here for headcount statistics only. A SEPARATE table, never
+  columns on `applications`, because `applications` carries a "Users read own
+  applications" policy and RLS gates ROWS not COLUMNS, so an `rsvp_token` column
+  would be readable by the applicant's own session. Deliberately decoupled: it
+  never reads or writes `applications.status`, is not part of the acceptance
+  email, and dropping the table removes the feature)
 - `scores`, `partners`, `media`
 - `chapter_communications` (admin-only per-chapter acceptance-email subject/message +
   event info; a SEPARATE table, never on the publicly-readable `chapters` row),
@@ -183,7 +191,7 @@ server at the printed local URL/keys, and run `pnpm test:e2e:lifecycle`. See `do
 ## Project Structure
 ```
 lib/
-  actions/              — Server actions (registration, teams, submissions, jury, admin, applications, event, auth, screening, flags, communications, showcase)
+  actions/              — Server actions (registration, teams, submissions, jury, admin, applications, rsvp, event, auth, screening, flags, communications, showcase)
   queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles, showcase)
   emails/               — React Email templates (layout.tsx shared, individual templates, text-block.ts for safe plain-text rendering)
   certificates/         — PDF certificate template + design-guide (@react-pdf/renderer), layout.ts (fixed text positions), designs.ts (custom background loading)
