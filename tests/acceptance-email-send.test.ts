@@ -44,7 +44,7 @@ vi.mock("@/lib/emails/render", () => ({
 vi.mock("@/lib/queries", () => ({ getChapterCommunications: mocks.getChapterCommunications }));
 vi.mock("qrcode", () => ({ default: mocks.QRCode }));
 
-import { sendAcceptanceEmails } from "@/lib/actions/applications";
+import { sendAcceptanceEmails, sendRejectionEmails } from "@/lib/actions/applications";
 
 const CHAPTER = "chapter-a";
 
@@ -56,6 +56,7 @@ function application(id: string, opts: { alreadySent?: boolean } = {}) {
     first_name: "Ada",
     check_in_token: `token-${id}`,
     acceptance_email_sent_at: opts.alreadySent ? "2026-01-01T00:00:00.000Z" : null,
+    rejection_email_sent_at: opts.alreadySent ? "2026-01-01T00:00:00.000Z" : null,
     chapters: { name: "Munich Match", city: "Munich", country: "Germany", date: "2026-11-14", date_end: null },
   };
 }
@@ -216,5 +217,111 @@ describe("sendAcceptanceEmails", () => {
 
     expect(await sendAcceptanceEmails(["a0"])).toEqual({ error: "Forbidden" });
     expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendRejectionEmails", () => {
+  beforeEach(() => {
+    mocks.renderApplicationRejectedEmail.mockResolvedValue("<html></html>");
+  });
+
+  it("mails a large selection in one call", async () => {
+    const rows = Array.from({ length: 85 }, (_, i) => application(`r${i}`));
+    const { db } = makeDb(rows);
+    mocks.createAdminClient.mockReturnValue(db);
+
+    const result = await sendRejectionEmails(rows.map((r) => r.id));
+
+    expect(result).toMatchObject({ success: true, sent: 85, remaining: 0 });
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(85);
+  });
+
+  it("sends concurrently rather than one at a time", async () => {
+    let inFlight = 0;
+    let peak = 0;
+    mocks.sendEmail.mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise((r) => setTimeout(r, 0));
+      inFlight--;
+    });
+
+    const rows = Array.from({ length: 12 }, (_, i) => application(`r${i}`));
+    const { db } = makeDb(rows);
+    mocks.createAdminClient.mockReturnValue(db);
+
+    await sendRejectionEmails(rows.map((r) => r.id));
+
+    expect(peak).toBeGreaterThan(1);
+  });
+
+  it("never re-mails someone already emailed", async () => {
+    const rows = [application("r0", { alreadySent: true }), application("r1")];
+    const { db } = makeDb(rows);
+    mocks.createAdminClient.mockReturnValue(db);
+
+    const result = await sendRejectionEmails(rows.map((r) => r.id));
+
+    expect(result).toMatchObject({ success: true, sent: 1 });
+    expect(mocks.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "r1@example.com" }));
+  });
+
+  it("REPORTS a failed address instead of swallowing it", async () => {
+    // Failures used to be console.error'd and dropped: the admin saw a plain
+    // success count and never learned an address had bounced.
+    mocks.sendEmail.mockImplementation(async ({ to }: { to: string }) => {
+      if (to === "r1@example.com") throw new Error("smtp down");
+    });
+
+    const rows = Array.from({ length: 3 }, (_, i) => application(`r${i}`));
+    const { db } = makeDb(rows);
+    mocks.createAdminClient.mockReturnValue(db);
+
+    const result = await sendRejectionEmails(rows.map((r) => r.id));
+
+    expect(result).toMatchObject({ success: true, sent: 2 });
+    expect((result as { error?: string }).error).toContain("r1@example.com");
+  });
+
+  it("a render failure fails only that applicant, not the whole run", async () => {
+    // Rendering used to sit outside the try, so one bad template threw out of
+    // the action and abandoned every remaining applicant.
+    mocks.renderApplicationRejectedEmail.mockImplementation(async ({ firstName }: { firstName: string }) => {
+      void firstName;
+      if (mocks.renderApplicationRejectedEmail.mock.calls.length === 1) {
+        throw new Error("template blew up");
+      }
+      return "<html></html>";
+    });
+
+    const rows = Array.from({ length: 4 }, (_, i) => application(`r${i}`));
+    const { db } = makeDb(rows);
+    mocks.createAdminClient.mockReturnValue(db);
+
+    const result = await sendRejectionEmails(rows.map((r) => r.id));
+
+    expect(result).toMatchObject({ success: true, sent: 3 });
+  });
+
+  it("stops at the wall-clock budget and reports the rest as remaining", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.sendEmail.mockImplementation(async () => {
+        vi.advanceTimersByTime(20_000);
+      });
+
+      const rows = Array.from({ length: 10 }, (_, i) => application(`r${i}`));
+      const { db } = makeDb(rows);
+      mocks.createAdminClient.mockReturnValue(db);
+
+      const result = await sendRejectionEmails(rows.map((r) => r.id));
+
+      const r = result as { sent: number; remaining: number };
+      expect(r.sent).toBeGreaterThan(0);
+      expect(r.sent).toBeLessThan(10);
+      expect(r.sent + r.remaining).toBe(10);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

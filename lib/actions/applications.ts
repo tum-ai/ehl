@@ -633,24 +633,33 @@ export async function sendRejectionEmails(applicationIds: string[]) {
   const crossChapter = applications.some((a) => a.chapter_id !== chapterId);
   if (crossChapter) return { error: "All applications must belong to the same chapter." };
 
-  let sent = 0;
-  for (const app of applications) {
-    if (app.rejection_email_sent_at) continue;
+  // Already-emailed applicants are filtered out BEFORE the run, so `remaining`
+  // counts only real work the budget did not get to.
+  const pending = applications.filter((app) => !app.rejection_email_sent_at);
 
+  let sent = 0;
+  const failed: string[] = [];
+
+  // Same treatment as sendAcceptanceEmails: concurrent and time-budgeted rather
+  // than an uncapped sequential loop (see lib/bulk-send.ts).
+  const { skipped } = await runBudgetedConcurrent(pending, async (app) => {
     const chapter = app.chapters as Record<string, unknown>;
     const dateStr = formatDateRange(
       chapter.date as string,
       chapter.date_end as string | null
     );
 
-    const html = await renderApplicationRejectedEmail({
-      firstName: app.first_name as string,
-      chapterName: chapter.name as string,
-      chapterCity: `${chapter.city}, ${chapter.country}`,
-      chapterDate: dateStr,
-    });
-
     try {
+      // Rendering sits INSIDE the try. It used to be outside, so a single
+      // template failure threw out of the whole action and abandoned every
+      // remaining applicant, rather than failing just that one.
+      const html = await renderApplicationRejectedEmail({
+        firstName: app.first_name as string,
+        chapterName: chapter.name as string,
+        chapterCity: `${chapter.city}, ${chapter.country}`,
+        chapterDate: dateStr,
+      });
+
       await sendEmail({
         to: app.email as string,
         subject: `Application update: ${chapter.name}`,
@@ -664,10 +673,18 @@ export async function sendRejectionEmails(applicationIds: string[]) {
       sent++;
     } catch (err) {
       console.error(`Failed to send rejection email to ${app.email}:`, err);
+      failed.push(app.email as string);
     }
-  }
+  });
 
-  return { success: true, sent };
+  const remaining = skipped.length;
+
+  // Failures used to be logged to the server console and swallowed, so the
+  // admin saw a plain success count and never learned an address had bounced.
+  if (failed.length > 0) {
+    return { success: true, sent, remaining, error: `Failed to send to: ${failed.join(", ")}` };
+  }
+  return { success: true, sent, remaining };
 }
 
 // ─── Admin: Cancel an accepted applicant ─────────────────────
