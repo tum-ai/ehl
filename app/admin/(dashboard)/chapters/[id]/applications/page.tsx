@@ -409,10 +409,18 @@ export default function AdminApplicationsPage({
     setActing(true);
     setMessage(null);
     const result = await sendAcceptanceEmails(accepted);
-    if (result.error) {
+    if (!("success" in result)) {
       setMessage({ type: "error", text: result.error });
     } else {
-      setMessage({ type: "success", text: `Sent ${result.sent} acceptance email(s).` });
+      // `error` here lists addresses that failed; the send still succeeded for
+      // the rest, so this is a warning about a partial result, not a failure.
+      setMessage({
+        type: result.error ? "error" : "success",
+        text:
+          `Sent ${result.sent} acceptance email(s).` +
+          (result.remaining ? ` ${result.remaining} still pending: click again to continue.` : "") +
+          (result.error ? ` ${result.error}.` : ""),
+      });
       await loadData(chapterId);
     }
     setActing(false);
@@ -429,10 +437,16 @@ export default function AdminApplicationsPage({
     setActing(true);
     setMessage(null);
     const result = await sendRejectionEmails(rejected);
-    if (result.error) {
+    if (!("success" in result)) {
       setMessage({ type: "error", text: result.error });
     } else {
-      setMessage({ type: "success", text: `Sent ${result.sent} rejection email(s).` });
+      setMessage({
+        type: result.error ? "error" : "success",
+        text:
+          `Sent ${result.sent} rejection email(s).` +
+          (result.remaining ? ` ${result.remaining} still pending: click again to continue.` : "") +
+          (result.error ? ` ${result.error}.` : ""),
+      });
       await loadData(chapterId);
     }
     setActing(false);

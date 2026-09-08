@@ -65,7 +65,7 @@ test.describe("RSVP page", () => {
     // recipient's own open.
     for (let i = 0; i < 3; i++) {
       await page.goto(`/rsvp/${token}`);
-      await expect(page.getByRole("heading", { name: /are you coming/i })).toBeVisible();
+      await expect(page.getByRole("heading", { name: /one click left/i })).toBeVisible();
     }
 
     expect(await storedResponse()).toBeNull();
@@ -74,24 +74,24 @@ test.describe("RSVP page", () => {
   test("shows both choices before an answer exists", async ({ page }) => {
     await page.goto(`/rsvp/${token}`);
 
-    await expect(page.getByRole("button", { name: /confirm attendance/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /secure my spot/i })).toBeVisible();
     await expect(page.getByRole("button", { name: /cannot make it/i })).toBeVisible();
   });
 
   test("clicking Confirm records the answer, and the answer is then locked", async ({ page }) => {
     await page.goto(`/rsvp/${token}`);
-    await page.getByRole("button", { name: /confirm attendance/i }).click();
+    await page.getByRole("button", { name: /secure my spot/i }).click();
 
-    await expect(page.getByText(/you confirmed your attendance/i)).toBeVisible();
+    await expect(page.getByText(/your spot is secured/i)).toBeVisible();
     expect(await storedResponse()).toBe("yes");
 
     // The buttons are gone: the first answer is final.
-    await expect(page.getByRole("button", { name: /confirm attendance/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /secure my spot/i })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /cannot make it/i })).toHaveCount(0);
 
     // And it survives a reload, still with no way to change it.
     await page.reload();
-    await expect(page.getByText(/you confirmed your attendance/i)).toBeVisible();
+    await expect(page.getByText(/your spot is secured/i)).toBeVisible();
     await expect(page.getByRole("button", { name: /cannot make it/i })).toHaveCount(0);
     expect(await storedResponse()).toBe("yes");
   });

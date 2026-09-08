@@ -5,7 +5,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireChapterAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderRsvpRequestEmail } from "@/lib/emails/render";
-import { formatDateRange, runWithConcurrency } from "@/lib/utils";
+import { formatDateRange } from "@/lib/utils";
+import { runBudgetedConcurrent } from "@/lib/bulk-send";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 import { checkRateLimit, rsvpLimiter, rsvpTokenLimiter } from "@/lib/ratelimit";
 import { logEvent } from "@/lib/event-log";
@@ -226,9 +227,9 @@ export async function submitRsvp(
 //     mid-send with no record of how far it got.
 //
 // So a realistic chapter goes out in one press, and a pathologically large one
-// still degrades safely into an accurate `remaining` instead of a timeout.
-const SEND_CONCURRENCY = 3;
-const SEND_BUDGET_MS = 45000;
+// still degrades safely into an accurate `remaining` instead of a timeout. The
+// scheduling itself lives in lib/bulk-send.ts, shared with the acceptance and
+// rejection sends.
 
 export async function sendRsvpEmails(chapterId: string): Promise<
   | { error: string }
@@ -259,20 +260,13 @@ export async function sendRsvpEmails(chapterId: string): Promise<
     return { success: true, sent: 0, remaining: 0, failed: [] };
   }
 
-  const deadline = Date.now() + SEND_BUDGET_MS;
   let sent = 0;
-  let skipped = 0;
   const failed: string[] = [];
 
-  const jobs = pending.map((app) => async () => {
-    // Checked INSIDE the job, before the insert: a recipient the budget did not
-    // reach must leave no row behind, or the next press would consider them
-    // already asked and they would never be mailed.
-    if (Date.now() > deadline) {
-      skipped++;
-      return;
-    }
-
+  // The budget is enforced before the insert below: a recipient it did not
+  // reach must leave no row behind, or the next press would consider them
+  // already asked and they would never be mailed.
+  const { skipped } = await runBudgetedConcurrent(pending, async (app) => {
     const chapter = (Array.isArray(app.chapters) ? app.chapters[0] : app.chapters) as Record<
       string,
       unknown
@@ -316,9 +310,6 @@ export async function sendRsvpEmails(chapterId: string): Promise<
     }
   });
 
-  // Every job catches its own error, so one bad address never stops the run.
-  await runWithConcurrency(jobs, SEND_CONCURRENCY);
-
   if (sent > 0) {
     logEvent({
       action: "application.rsvp_requested",
@@ -326,9 +317,9 @@ export async function sendRsvpEmails(chapterId: string): Promise<
       entityId: chapterId,
       actorId: await getActingUserId(),
       actorType: "admin",
-      delta: { rsvp_emails: { sent, failed: failed.length, skipped } },
+      delta: { rsvp_emails: { sent, failed: failed.length, skipped: skipped.length } },
     });
   }
 
-  return { success: true, sent, remaining: skipped, failed };
+  return { success: true, sent, remaining: skipped.length, failed };
 }

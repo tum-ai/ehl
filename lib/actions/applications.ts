@@ -30,6 +30,7 @@ import { uploadFile } from "@/lib/gdrive";
 import QRCode from "qrcode";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, applicationLimiter, apiLimiter } from "@/lib/ratelimit";
+import { runBudgetedConcurrent, EMAIL_SEND_BUDGET_MS } from "@/lib/bulk-send";
 import { logEvent } from "@/lib/event-log";
 
 // ─── Shared application-insert builder ───────────────────────
@@ -501,9 +502,26 @@ export async function bulkUpdateApplicationStatus(
   return { success: true };
 }
 
+/** Never let a caller (or a forged client request) exceed the default budget. */
+function clampSendBudget(budgetMs?: number): number {
+  if (typeof budgetMs !== "number" || !Number.isFinite(budgetMs) || budgetMs <= 0) {
+    return EMAIL_SEND_BUDGET_MS;
+  }
+  return Math.min(budgetMs, EMAIL_SEND_BUDGET_MS);
+}
+
 // ─── Admin: Send acceptance emails with QR codes ─────────────
 
-export async function sendAcceptanceEmails(applicationIds: string[]) {
+/**
+ * `budgetMs` lets a caller running several sends in one request share a single
+ * wall-clock budget across them (see sendBulkEmails). It is CLAMPED to the
+ * default: this is an exported server action, so a client could otherwise ask
+ * for an arbitrarily long-running function.
+ */
+export async function sendAcceptanceEmails(
+  applicationIds: string[],
+  opts?: { budgetMs?: number }
+) {
   const adminClient = createAdminClient();
 
   const { data: applications } = await adminClient
@@ -528,12 +546,20 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
   // when no row exists / fields are null, the email is byte-identical to legacy.
   const comms = await getChapterCommunications(chapterId as string);
 
+  // Already-emailed applicants are filtered out BEFORE the run, so `remaining`
+  // below counts only real work the budget did not get to.
+  const pending = applications.filter((app) => !app.acceptance_email_sent_at);
+
   let sent = 0;
   const failed: string[] = [];
-  for (const app of applications) {
-    // Skip if already emailed
-    if (app.acceptance_email_sent_at) continue;
 
+  // Concurrent and time-budgeted (see lib/bulk-send.ts). This used to be a
+  // sequential loop with no cap at all: selecting 85 applicants meant 85 SMTP
+  // round trips plus 85 QR renders in one request, which could exceed the
+  // function timeout and die mid-batch, leaving some sent and no record of how
+  // far it got. The acceptance_email_sent_at stamp made that recoverable, but
+  // only if the admin knew to press again.
+  const { skipped } = await runBudgetedConcurrent(pending, async (app) => {
     const chapter = app.chapters as Record<string, unknown>;
     const dateStr = formatDateRange(
       chapter.date as string,
@@ -592,17 +618,23 @@ export async function sendAcceptanceEmails(applicationIds: string[]) {
       console.error(`Failed to send acceptance email to ${app.email}:`, err);
       failed.push(app.email as string);
     }
-  }
+  }, { budgetMs: clampSendBudget(opts?.budgetMs) });
+
+  const remaining = skipped.length;
 
   if (failed.length > 0) {
-    return { success: true, sent, error: `Failed to send to: ${failed.join(", ")}` };
+    return { success: true, sent, remaining, error: `Failed to send to: ${failed.join(", ")}` };
   }
-  return { success: true, sent };
+  return { success: true, sent, remaining };
 }
 
 // ─── Admin: Send rejection emails ──────────────────────────
 
-export async function sendRejectionEmails(applicationIds: string[]) {
+/** See sendAcceptanceEmails for `budgetMs`; it is clamped the same way. */
+export async function sendRejectionEmails(
+  applicationIds: string[],
+  opts?: { budgetMs?: number }
+) {
   const adminClient = createAdminClient();
 
   const { data: applications } = await adminClient
@@ -622,24 +654,33 @@ export async function sendRejectionEmails(applicationIds: string[]) {
   const crossChapter = applications.some((a) => a.chapter_id !== chapterId);
   if (crossChapter) return { error: "All applications must belong to the same chapter." };
 
-  let sent = 0;
-  for (const app of applications) {
-    if (app.rejection_email_sent_at) continue;
+  // Already-emailed applicants are filtered out BEFORE the run, so `remaining`
+  // counts only real work the budget did not get to.
+  const pending = applications.filter((app) => !app.rejection_email_sent_at);
 
+  let sent = 0;
+  const failed: string[] = [];
+
+  // Same treatment as sendAcceptanceEmails: concurrent and time-budgeted rather
+  // than an uncapped sequential loop (see lib/bulk-send.ts).
+  const { skipped } = await runBudgetedConcurrent(pending, async (app) => {
     const chapter = app.chapters as Record<string, unknown>;
     const dateStr = formatDateRange(
       chapter.date as string,
       chapter.date_end as string | null
     );
 
-    const html = await renderApplicationRejectedEmail({
-      firstName: app.first_name as string,
-      chapterName: chapter.name as string,
-      chapterCity: `${chapter.city}, ${chapter.country}`,
-      chapterDate: dateStr,
-    });
-
     try {
+      // Rendering sits INSIDE the try. It used to be outside, so a single
+      // template failure threw out of the whole action and abandoned every
+      // remaining applicant, rather than failing just that one.
+      const html = await renderApplicationRejectedEmail({
+        firstName: app.first_name as string,
+        chapterName: chapter.name as string,
+        chapterCity: `${chapter.city}, ${chapter.country}`,
+        chapterDate: dateStr,
+      });
+
       await sendEmail({
         to: app.email as string,
         subject: `Application update: ${chapter.name}`,
@@ -653,10 +694,18 @@ export async function sendRejectionEmails(applicationIds: string[]) {
       sent++;
     } catch (err) {
       console.error(`Failed to send rejection email to ${app.email}:`, err);
+      failed.push(app.email as string);
     }
-  }
+  }, { budgetMs: clampSendBudget(opts?.budgetMs) });
 
-  return { success: true, sent };
+  const remaining = skipped.length;
+
+  // Failures used to be logged to the server console and swallowed, so the
+  // admin saw a plain success count and never learned an address had bounced.
+  if (failed.length > 0) {
+    return { success: true, sent, remaining, error: `Failed to send to: ${failed.join(", ")}` };
+  }
+  return { success: true, sent, remaining };
 }
 
 // ─── Admin: Cancel an accepted applicant ─────────────────────
@@ -914,29 +963,35 @@ export async function sendBulkEmails(chapterId: string) {
   const acceptedIds = (accepted ?? []).map((a) => a.id as string);
   const rejectedIds = (rejected ?? []).map((a) => a.id as string);
 
-  // Cap per invocation so a large pending set (hundreds of applicants) can't
-  // exceed the serverless function timeout. Progress is persisted per-applicant
-  // (acceptance/rejection_email_sent_at), so the UI re-invokes to send the rest.
-  const BATCH = 40;
-  const totalPending = acceptedIds.length + rejectedIds.length;
-
-  const acceptedBatch = acceptedIds.slice(0, BATCH);
-  const rejectedBatch = rejectedIds.slice(0, Math.max(0, BATCH - acceptedBatch.length));
-
+  // No fixed chunk: both senders are now individually time-budgeted, so one
+  // press sends as many as fit. The two runs SHARE a single budget rather than
+  // taking one each, which would have allowed 2x the budget in one request and
+  // put the function timeout back in play.
+  const started = Date.now();
   let acceptedSent = 0;
   let rejectedSent = 0;
+  let remaining = 0;
 
-  if (acceptedBatch.length > 0) {
-    const result = await sendAcceptanceEmails(acceptedBatch);
+  if (acceptedIds.length > 0) {
+    const result = await sendAcceptanceEmails(acceptedIds, { budgetMs: EMAIL_SEND_BUDGET_MS });
     acceptedSent = result.sent ?? 0;
+    remaining += result.remaining ?? 0;
   }
 
-  if (rejectedBatch.length > 0) {
-    const result = await sendRejectionEmails(rejectedBatch);
-    rejectedSent = result.sent ?? 0;
-  }
+  // Whatever the acceptance run left of the shared budget.
+  const leftMs = EMAIL_SEND_BUDGET_MS - (Date.now() - started);
 
-  const remaining = Math.max(0, totalPending - acceptedBatch.length - rejectedBatch.length);
+  if (rejectedIds.length > 0) {
+    if (leftMs > 0) {
+      const result = await sendRejectionEmails(rejectedIds, { budgetMs: leftMs });
+      rejectedSent = result.sent ?? 0;
+      remaining += result.remaining ?? 0;
+    } else {
+      // Budget already spent on acceptances: report the rejections untouched
+      // rather than starting a run that cannot finish.
+      remaining += rejectedIds.length;
+    }
+  }
 
   return {
     success: true,
