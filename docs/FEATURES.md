@@ -178,7 +178,11 @@ Available to participants who are checked in at an event.
   status cards above it. "Not asked" counts only status `accepted`, exactly the set the
   send button mails, so it always equals the work one press will clear. Checked-in
   applicants are excluded there (they have arrived and are never sent a request) but
-  their earlier answers still count under Confirmed and Declined.
+  their earlier answers still count under Confirmed and Declined. CANCELLED applicants
+  are excluded from all four counts: they are not coming and that was settled outside
+  the RSVP flow, so counting them would leave a never-answering person in "Awaiting" for
+  ever and overstate the headcount. Their row is kept, so the record that they were
+  asked survives and a later send cannot re-mail them.
 - Roles: anyone holding the emailed link can answer it; sending and viewing are available
   to global admins and to that chapter's local admins.
 
