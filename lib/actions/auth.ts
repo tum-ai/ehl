@@ -17,11 +17,7 @@ import { getSafeRedirect, getSiteUrl } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, authLimiter, resetLimiter, resetEmailLimiter } from "@/lib/ratelimit";
 import { getLockingTeamId } from "@/lib/team-membership";
-import {
-  normalizeGitHubUsername,
-  juryGitHubUsernameRequired,
-} from "@/lib/jury-github";
-import type { SubmissionFieldConfig } from "@/lib/types";
+import { normalizeGitHubUsername } from "@/lib/jury-github";
 
 export async function signIn(formData: FormData, redirectTo?: string) {
   const email = formData.get("email") as string;
@@ -458,9 +454,12 @@ export async function inviteJury(
   const adminClient = createAdminClient();
   const siteUrl = getSiteUrl();
 
-  // GitHub username: validated at the boundary, and REQUIRED when this
-  // challenge will put jury on private snapshot forks. Enforced server-side
-  // (not only in the form) because the action is callable directly.
+  // GitHub username: always OPTIONAL. A missing one costs the juror access to
+  // private snapshot forks, but never blocks the invite: the admin usually does
+  // not know the handle at invite time, and being unable to invite a juror is a
+  // worse failure than a juror with one dead repo link. Missing usernames are
+  // flagged in the admin jury list instead. Only the format is enforced, so a
+  // typo cannot be stored and fail silently days later at lock time.
   const rawGithub = githubUsername?.trim() || "";
   const normalizedGithub = rawGithub ? normalizeGitHubUsername(rawGithub) : null;
 
@@ -469,36 +468,6 @@ export async function inviteJury(
       error:
         "That is not a valid GitHub username. Use the username itself (for example: octocat), not an email address.",
     };
-  }
-
-  const { data: challengeRow } = await adminClient
-    .from("challenges")
-    .select("submission_fields, invite_jury_to_forks")
-    .eq("id", challengeId)
-    .single();
-
-  const needsGithub = juryGitHubUsernameRequired({
-    inviteJuryToForks: challengeRow?.invite_jury_to_forks === true,
-    submissionFields:
-      (challengeRow?.submission_fields as SubmissionFieldConfig[] | null) ?? [],
-  });
-
-  if (needsGithub && !normalizedGithub) {
-    // Check whether we already hold one from an earlier invite before refusing:
-    // re-inviting an existing juror to a second challenge must not demand the
-    // username again.
-    const { data: knownProfile } = await adminClient
-      .from("profiles")
-      .select("github_username")
-      .eq("email", email.trim().toLowerCase())
-      .maybeSingle();
-
-    if (!knownProfile?.github_username) {
-      return {
-        error:
-          "This challenge judges private repositories, so a GitHub username is required. Without it the juror cannot be added to the snapshot repositories.",
-      };
-    }
   }
 
   // Check if user already exists

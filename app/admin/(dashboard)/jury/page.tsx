@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { inviteJury } from "@/lib/actions/auth";
 import { removeJuryAssignment, removeJuryMember, finalizeJuryVotes, regenerateScoresFromFinalizedRankings } from "@/lib/actions/jury";
 import { shouldShowFinalizedBlock, hasJury as hasJuryFor } from "@/lib/jury-view";
-import { juryGitHubUsernameRequired } from "@/lib/jury-github";
+import { juryGitHubUsernameNeeded } from "@/lib/jury-github";
 import type { SubmissionFieldConfig } from "@/lib/types";
 
 interface Chapter {
@@ -27,7 +27,7 @@ interface Challenge {
   // implying finalizing creates points.
   isScored: boolean;
   juryFinalizedAt: string | null;
-  // Needed to decide whether a jury GitHub username is required: jury only get
+  // Decide whether to flag jury who have no GitHub username: they only get
   // added to snapshot forks when inviteJuryToForks is on, and only need a
   // collaborator invite when a repo field permits a private repo.
   inviteJuryToForks: boolean;
@@ -39,6 +39,8 @@ interface Juror {
   name: string | null;
   email: string | null;
   status: "pending" | "voted" | "skipped";
+  // Null means this juror cannot be added to private snapshot forks.
+  githubUsername: string | null;
 }
 
 interface ChallengeProgress {
@@ -128,9 +130,9 @@ export default function AdminJuryPage() {
     ? challenges.filter((c) => c.chapterId === selectedChapterId)
     : [];
 
-  // Same predicate the server action enforces, so the form never lets an admin
-  // submit something the action will reject.
-  const githubRequired = juryGitHubUsernameRequired(
+  // Drives the hint under the GitHub field and the "no GitHub access" flag in
+  // the juror list. Never blocks the invite.
+  const githubNeeded = juryGitHubUsernameNeeded(
     challenges.find((c) => c.id === selectedChallengeId)
   );
 
@@ -320,19 +322,18 @@ export default function AdminJuryPage() {
 
           <div>
             <label className="block text-sm ad-text-muted">
-              GitHub username{githubRequired ? " (required)" : " (optional)"}
+              GitHub username (optional)
             </label>
             <input
               value={githubUsername}
               onChange={(e) => setGithubUsername(e.target.value)}
-              required={githubRequired}
               placeholder="octocat"
               className="mt-1 w-full rounded-lg border ad-border ad-bg-input px-4 py-2.5 ad-text focus:outline-none"
             />
             <p className="mt-1 text-xs ad-text-muted">
-              {githubRequired
-                ? "This challenge judges private repositories. GitHub can only add a collaborator by username, so without it this juror cannot be given access to the submitted code."
-                : "Only needed when the jury has to be added to private repositories. Safe to leave empty otherwise."}
+              {githubNeeded
+                ? "This challenge judges private repositories. Without a username this juror cannot open the code on GitHub, though they can still read the AI code review and rank teams. You can add it later by inviting them again."
+                : "Only needed when jury have to be added to private repositories. Safe to leave empty."}
             </p>
           </div>
 
@@ -481,6 +482,13 @@ export default function AdminJuryPage() {
                                 <div>
                                   <p className="text-sm font-medium">{juror.name || "Unnamed"}</p>
                                   <p className="text-xs ad-text-muted">{juror.email}</p>
+                                  {/* Only a flag, never a block: this juror can
+                                      still read the AI code review and rank. */}
+                                  {juryGitHubUsernameNeeded(challenge) && !juror.githubUsername && (
+                                    <p className="mt-0.5 text-xs ad-text-error">
+                                      No GitHub username: cannot open private repositories
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               {!cp.finalized && (

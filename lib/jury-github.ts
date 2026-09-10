@@ -48,18 +48,22 @@ type RepoAccessChallenge = Pick<Challenge, "inviteJuryToForks"> & {
 };
 
 /**
- * Does inviting jury to this challenge's forks require a GitHub username?
+ * Will jury on this challenge NEED a GitHub username to open the code?
  *
- * Only when BOTH hold:
+ * True only when BOTH hold:
  *  - the challenge invites jury to the snapshot forks at all, and
  *  - at least one repo field permits a PRIVATE repo ("invite_required", or
  *    "any", where a team may still choose private).
  *
  * A fork of a public repo is public, so a juror opens it with no collaborator
- * invite and no GitHub account: demanding a username there would be friction
- * that buys nothing.
+ * invite and no GitHub account: asking for a username there buys nothing.
+ *
+ * This drives a WARNING, never a block. Inviting a juror without a username is
+ * always allowed; they simply cannot open the private fork, which costs them
+ * one link. The AI code review report and the ranking UI are served from our
+ * own database and need no GitHub account at all.
  */
-export function juryGitHubUsernameRequired(
+export function juryGitHubUsernameNeeded(
   challenge: RepoAccessChallenge | null | undefined
 ): boolean {
   if (!challenge?.inviteJuryToForks) return false;

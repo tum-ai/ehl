@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   normalizeGitHubUsername,
-  juryGitHubUsernameRequired,
+  juryGitHubUsernameNeeded,
 } from "@/lib/jury-github";
 import type { SubmissionFieldConfig } from "@/lib/types";
 
@@ -89,64 +89,64 @@ describe("normalizeGitHubUsername", () => {
   });
 });
 
-describe("juryGitHubUsernameRequired", () => {
-  it("is required when jury go to forks and the repo must be private", () => {
+describe("juryGitHubUsernameNeeded", () => {
+  it("is needed when jury go to forks and the repo must be private", () => {
     expect(
-      juryGitHubUsernameRequired({
+      juryGitHubUsernameNeeded({
         inviteJuryToForks: true,
         submissionFields: [repoField("invite_required")],
       })
     ).toBe(true);
   });
 
-  it("is required for repoAccess 'any', where a team may still pick private", () => {
+  it("is needed for repoAccess 'any', where a team may still pick private", () => {
     expect(
-      juryGitHubUsernameRequired({
+      juryGitHubUsernameNeeded({
         inviteJuryToForks: true,
         submissionFields: [repoField("any")],
       })
     ).toBe(true);
   });
 
-  it("defaults an unset repoAccess to required, matching the admin UI default", () => {
+  it("defaults an unset repoAccess to needed, matching the admin UI default", () => {
     expect(
-      juryGitHubUsernameRequired({
+      juryGitHubUsernameNeeded({
         inviteJuryToForks: true,
         submissionFields: [repoField(undefined)],
       })
     ).toBe(true);
   });
 
-  it("is NOT required for a public repo: the fork is public, no invite needed", () => {
+  it("is NOT needed for a public repo: the fork is public, no invite needed", () => {
     expect(
-      juryGitHubUsernameRequired({
+      juryGitHubUsernameNeeded({
         inviteJuryToForks: true,
         submissionFields: [repoField("public")],
       })
     ).toBe(false);
   });
 
-  it("is NOT required when jury are not invited to forks at all", () => {
+  it("is NOT needed when jury are not invited to forks at all", () => {
     expect(
-      juryGitHubUsernameRequired({
+      juryGitHubUsernameNeeded({
         inviteJuryToForks: false,
         submissionFields: [repoField("invite_required")],
       })
     ).toBe(false);
   });
 
-  it("is NOT required when the challenge has no repo field", () => {
+  it("is NOT needed when the challenge has no repo field", () => {
     expect(
-      juryGitHubUsernameRequired({
+      juryGitHubUsernameNeeded({
         inviteJuryToForks: true,
         submissionFields: [fileField],
       })
     ).toBe(false);
   });
 
-  it("is required if ANY repo field permits private, even alongside a public one", () => {
+  it("is needed if ANY repo field permits private, even alongside a public one", () => {
     expect(
-      juryGitHubUsernameRequired({
+      juryGitHubUsernameNeeded({
         inviteJuryToForks: true,
         submissionFields: [repoField("public"), repoField("invite_required")],
       })
@@ -154,9 +154,9 @@ describe("juryGitHubUsernameRequired", () => {
   });
 
   it("handles missing, null and empty field lists without throwing", () => {
-    expect(juryGitHubUsernameRequired({ inviteJuryToForks: true, submissionFields: [] })).toBe(false);
-    expect(juryGitHubUsernameRequired({ inviteJuryToForks: true, submissionFields: null })).toBe(false);
-    expect(juryGitHubUsernameRequired(null)).toBe(false);
-    expect(juryGitHubUsernameRequired(undefined)).toBe(false);
+    expect(juryGitHubUsernameNeeded({ inviteJuryToForks: true, submissionFields: [] })).toBe(false);
+    expect(juryGitHubUsernameNeeded({ inviteJuryToForks: true, submissionFields: null })).toBe(false);
+    expect(juryGitHubUsernameNeeded(null)).toBe(false);
+    expect(juryGitHubUsernameNeeded(undefined)).toBe(false);
   });
 });
