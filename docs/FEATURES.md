@@ -322,8 +322,34 @@ Jury members use magic link authentication (no password).
 - Per-team feedback notes visible to admins
 - Helps admins understand jury reasoning
 
+### GitHub access to private submissions
+The jury invite form has an **optional GitHub username** field. GitHub's
+collaborator API can only add a person by username, and the account email an
+admin types is usually not the address on that person's GitHub profile.
+
+- **Never blocks an invite.** The admin rarely knows the handle at invite time,
+  and being unable to invite a juror is worse than a juror with one dead link.
+- Stored on `profiles.github_username`; accepts a bare username, `@handle`, or a
+  profile URL, validated against GitHub's own username rules. A malformed value
+  is rejected so a typo cannot be stored and fail silently at lock time.
+- When a challenge invites jury to forks (`inviteJuryToForks`) and any repo field
+  permits a private repo (`invite_required`, or `any`), jurors with no username
+  are **flagged in the admin jury list**. Adding it later is a re-invite.
+- Nothing is flagged for public-repo challenges: a fork of a public repo is
+  public, so jury need no collaborator invite and no GitHub account.
+- At submission lock, each juror is added to every snapshot fork with **read**
+  access. Jurors with no stored username fall back to GitHub email search, which
+  only matches users with a public profile email.
+- Failed invites are returned from the lock as `failedJuryInvites` and logged,
+  rather than being silently skipped.
+
+**A juror with no GitHub access can still judge.** The AI code review report and
+the ranking UI are served from our own database, so only the "View Repository"
+link is affected; it leads to a GitHub 404 for that juror.
+
 ### How Jury Voting Works
-1. Admin invites jury members (sends magic link email)
+1. Admin invites jury members (sends magic link email; optionally a GitHub
+   username, needed only to open private repositories)
 2. Admin assigns jury to specific challenges
 3. Jury reviews submissions and AI code review reports
 4. Jury ranks teams via drag-and-drop

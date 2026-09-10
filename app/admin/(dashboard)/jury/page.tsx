@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { inviteJury } from "@/lib/actions/auth";
 import { removeJuryAssignment, removeJuryMember, finalizeJuryVotes, regenerateScoresFromFinalizedRankings } from "@/lib/actions/jury";
 import { shouldShowFinalizedBlock, hasJury as hasJuryFor } from "@/lib/jury-view";
+import { juryGitHubUsernameNeeded } from "@/lib/jury-github";
+import type { SubmissionFieldConfig } from "@/lib/types";
 
 interface Chapter {
   id: string;
@@ -25,6 +27,11 @@ interface Challenge {
   // implying finalizing creates points.
   isScored: boolean;
   juryFinalizedAt: string | null;
+  // Decide whether to flag jury who have no GitHub username: they only get
+  // added to snapshot forks when inviteJuryToForks is on, and only need a
+  // collaborator invite when a repo field permits a private repo.
+  inviteJuryToForks: boolean;
+  submissionFields: SubmissionFieldConfig[];
 }
 
 interface Juror {
@@ -32,6 +39,8 @@ interface Juror {
   name: string | null;
   email: string | null;
   status: "pending" | "voted" | "skipped";
+  // Null means this juror cannot be added to private snapshot forks.
+  githubUsername: string | null;
 }
 
 interface ChallengeProgress {
@@ -50,6 +59,7 @@ interface JuryUser {
 export default function AdminJuryPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [githubUsername, setGithubUsername] = useState("");
   const [selectedChapterId, setSelectedChapterId] = useState("");
   const [selectedChallengeId, setSelectedChallengeId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -120,6 +130,12 @@ export default function AdminJuryPage() {
     ? challenges.filter((c) => c.chapterId === selectedChapterId)
     : [];
 
+  // Drives the hint under the GitHub field and the "no GitHub access" flag in
+  // the juror list. Never blocks the invite.
+  const githubNeeded = juryGitHubUsernameNeeded(
+    challenges.find((c) => c.id === selectedChallengeId)
+  );
+
   async function handleInvite(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
@@ -134,7 +150,13 @@ export default function AdminJuryPage() {
     if (!challenge) return;
 
     setLoading(true);
-    const result = await inviteJury(email, name, selectedChallengeId, challenge.chapterId);
+    const result = await inviteJury(
+      email,
+      name,
+      selectedChallengeId,
+      challenge.chapterId,
+      githubUsername
+    );
 
     if (result.error) {
       setError(result.error);
@@ -142,6 +164,7 @@ export default function AdminJuryPage() {
       setSuccess(`Invitation sent to ${email}`);
       setEmail("");
       setName("");
+      setGithubUsername("");
       // Reload data
       await loadData();
     }
@@ -297,6 +320,23 @@ export default function AdminJuryPage() {
             </div>
           </div>
 
+          <div>
+            <label className="block text-sm ad-text-muted">
+              GitHub username (optional)
+            </label>
+            <input
+              value={githubUsername}
+              onChange={(e) => setGithubUsername(e.target.value)}
+              placeholder="octocat"
+              className="mt-1 w-full rounded-lg border ad-border ad-bg-input px-4 py-2.5 ad-text focus:outline-none"
+            />
+            <p className="mt-1 text-xs ad-text-muted">
+              {githubNeeded
+                ? "This challenge judges private repositories. Without a username this juror cannot open the code on GitHub, though they can still read the AI code review and rank teams. You can add it later by inviting them again."
+                : "Only needed when jury have to be added to private repositories. Safe to leave empty."}
+            </p>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="block text-sm ad-text-muted">Match</label>
@@ -442,6 +482,13 @@ export default function AdminJuryPage() {
                                 <div>
                                   <p className="text-sm font-medium">{juror.name || "Unnamed"}</p>
                                   <p className="text-xs ad-text-muted">{juror.email}</p>
+                                  {/* Only a flag, never a block: this juror can
+                                      still read the AI code review and rank. */}
+                                  {juryGitHubUsernameNeeded(challenge) && !juror.githubUsername && (
+                                    <p className="mt-0.5 text-xs ad-text-error">
+                                      No GitHub username: cannot open private repositories
+                                    </p>
+                                  )}
                                 </div>
                               </div>
                               {!cp.finalized && (

@@ -290,36 +290,91 @@ export async function fetchCheckpointBranchIntoFork(
 
 // ─── Collaborator management ────────────────────────────────
 
+/** One person to invite onto a snapshot fork. */
+export type CollaboratorInvitee = {
+  email: string;
+  /** Bare GitHub username, when we captured one at jury-invite time. */
+  githubUsername?: string | null;
+};
+
+/** Per-invitee outcome, so callers can report failures instead of losing them. */
+export type CollaboratorInviteResult = {
+  email: string;
+  username: string | null;
+  /** "username" = used the stored one, "email_search" = resolved by lookup. */
+  resolvedBy: "username" | "email_search" | null;
+  invited: boolean;
+  error?: string;
+};
+
 /**
- * Add collaborators to a repository by email.
- * Looks up GitHub usernames by email, then invites them with read access.
- * Silently skips emails where no GitHub user is found.
+ * Add collaborators to a repository with read access.
+ *
+ * Resolution order per person:
+ *  1. The GitHub username stored on their profile (captured at jury-invite
+ *     time). This is the reliable path.
+ *  2. Falling back to `search/users?q=<email>+in:email`, which ONLY matches
+ *     users who made that address public on their GitHub profile. Kept for
+ *     jurors invited before usernames were collected, but it is a long shot.
+ *
+ * Returns a per-invitee result. Callers MUST surface failures: a juror who
+ * never gets access to a private fork cannot judge, and the old
+ * silently-skip-on-miss behavior meant nobody found out until the jury
+ * complained.
  */
 export async function addCollaborators(
   owner: string,
   repo: string,
-  emails: string[]
-): Promise<void> {
+  invitees: CollaboratorInvitee[]
+): Promise<CollaboratorInviteResult[]> {
   const token = await getGitHubToken();
-  if (!token) return;
+  if (!token) {
+    return invitees.map((i) => ({
+      email: i.email,
+      username: i.githubUsername ?? null,
+      resolvedBy: null,
+      invited: false,
+      error: "GitHub token not configured.",
+    }));
+  }
 
   const headers = await getHeaders();
+  const results: CollaboratorInviteResult[] = [];
 
-  for (const email of emails) {
+  for (const invitee of invitees) {
+    const stored = invitee.githubUsername?.trim() || null;
+    let username = stored;
+    let resolvedBy: CollaboratorInviteResult["resolvedBy"] = stored ? "username" : null;
+
     try {
-      const searchRes = await fetch(
-        `https://api.github.com/search/users?q=${encodeURIComponent(email)}+in:email`,
-        { headers }
-      );
+      if (!username) {
+        const searchRes = await fetch(
+          `https://api.github.com/search/users?q=${encodeURIComponent(invitee.email)}+in:email`,
+          { headers }
+        );
 
-      if (!searchRes.ok) continue;
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          if (searchData.items?.length) {
+            username = searchData.items[0].login as string;
+            resolvedBy = "email_search";
+          }
+        }
+      }
 
-      const searchData = await searchRes.json();
-      if (!searchData.items || searchData.items.length === 0) continue;
+      if (!username) {
+        results.push({
+          email: invitee.email,
+          username: null,
+          resolvedBy: null,
+          invited: false,
+          error:
+            "No GitHub username on file and no public GitHub account matches this email. Ask the juror for their GitHub username.",
+        });
+        continue;
+      }
 
-      const username = searchData.items[0].login;
-
-      await fetch(
+      const res = await fetch(
         `https://api.github.com/repos/${owner}/${repo}/collaborators/${username}`,
         {
           method: "PUT",
@@ -327,10 +382,40 @@ export async function addCollaborators(
           body: JSON.stringify({ permission: "read" }),
         }
       );
-    } catch {
-      // Skip failed invitations
+
+      // 201 = invitation created, 204 = already a collaborator. Both are fine.
+      if (res.status === 201 || res.status === 204) {
+        results.push({ email: invitee.email, username, resolvedBy, invited: true });
+        continue;
+      }
+
+      const errText = await res.text().catch(() => "");
+      console.error(
+        `Could not invite ${username} to ${owner}/${repo}:`,
+        res.status,
+        errText
+      );
+      results.push({
+        email: invitee.email,
+        username,
+        resolvedBy,
+        invited: false,
+        error: `GitHub rejected the invite (${res.status}). Check the username is correct.`,
+      });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Invite failed";
+      console.error(`Collaborator invite error for ${invitee.email}:`, message);
+      results.push({
+        email: invitee.email,
+        username,
+        resolvedBy,
+        invited: false,
+        error: message,
+      });
     }
   }
+
+  return results;
 }
 
 /**

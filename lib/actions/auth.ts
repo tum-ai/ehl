@@ -17,6 +17,7 @@ import { getSafeRedirect, getSiteUrl } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, authLimiter, resetLimiter, resetEmailLimiter } from "@/lib/ratelimit";
 import { getLockingTeamId } from "@/lib/team-membership";
+import { normalizeGitHubUsername } from "@/lib/jury-github";
 
 export async function signIn(formData: FormData, redirectTo?: string) {
   const email = formData.get("email") as string;
@@ -444,13 +445,30 @@ export async function inviteJury(
   email: string,
   name: string,
   challengeId: string,
-  chapterId: string
+  chapterId: string,
+  githubUsername?: string | null
 ) {
   const { requireAdminAction } = await import("@/lib/admin-auth");
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
   const siteUrl = getSiteUrl();
+
+  // GitHub username: always OPTIONAL. A missing one costs the juror access to
+  // private snapshot forks, but never blocks the invite: the admin usually does
+  // not know the handle at invite time, and being unable to invite a juror is a
+  // worse failure than a juror with one dead repo link. Missing usernames are
+  // flagged in the admin jury list instead. Only the format is enforced, so a
+  // typo cannot be stored and fail silently days later at lock time.
+  const rawGithub = githubUsername?.trim() || "";
+  const normalizedGithub = rawGithub ? normalizeGitHubUsername(rawGithub) : null;
+
+  if (rawGithub && !normalizedGithub) {
+    return {
+      error:
+        "That is not a valid GitHub username. Use the username itself (for example: octocat), not an email address.",
+    };
+  }
 
   // Check if user already exists
   const { data: existingProfile } = await adminClient
@@ -491,12 +509,15 @@ export async function inviteJury(
     return { error: `This user is an active team member and cannot serve as jury. Remove them from their team first.` };
   }
 
-  // Set profile role to jury
+  // Set profile role to jury. Only write github_username when this invite
+  // supplied one: an upsert with an undefined value would blank a username
+  // captured during an earlier invite.
   await adminClient.from("profiles").upsert({
     id: userId,
     email,
     name,
     role: "jury",
+    ...(normalizedGithub ? { github_username: normalizedGithub } : {}),
   });
 
   // Assign to challenge directly

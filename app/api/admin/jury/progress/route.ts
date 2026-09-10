@@ -22,11 +22,14 @@ export async function GET() {
   const userIds = [...new Set((assignments ?? []).map((a) => a.user_id))];
   const { data: profiles } = await adminClient
     .from("profiles")
-    .select("id, name, email")
+    .select("id, name, email, github_username")
     .in("id", userIds.length > 0 ? userIds : ["none"]);
 
   const profileMap = new Map(
-    (profiles ?? []).map((p) => [p.id, { name: p.name, email: p.email }])
+    (profiles ?? []).map((p) => [
+      p.id,
+      { name: p.name, email: p.email, githubUsername: p.github_username },
+    ])
   );
 
   const finalizedMap = new Map(
@@ -46,6 +49,8 @@ export async function GET() {
       name: string | null;
       email: string | null;
       status: string;
+      // Null means this juror cannot be added to private snapshot forks.
+      githubUsername: string | null;
     }>;
   }> = {};
 
@@ -66,6 +71,7 @@ export async function GET() {
       name: (profile?.name as string) ?? null,
       email: (profile?.email as string) ?? null,
       status: (a.status as string) ?? "pending",
+      githubUsername: (profile?.githubUsername as string) ?? null,
     });
   }
 
