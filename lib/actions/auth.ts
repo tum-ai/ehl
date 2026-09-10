@@ -17,6 +17,11 @@ import { getSafeRedirect, getSiteUrl } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, authLimiter, resetLimiter, resetEmailLimiter } from "@/lib/ratelimit";
 import { getLockingTeamId } from "@/lib/team-membership";
+import {
+  normalizeGitHubUsername,
+  juryGitHubUsernameRequired,
+} from "@/lib/jury-github";
+import type { SubmissionFieldConfig } from "@/lib/types";
 
 export async function signIn(formData: FormData, redirectTo?: string) {
   const email = formData.get("email") as string;
@@ -444,13 +449,57 @@ export async function inviteJury(
   email: string,
   name: string,
   challengeId: string,
-  chapterId: string
+  chapterId: string,
+  githubUsername?: string | null
 ) {
   const { requireAdminAction } = await import("@/lib/admin-auth");
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
   const siteUrl = getSiteUrl();
+
+  // GitHub username: validated at the boundary, and REQUIRED when this
+  // challenge will put jury on private snapshot forks. Enforced server-side
+  // (not only in the form) because the action is callable directly.
+  const rawGithub = githubUsername?.trim() || "";
+  const normalizedGithub = rawGithub ? normalizeGitHubUsername(rawGithub) : null;
+
+  if (rawGithub && !normalizedGithub) {
+    return {
+      error:
+        "That is not a valid GitHub username. Use the username itself (for example: octocat), not an email address.",
+    };
+  }
+
+  const { data: challengeRow } = await adminClient
+    .from("challenges")
+    .select("submission_fields, invite_jury_to_forks")
+    .eq("id", challengeId)
+    .single();
+
+  const needsGithub = juryGitHubUsernameRequired({
+    inviteJuryToForks: challengeRow?.invite_jury_to_forks === true,
+    submissionFields:
+      (challengeRow?.submission_fields as SubmissionFieldConfig[] | null) ?? [],
+  });
+
+  if (needsGithub && !normalizedGithub) {
+    // Check whether we already hold one from an earlier invite before refusing:
+    // re-inviting an existing juror to a second challenge must not demand the
+    // username again.
+    const { data: knownProfile } = await adminClient
+      .from("profiles")
+      .select("github_username")
+      .eq("email", email.trim().toLowerCase())
+      .maybeSingle();
+
+    if (!knownProfile?.github_username) {
+      return {
+        error:
+          "This challenge judges private repositories, so a GitHub username is required. Without it the juror cannot be added to the snapshot repositories.",
+      };
+    }
+  }
 
   // Check if user already exists
   const { data: existingProfile } = await adminClient
@@ -491,12 +540,15 @@ export async function inviteJury(
     return { error: `This user is an active team member and cannot serve as jury. Remove them from their team first.` };
   }
 
-  // Set profile role to jury
+  // Set profile role to jury. Only write github_username when this invite
+  // supplied one: an upsert with an undefined value would blank a username
+  // captured during an earlier invite.
   await adminClient.from("profiles").upsert({
     id: userId,
     email,
     name,
     role: "jury",
+    ...(normalizedGithub ? { github_username: normalizedGithub } : {}),
   });
 
   // Assign to challenge directly

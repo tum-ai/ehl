@@ -11,6 +11,7 @@ import {
   addCollaborators,
   fetchCheckpointBranchIntoFork,
 } from "@/lib/github";
+import type { CollaboratorInvitee } from "@/lib/github";
 import type { SubmissionFieldConfig } from "@/lib/types";
 
 export function makeSnapshotName(teamName: string, chapterSlug: string): string {
@@ -26,6 +27,11 @@ export function makeSnapshotName(teamName: string, chapterSlug: string): string 
  */
 export async function lockSubmissionsCore(challengeId: string) {
   const adminClient = createAdminClient();
+
+  // Jury members we could NOT put on a snapshot fork. Returned to the caller so
+  // an admin sees it at lock time, while there is still time to collect the
+  // missing GitHub username, rather than discovering it during judging.
+  const failedJuryInvites: string[] = [];
 
   // Lock all submissions for this challenge
   const { error } = await adminClient
@@ -43,11 +49,11 @@ export async function lockSubmissionsCore(challengeId: string) {
       .eq("id", challengeId)
       .single();
 
-    if (!challenge?.submission_fields) return { success: true };
+    if (!challenge?.submission_fields) return { success: true, failedJuryInvites };
 
     const submissionFields = challenge.submission_fields as SubmissionFieldConfig[];
     const repoFields = submissionFields.filter((f) => f.type === "repo");
-    if (repoFields.length === 0) return { success: true };
+    if (repoFields.length === 0) return { success: true, failedJuryInvites };
 
     // Get all submissions for this challenge
     const { data: submissions } = await adminClient
@@ -55,7 +61,7 @@ export async function lockSubmissionsCore(challengeId: string) {
       .select("id, team_id, fields")
       .eq("challenge_id", challengeId);
 
-    if (!submissions || submissions.length === 0) return { success: true };
+    if (!submissions || submissions.length === 0) return { success: true, failedJuryInvites };
 
     // Get chapter slug for naming
     const { data: chapterData } = await adminClient
@@ -64,9 +70,11 @@ export async function lockSubmissionsCore(challengeId: string) {
       .eq("id", challenge.chapter_id)
       .single();
 
-    // Get jury emails only if invite_jury_to_forks is enabled
+    // Get jury identities only if invite_jury_to_forks is enabled. The stored
+    // github_username is what actually gets them onto a PRIVATE fork; email is
+    // carried along only as the legacy lookup fallback (see addCollaborators).
     const shouldInviteJury = challenge.invite_jury_to_forks === true;
-    let juryEmails: string[] = [];
+    let juryInvitees: CollaboratorInvitee[] = [];
 
     if (shouldInviteJury) {
       const { data: juryAssignments } = await adminClient
@@ -78,11 +86,14 @@ export async function lockSubmissionsCore(challengeId: string) {
         const juryUserIds = juryAssignments.map((ja) => ja.user_id as string);
         const { data: juryProfiles } = await adminClient
           .from("profiles")
-          .select("email")
+          .select("email, github_username")
           .in("id", juryUserIds);
-        juryEmails = (juryProfiles ?? [])
-          .map((p) => p.email as string)
-          .filter(Boolean);
+        juryInvitees = (juryProfiles ?? [])
+          .filter((p) => !!p.email)
+          .map((p) => ({
+            email: p.email as string,
+            githubUsername: (p.github_username as string | null) ?? null,
+          }));
       }
     }
 
@@ -128,15 +139,23 @@ export async function lockSubmissionsCore(challengeId: string) {
             (e) => console.error("Checkpoint branch capture failed:", e)
           );
 
-          // Add jury members as collaborators to the snapshot
-          if (shouldInviteJury && juryEmails.length > 0) {
+          // Add jury members as collaborators to the snapshot. Failures are
+          // collected rather than swallowed: a juror with no access to a
+          // private fork cannot judge, and that must not be discovered only
+          // when the jury complains.
+          if (shouldInviteJury && juryInvitees.length > 0) {
             const snapshotParsed = parseGitHubRepo(result.snapshotUrl);
             if (snapshotParsed) {
-              await addCollaborators(
+              const inviteResults = await addCollaborators(
                 snapshotParsed.owner,
                 snapshotParsed.repo,
-                juryEmails
+                juryInvitees
               );
+              for (const r of inviteResults.filter((x) => !x.invited)) {
+                failedJuryInvites.push(
+                  `${r.email} -> ${snapshotParsed.owner}/${snapshotParsed.repo}: ${r.error ?? "unknown error"}`
+                );
+              }
             }
           }
         }
@@ -146,5 +165,9 @@ export async function lockSubmissionsCore(challengeId: string) {
     console.error("Snapshot at deadline failed:", e);
   }
 
-  return { success: true };
+  if (failedJuryInvites.length > 0) {
+    console.error("Jury fork invites failed:", failedJuryInvites.join("; "));
+  }
+
+  return { success: true, failedJuryInvites };
 }

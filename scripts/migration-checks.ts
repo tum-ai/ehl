@@ -408,6 +408,26 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        )
      ) as present`,
   },
+  {
+    // Jury GitHub usernames, needed to invite jury onto PRIVATE snapshot forks.
+    // Probe asserts both the column and the lookup index: without the column the
+    // invite silently falls back to email search, which is the exact failure
+    // this migration exists to remove.
+    prefix: "00066",
+    label: "profile_github_username",
+    sql: `select (
+       exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'profiles'
+           and column_name = 'github_username'
+       )
+       and exists (
+         select 1 from pg_indexes
+         where schemaname = 'public' and tablename = 'profiles'
+           and indexname = 'idx_profiles_github_username'
+       )
+     ) as present`,
+  },
 ];
 
 /**

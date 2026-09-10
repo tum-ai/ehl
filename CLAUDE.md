@@ -92,9 +92,13 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-65 sequential migrations in `supabase/migrations/`. Key tables:
+66 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
-  account so no code path can leave an auth user profileless, migration 00055),
+  account so no code path can leave an auth user profileless, migration 00055;
+  `github_username`, migration 00066, is the bare GitHub handle used to add jury
+  as read collaborators on PRIVATE snapshot forks: GitHub's collaborator API
+  takes a username, and the account email an admin types at invite time is
+  usually not the address on that person's GitHub profile),
   `teams`, `team_members`, `team_invites`, `team_join_requests`
 - `chapters` (matches; `require_cv` + `require_motivation`, migration 00064, decide
   per chapter whether the PUBLIC apply form makes the CV upload and the motivation

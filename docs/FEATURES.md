@@ -322,8 +322,28 @@ Jury members use magic link authentication (no password).
 - Per-team feedback notes visible to admins
 - Helps admins understand jury reasoning
 
+### GitHub access to private submissions
+When a challenge invites jury to the snapshot forks (`inviteJuryToForks`) and any
+repo field permits a private repo (`invite_required`, or `any`), the jury invite
+form **requires a GitHub username**. GitHub's collaborator API can only add a
+person by username, and the account email an admin types is usually not the
+address on that person's GitHub profile.
+
+- Stored on `profiles.github_username`; accepts a bare username, `@handle`, or a
+  profile URL, and is validated against GitHub's own username rules.
+- Not requested for public-repo challenges: a fork of a public repo is public, so
+  jury need no collaborator invite and no GitHub account at all.
+- Re-inviting an existing juror to another challenge does not ask again.
+- At submission lock, each juror is added to every snapshot fork with **read**
+  access. Jurors invited before usernames were collected fall back to GitHub
+  email search, which only matches users with a public profile email.
+- Invites that fail are returned from the lock as `failedJuryInvites` and logged,
+  rather than being silently skipped, so a missing username is caught while there
+  is still time to fix it.
+
 ### How Jury Voting Works
-1. Admin invites jury members (sends magic link email)
+1. Admin invites jury members (sends magic link email; GitHub username required
+   when the challenge judges private repositories)
 2. Admin assigns jury to specific challenges
 3. Jury reviews submissions and AI code review reports
 4. Jury ranks teams via drag-and-drop

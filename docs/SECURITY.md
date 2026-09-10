@@ -147,6 +147,14 @@ When a challenge requires Entire ([entire.io](https://entire.io)), the code-revi
 - **Soft, version/agent-tolerant parsing.** `lib/entire.ts` never hard-parses agent-specific transcript formats and never fails the gate on a malformed file; it accepts any positive signal. This avoids penalizing teams for tool choice or Entire-version quirks.
 - **Signing as a trust booster.** If checkpoint commits are GPG/SSH-signed (GitHub-verified), this raises the completeness/plausibility assessment. Absence of a signature is not penalized.
 
+### Jury access to private snapshot forks
+Jury are granted access to a private fork as **named GitHub collaborators with `read` permission** (`lib/github.ts: addCollaborators`), never by making the fork public and never with write access. Two properties are deliberate:
+
+- **Identity is an explicit username, not a guess.** The collaborator is resolved from `profiles.github_username`, captured at invite time and required whenever a challenge judges private repos (`lib/jury-github.ts: juryGitHubUsernameRequired`). The prior behavior resolved jurors by searching GitHub for their account email, which matched only users with a public profile email and returned the *first* search hit: a wrong or absent match either granted nobody access or, in principle, granted the wrong account access to participant code.
+- **Failures are surfaced, never swallowed.** Each invite returns a per-juror result; failures propagate out of `lockSubmissionsCore` as `failedJuryInvites` and are logged. Silent skips previously meant an access gap was discovered only when a juror complained, i.e. during judging.
+
+Access is per-fork and outlives the event until the snapshot repo is deleted, so removing a juror from `jury_assignments` does **not** revoke their GitHub access to forks already granted; that requires deleting the snapshot repos.
+
 ---
 
 ## 4. Rate Limiting
