@@ -45,4 +45,6 @@ Mandatory preparation before every EHL live event. 15k prize money is distribute
 - [ ] Store audit export in ehl-ops repo (offline backup)
 - [ ] Review Sentry errors from event
 - [ ] Document any incidents in post-mortem
+- [ ] Distribute sponsor credit codes (see `docs/RUNBOOKS.md`)
 - [ ] Update this checklist with lessons learned
+- [ ] Add any new one-off procedure you had to invent to `docs/RUNBOOKS.md`
