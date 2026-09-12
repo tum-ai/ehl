@@ -13,6 +13,8 @@ import { ReportCard } from "@/components/code-review/report-card";
 import { formatDate } from "@/lib/utils";
 import { extractDriveFileId, getDriveEmbedUrl } from "@/lib/drive-embed";
 import { ensureFileLinkReadable } from "@/lib/gdrive";
+import { SnapshotRetry } from "@/components/admin/snapshot-retry";
+import { snapshotState } from "@/lib/snapshot-status";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -76,6 +78,11 @@ export default async function AdminSubmissionDetailPage({ params }: PageProps) {
     })
   );
 
+  const snapshot = snapshotState({
+    forkUrl: submission.forkUrl,
+    fields: submission.fields,
+  });
+
   return (
     <div>
       <Link
@@ -95,6 +102,43 @@ export default async function AdminSubmissionDetailPage({ params }: PageProps) {
           <p className="text-sm ad-text-muted">by {challenge.sponsorName}</p>
         )}
       </Card>
+
+      {/* Snapshot status. A missing fork is shown here because the links below
+          silently fall back to the team's ORIGINAL repo URL, which a juror
+          cannot open when that repo is private. */}
+      {snapshot !== "not_applicable" && (
+        <Card className="mt-4">
+          <p className="text-xs font-bold uppercase tracking-wider ad-text-muted">
+            Repository snapshot
+          </p>
+          {snapshot === "snapshotted" ? (
+            <p className="mt-1 text-sm ad-text">
+              Archived in the EHL snapshot org.{" "}
+              {submission.forkUrl && (
+                <a
+                  href={submission.forkUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="ad-text-link hover:underline"
+                >
+                  Open fork &rarr;
+                </a>
+              )}
+            </p>
+          ) : (
+            <>
+              <p className="mt-1 text-sm font-medium text-amber-700">
+                Not snapshotted. The jury sees the team&apos;s own repository URL, which
+                they cannot open if it is private. Retry once any GitHub rate limit has
+                cleared or the bot token has been rotated.
+              </p>
+              <div className="mt-3">
+                <SnapshotRetry submissionId={submission.id} />
+              </div>
+            </>
+          )}
+        </Card>
+      )}
 
       {/* Team & project header */}
       <div className="mt-6">

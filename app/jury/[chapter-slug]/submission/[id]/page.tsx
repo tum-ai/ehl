@@ -57,7 +57,12 @@ export default async function JurySubmissionDetailPage({ params, searchParams }:
 
   // Separate fields into embeddable files and other links
   const embeddableFields: { label: string; embedUrl: string; originalUrl: string }[] = [];
-  const linkFields: { label: string; url: string; type: string }[] = [];
+  const linkFields: {
+    label: string;
+    url: string;
+    type: string;
+    missingFork?: boolean;
+  }[] = [];
   const textFields: { label: string; value: string }[] = [];
 
   for (const fieldConfig of challenge.submissionFields) {
@@ -75,7 +80,15 @@ export default async function JurySubmissionDetailPage({ params, searchParams }:
         linkFields.push({ label: fieldConfig.label, url: displayUrl, type: "file" });
       }
     } else if (fieldConfig.type === "repo") {
-      linkFields.push({ label: fieldConfig.label, url: displayUrl, type: "repo" });
+      // missingFork: the EHL snapshot was never created, so this URL is the
+      // team's own repository. A juror cannot open it if it is private, and a
+      // silent 404 is worse than a labelled one.
+      linkFields.push({
+        label: fieldConfig.label,
+        url: displayUrl,
+        type: "repo",
+        missingFork: !submission.forkUrl,
+      });
     } else if (displayUrl.startsWith("http")) {
       linkFields.push({ label: fieldConfig.label, url: displayUrl, type: "url" });
     } else {
@@ -164,7 +177,14 @@ export default async function JurySubmissionDetailPage({ params, searchParams }:
           <div className="mt-3 space-y-3">
             {linkFields.map((field) => (
               <div key={field.label} className="flex items-center justify-between">
-                <span className="text-sm text-text-muted">{field.label}</span>
+                <span className="text-sm text-text-muted">
+                  {field.label}
+                  {field.missingFork && (
+                    <span className="ml-2 text-xs text-gold">
+                      no EHL copy, may be private
+                    </span>
+                  )}
+                </span>
                 <a
                   href={field.url}
                   target="_blank"

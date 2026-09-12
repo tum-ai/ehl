@@ -199,10 +199,21 @@ export default async function JuryChapterPage({ params, searchParams }: PageProp
 
                       const isRepo = fieldConfig.type === "repo";
                       const displayUrl = isRepo && sub.forkUrl ? sub.forkUrl : value;
+                      // No EHL fork: this link points at the team's OWN repo,
+                      // which is unreadable for a juror when it is private. Say
+                      // so instead of handing over a link that 404s.
+                      const missingFork = isRepo && !sub.forkUrl;
 
                       return (
                         <div key={fieldConfig.key} className="flex items-center justify-between text-sm">
-                          <span className="text-text-muted">{fieldConfig.label}</span>
+                          <span className="text-text-muted">
+                            {fieldConfig.label}
+                            {missingFork && (
+                              <span className="ml-2 text-xs text-gold">
+                                no EHL copy, may be private
+                              </span>
+                            )}
+                          </span>
                           {displayUrl.startsWith("http") ? (
                             <a
                               href={displayUrl}

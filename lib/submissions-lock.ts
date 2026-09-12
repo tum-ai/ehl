@@ -33,6 +33,10 @@ export async function lockSubmissionsCore(challengeId: string) {
   // missing GitHub username, rather than discovering it during judging.
   const failedJuryInvites: string[] = [];
 
+  // Repos we could NOT fork into the snapshot org. Same contract as
+  // failedJuryInvites: surfaced to the caller instead of vanishing into a log.
+  const failedSnapshots: string[] = [];
+
   // Lock all submissions for this challenge
   const { error } = await adminClient
     .from("submissions")
@@ -49,11 +53,11 @@ export async function lockSubmissionsCore(challengeId: string) {
       .eq("id", challengeId)
       .single();
 
-    if (!challenge?.submission_fields) return { success: true, failedJuryInvites };
+    if (!challenge?.submission_fields) return { success: true, failedJuryInvites, failedSnapshots };
 
     const submissionFields = challenge.submission_fields as SubmissionFieldConfig[];
     const repoFields = submissionFields.filter((f) => f.type === "repo");
-    if (repoFields.length === 0) return { success: true, failedJuryInvites };
+    if (repoFields.length === 0) return { success: true, failedJuryInvites, failedSnapshots };
 
     // Get all submissions for this challenge
     const { data: submissions } = await adminClient
@@ -61,7 +65,7 @@ export async function lockSubmissionsCore(challengeId: string) {
       .select("id, team_id, fields")
       .eq("challenge_id", challengeId);
 
-    if (!submissions || submissions.length === 0) return { success: true, failedJuryInvites };
+    if (!submissions || submissions.length === 0) return { success: true, failedJuryInvites, failedSnapshots };
 
     // Get chapter slug for naming
     const { data: chapterData } = await adminClient
@@ -97,68 +101,86 @@ export async function lockSubmissionsCore(challengeId: string) {
       }
     }
 
-    // Snapshot each submission's repo and grant jury access
+    // Snapshot each submission's repo and grant jury access.
+    //
+    // Each team is wrapped in its OWN try/catch: a single throw (a GitHub
+    // outage on team 7) must not silently abandon teams 8..n, which is what a
+    // loop-level catch did before.
     for (const sub of submissions) {
-      const fields = (sub.fields as Record<string, string>) ?? {};
+      try {
+        const fields = (sub.fields as Record<string, string>) ?? {};
 
-      // Get team name for naming
-      const { data: team } = await adminClient
-        .from("teams")
-        .select("name")
-        .eq("id", sub.team_id)
-        .single();
+        // Get team name for naming
+        const { data: team } = await adminClient
+          .from("teams")
+          .select("name")
+          .eq("id", sub.team_id)
+          .single();
 
-      for (const rf of repoFields) {
-        const repoUrl = fields[rf.key];
-        if (!repoUrl) continue;
+        const teamLabel = (team?.name as string) || (sub.team_id as string);
 
-        const parsed = parseGitHubRepo(repoUrl);
-        if (!parsed) continue;
+        for (const rf of repoFields) {
+          const repoUrl = fields[rf.key];
+          if (!repoUrl) continue;
 
-        const snapshotName = makeSnapshotName(
-          team?.name || (sub.team_id as string),
-          chapterData?.slug || (challenge.chapter_id as string)
-        );
+          const parsed = parseGitHubRepo(repoUrl);
+          if (!parsed) continue;
 
-        const result = await snapshotRepo(
-          parsed.owner,
-          parsed.repo,
-          snapshotName,
-          `EHL final submission snapshot: ${team?.name || sub.team_id}`
-        );
-
-        if ("snapshotUrl" in result) {
-          await adminClient
-            .from("submissions")
-            .update({ fork_url: result.snapshotUrl })
-            .eq("id", sub.id);
-
-          // Capture the Entire session-history branch into the private fork
-          // (best-effort; never blocks the deadline lock).
-          await fetchCheckpointBranchIntoFork(parsed.owner, parsed.repo, snapshotName).catch(
-            (e) => console.error("Checkpoint branch capture failed:", e)
+          const snapshotName = makeSnapshotName(
+            team?.name || (sub.team_id as string),
+            chapterData?.slug || (challenge.chapter_id as string)
           );
 
-          // Add jury members as collaborators to the snapshot. Failures are
-          // collected rather than swallowed: a juror with no access to a
-          // private fork cannot judge, and that must not be discovered only
-          // when the jury complains.
-          if (shouldInviteJury && juryInvitees.length > 0) {
-            const snapshotParsed = parseGitHubRepo(result.snapshotUrl);
-            if (snapshotParsed) {
-              const inviteResults = await addCollaborators(
-                snapshotParsed.owner,
-                snapshotParsed.repo,
-                juryInvitees
-              );
-              for (const r of inviteResults.filter((x) => !x.invited)) {
-                failedJuryInvites.push(
-                  `${r.email} -> ${snapshotParsed.owner}/${snapshotParsed.repo}: ${r.error ?? "unknown error"}`
+          const result = await snapshotRepo(
+            parsed.owner,
+            parsed.repo,
+            snapshotName,
+            `EHL final submission snapshot: ${team?.name || sub.team_id}`
+          );
+
+          if ("snapshotUrl" in result) {
+            await adminClient
+              .from("submissions")
+              .update({ fork_url: result.snapshotUrl })
+              .eq("id", sub.id);
+
+            // Capture the Entire session-history branch into the private fork
+            // (best-effort; never blocks the deadline lock).
+            await fetchCheckpointBranchIntoFork(parsed.owner, parsed.repo, snapshotName).catch(
+              (e) => console.error("Checkpoint branch capture failed:", e)
+            );
+
+            // Add jury members as collaborators to the snapshot. Failures are
+            // collected rather than swallowed: a juror with no access to a
+            // private fork cannot judge, and that must not be discovered only
+            // when the jury complains.
+            if (shouldInviteJury && juryInvitees.length > 0) {
+              const snapshotParsed = parseGitHubRepo(result.snapshotUrl);
+              if (snapshotParsed) {
+                const inviteResults = await addCollaborators(
+                  snapshotParsed.owner,
+                  snapshotParsed.repo,
+                  juryInvitees
                 );
+                for (const r of inviteResults.filter((x) => !x.invited)) {
+                  failedJuryInvites.push(
+                    `${r.email} -> ${snapshotParsed.owner}/${snapshotParsed.repo}: ${r.error ?? "unknown error"}`
+                  );
+                }
               }
             }
+          } else {
+            // Collected, never swallowed: a missing fork means the jury cannot
+            // read a private submission at all. fork_url stays NULL, which is
+            // what the admin snapshot-status view and its retry act on.
+            console.error(`Snapshot failed for ${teamLabel}:`, result.error);
+            failedSnapshots.push(`${teamLabel} (${parsed.owner}/${parsed.repo}): ${result.error}`);
           }
         }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`Snapshot threw for submission ${sub.id}:`, msg);
+        failedSnapshots.push(`submission ${sub.id}: ${msg}`);
       }
     }
   } catch (e) {
@@ -168,6 +190,126 @@ export async function lockSubmissionsCore(challengeId: string) {
   if (failedJuryInvites.length > 0) {
     console.error("Jury fork invites failed:", failedJuryInvites.join("; "));
   }
+  if (failedSnapshots.length > 0) {
+    console.error("Snapshots failed at deadline:", failedSnapshots.join("; "));
+  }
 
-  return { success: true, failedJuryInvites };
+  return { success: true, failedJuryInvites, failedSnapshots };
+}
+
+/**
+ * Re-run the snapshot for submissions that are still missing a fork.
+ *
+ * This is the admin retry path for the failure this whole module guards
+ * against: GitHub refused the fork (secondary rate limit during the deadline
+ * rush, an expired bot token, a team that revoked access) and `fork_url` was
+ * left NULL. Safe to run repeatedly: `snapshotRepo` is idempotent (an existing
+ * fork is synced with upstream rather than recreated), and submissions that
+ * already carry a fork are skipped without touching GitHub at all.
+ *
+ * Trusted callers only (admin-guarded actions in lib/actions/submissions.ts).
+ * Never export this from a "use server" module.
+ */
+export async function retrySnapshotsCore(opts: {
+  chapterId?: string;
+  submissionId?: string;
+}): Promise<{
+  attempted: number;
+  succeeded: number;
+  failures: string[];
+}> {
+  const adminClient = createAdminClient();
+  const failures: string[] = [];
+  let attempted = 0;
+  let succeeded = 0;
+
+  // Resolve the worklist: submissions with no fork_url, scoped to one
+  // submission or one chapter's challenges.
+  let submissionQuery = adminClient
+    .from("submissions")
+    .select("id, team_id, challenge_id, fields")
+    .is("fork_url", null);
+
+  if (opts.submissionId) {
+    submissionQuery = submissionQuery.eq("id", opts.submissionId);
+  } else if (opts.chapterId) {
+    const { data: challenges } = await adminClient
+      .from("challenges")
+      .select("id")
+      .eq("chapter_id", opts.chapterId);
+    const challengeIds = (challenges ?? []).map((c) => c.id as string);
+    if (challengeIds.length === 0) return { attempted: 0, succeeded: 0, failures };
+    submissionQuery = submissionQuery.in("challenge_id", challengeIds);
+  }
+
+  const { data: submissions } = await submissionQuery;
+  if (!submissions || submissions.length === 0) {
+    return { attempted: 0, succeeded: 0, failures };
+  }
+
+  for (const sub of submissions) {
+    try {
+      const fields = (sub.fields as Record<string, string>) ?? {};
+
+      const { data: challenge } = await adminClient
+        .from("challenges")
+        .select("submission_fields, chapter_id")
+        .eq("id", sub.challenge_id)
+        .single();
+
+      const repoFields = (
+        (challenge?.submission_fields as SubmissionFieldConfig[]) ?? []
+      ).filter((f) => f.type === "repo");
+      if (repoFields.length === 0) continue;
+
+      const [teamResult, chapterResult] = await Promise.all([
+        adminClient.from("teams").select("name").eq("id", sub.team_id).single(),
+        adminClient.from("chapters").select("slug").eq("id", challenge?.chapter_id).single(),
+      ]);
+      const teamLabel = (teamResult.data?.name as string) || (sub.team_id as string);
+
+      for (const rf of repoFields) {
+        const repoUrl = fields[rf.key];
+        if (!repoUrl) continue;
+        const parsed = parseGitHubRepo(repoUrl);
+        if (!parsed) continue;
+
+        attempted++;
+
+        const snapshotName = makeSnapshotName(
+          teamLabel,
+          (chapterResult.data?.slug as string) || (challenge?.chapter_id as string)
+        );
+
+        const result = await snapshotRepo(
+          parsed.owner,
+          parsed.repo,
+          snapshotName,
+          `EHL submission snapshot (retry): ${teamLabel}`
+        );
+
+        if ("snapshotUrl" in result) {
+          await adminClient
+            .from("submissions")
+            .update({ fork_url: result.snapshotUrl })
+            .eq("id", sub.id);
+
+          await fetchCheckpointBranchIntoFork(parsed.owner, parsed.repo, snapshotName).catch(
+            (e) => console.error("Checkpoint branch capture failed:", e)
+          );
+          succeeded++;
+        } else {
+          // The live GitHub error is the whole point of the retry: it tells the
+          // admin whether to wait out a rate limit, rotate the token, or chase
+          // the team for access.
+          failures.push(`${teamLabel} (${parsed.owner}/${parsed.repo}): ${result.error}`);
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      failures.push(`submission ${sub.id}: ${msg}`);
+    }
+  }
+
+  return { attempted, succeeded, failures };
 }

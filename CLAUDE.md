@@ -8,7 +8,7 @@ European Hackathon League platform, Season 1. Built by Julian Sikora (TUM.ai).
 > - `docs/FEATURES.md` — Complete feature list by user role
 > - `docs/SECURITY.md` — Security architecture, defenses, limits
 > - `docs/ACCOUNTS.template.md` — Service account directory template (fill in for your deployment)
-> - `docs/RUNBOOKS.md` — Operator runbooks for recurring one-off event procedures (sponsor credit code sends, challenge roster exports)
+> - `docs/RUNBOOKS.md` — Operator runbooks for recurring one-off event procedures (sponsor credit code sends, challenge roster exports, recovering missing repository snapshots)
 
 ## Tech Stack
 - **Framework**: Next.js 15 (App Router, TypeScript, Server Components)
@@ -213,6 +213,11 @@ lib/
   team-membership.ts    — Resolves a user's CURRENT team when they hold several memberships (see Data Integrity 7)
   queries/paged.ts      — fetchPaged(): windowed reads that beat PostgREST's max_rows ceiling (see Data Integrity 8)
   showcase-shared.ts    — Partner-showcase consent predicate + derived SQL filter + types
+  snapshot-status.ts    — Derives repo-snapshot state from submissions.fork_url (the only
+                          durable record that a fork is owed, since neither the submit path
+                          nor the deadline lock fails a participant when GitHub refuses a
+                          fork). Backs the admin Snapshot column, the retry worklist and the
+                          participant-facing warning copy
   drive-urls.ts         — Client-safe Google Drive photo URL builders (thumbnail, viewer)
   report-client-error.ts — Shared error-boundary reporter (redacts secret URL tokens before any sink)
   bulk-send.ts          — runBudgetedConcurrent(): scheduling for bulk transactional
