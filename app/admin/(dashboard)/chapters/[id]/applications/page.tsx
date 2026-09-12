@@ -19,6 +19,7 @@ import { formatDate } from "@/lib/utils";
 import { countRsvps } from "@/lib/rsvp-stats";
 import type { Application, ApplicationStatus, ApplicationFormData, FlagMatch } from "@/lib/types";
 import { createFlag } from "@/lib/actions/flags";
+import { genderLabel, compareGender } from "@/lib/application-sort";
 
 interface ScreeningScore {
   screenerId: string;
@@ -85,7 +86,7 @@ export default function AdminApplicationsPage({
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [leagueFilter, setLeagueFilter] = useState<string>("all");
   const [rsvpFilter, setRsvpFilter] = useState<string>("all");
-  const [sortCol, setSortCol] = useState<"name" | "email" | "score" | "league" | "status" | "date">("score");
+  const [sortCol, setSortCol] = useState<"name" | "email" | "gender" | "score" | "league" | "status" | "date">("score");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [acting, setActing] = useState(false);
@@ -184,7 +185,7 @@ export default function AdminApplicationsPage({
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortCol(col);
-      setSortDir(col === "name" || col === "email" ? "asc" : "desc");
+      setSortDir(col === "name" || col === "email" || col === "gender" ? "asc" : "desc");
     }
   }
 
@@ -198,6 +199,9 @@ export default function AdminApplicationsPage({
         break;
       case "email":
         cmp = a.email.localeCompare(b.email);
+        break;
+      case "gender":
+        cmp = compareGender(a.formData?.gender, b.formData?.gender);
         break;
       case "score": {
         const aScore = a.screening?.averageScore ?? -1;
@@ -1167,6 +1171,7 @@ export default function AdminApplicationsPage({
                 </th>
                 <SortHeader col="name" label="Name" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
                 <SortHeader col="email" label="Email" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
+                <SortHeader col="gender" label="Gender" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
                 <SortHeader col="score" label="Score" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
                 <SortHeader col="league" label="League" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
                 <SortHeader col="status" label="Status" sortCol={sortCol} sortDir={sortDir} onSort={toggleSort} />
@@ -1207,6 +1212,11 @@ export default function AdminApplicationsPage({
                       {app.firstName} {app.lastName}
                     </td>
                     <td className="py-3 pr-4 text-sm ad-text-secondary">{app.email}</td>
+                    <td className="py-3 pr-4 text-sm ad-text-secondary">
+                      {app.formData?.gender?.trim()
+                        ? genderLabel(app.formData.gender)
+                        : <span className="text-xs ad-text-muted">{genderLabel(null)}</span>}
+                    </td>
                     <td className="py-3 pr-4">
                       {avgScore !== null ? (
                         <div className="flex items-center gap-1.5">
@@ -1338,7 +1348,7 @@ export default function AdminApplicationsPage({
               })}
               {sorted.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-sm ad-text-muted">
+                  <td colSpan={9} className="py-8 text-center text-sm ad-text-muted">
                     {applications.length === 0 ? "No applications yet." : "No applications match your filters."}
                   </td>
                 </tr>
@@ -1659,7 +1669,7 @@ function ScreeningDetailRow({ label, value }: { label: string; value: string | n
   );
 }
 
-type SortCol = "name" | "email" | "score" | "league" | "status" | "date";
+type SortCol = "name" | "email" | "gender" | "score" | "league" | "status" | "date";
 
 function SortHeader({
   col,

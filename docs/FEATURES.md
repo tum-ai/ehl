@@ -451,6 +451,10 @@ There are two kinds of admin:
 
 ### Application Screening (`/admin/chapters/<id>/applications`)
 - View all applications with filters
+- Sortable table columns: name, email, gender, score, league, status. Gender is read
+  from the application form, so rows that never carried an answer (walk-in
+  registrations, records predating the field) show "Not provided", kept distinct from
+  the applicant answering "Prefer not to answer"
 - Screener scoring per application
 - Bulk accept/reject/waitlist
 - Send branded acceptance/rejection emails

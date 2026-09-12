@@ -8,6 +8,7 @@ European Hackathon League platform, Season 1. Built by Julian Sikora (TUM.ai).
 > - `docs/FEATURES.md` — Complete feature list by user role
 > - `docs/SECURITY.md` — Security architecture, defenses, limits
 > - `docs/ACCOUNTS.template.md` — Service account directory template (fill in for your deployment)
+> - `docs/RUNBOOKS.md` — Operator runbooks for recurring one-off event procedures (sponsor credit code sends, challenge roster exports)
 
 ## Tech Stack
 - **Framework**: Next.js 15 (App Router, TypeScript, Server Components)
