@@ -285,7 +285,9 @@ Available to participants who are checked in at an event.
 
 ### Submissions (`/event/<slug>` submission section)
 - Upload project files (stored in Google Drive, organized by Chapter/Team)
-- Link GitHub repository (automatically forked for jury review)
+- Link GitHub repository (automatically forked for jury review). A GitHub failure at
+  this step never fails the submission: the project is saved and the participant sees a
+  notice that the archive copy will be retried
 - Add tech stack tags
 - Submission deadline countdown timer
 - Submissions lock automatically when deadline passes (via cron or admin action)
@@ -308,7 +310,9 @@ Jury members use magic link authentication (no password).
 - List of all submissions assigned to this jury member
 - Full detail view per submission:
   - All submitted fields (description, tech stack, links)
-  - GitHub repo link (forked to snapshot org for permanence)
+  - GitHub repo link (forked to snapshot org for permanence). If the EHL fork is
+    missing, the link is labelled "no EHL copy, may be private" instead of silently
+    pointing at the team's own repository, which a juror cannot open when it is private
   - AI code review report (if available)
   - Any uploaded files
 
@@ -551,6 +555,13 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 - Also shows teams that registered for a challenge but never submitted ("No submission")
 - Click through to the full submission detail (`/admin/submissions/<id>`): description, tech stack, links/repo/fork, embedded files (pitch deck preview), and the AI code review
 - Global admins see all submissions; chapter admins see only their own chapter's
+- **Snapshot status column**: whether each submission's repository was forked into the
+  EHL snapshot org. A submission with a repo but no fork shows "Not snapshotted"
+- **Snapshot retry**: when any fork is missing, a banner counts them and offers a
+  per-match "Retry N in <match>" button; the submission detail page has a per-team
+  "Retry snapshot" button. Both re-run the fork and report the live GitHub error on
+  failure (rate limit, expired token, revoked access), so an operator knows whether to
+  wait, rotate the bot token, or chase the team. Idempotent: safe to press repeatedly
 
 ### Score Management (`/admin/chapters/<id>/scores`)
 - View aggregated jury rankings per challenge

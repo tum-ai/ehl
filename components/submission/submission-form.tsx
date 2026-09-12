@@ -41,6 +41,9 @@ export function SubmissionForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  // Shown ALONGSIDE success, never instead of it: the submission is saved even
+  // when the repo archive copy could not be made.
+  const [warning, setWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<Record<string, boolean>>({});
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
@@ -180,6 +183,7 @@ export function SubmissionForm({
       setError(result.error);
     } else {
       setSuccess(true);
+      setWarning(result?.warning ?? null);
     }
     setSaving(false);
   }
@@ -443,6 +447,7 @@ export function SubmissionForm({
             Submission saved successfully! You can edit it until the deadline.
           </p>
         )}
+        {success && warning && <p className="text-sm text-gold">{warning}</p>}
 
         <Button type="submit" disabled={saving || Object.values(uploading).some(Boolean)}>
           {saving

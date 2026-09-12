@@ -11,6 +11,8 @@ import {
   getTeams,
 } from "@/lib/queries";
 import { formatDate } from "@/lib/utils";
+import { snapshotState, snapshotStatusLabel, type SnapshotState } from "@/lib/snapshot-status";
+import { SnapshotRetry } from "@/components/admin/snapshot-retry";
 import type { Challenge, Chapter } from "@/lib/types";
 
 /**
@@ -52,6 +54,7 @@ export default async function AdminSubmissionsPage() {
   // One row per submission, plus one row per registration that has NO submission.
   type Row = {
     key: string;
+    chapterId: string | null;
     chapterName: string;
     challengeTitle: string;
     teamName: string;
@@ -59,6 +62,7 @@ export default async function AdminSubmissionsPage() {
     submissionId: string | null;
     projectName: string | null;
     updatedAt: string | null;
+    snapshot: SnapshotState | null;
   };
 
   const submittedKeys = new Set(
@@ -77,6 +81,7 @@ export default async function AdminSubmissionsPage() {
     const chapter = chapterFor(s.challengeId);
     rows.push({
       key: `sub:${s.id}`,
+      chapterId: chapter?.id ?? null,
       chapterName: chapter?.name ?? "Unknown match",
       challengeTitle: challenge?.title ?? "Unknown challenge",
       teamName: teamName(s.teamId),
@@ -84,6 +89,7 @@ export default async function AdminSubmissionsPage() {
       submissionId: s.id,
       projectName: s.projectName,
       updatedAt: s.updatedAt,
+      snapshot: snapshotState({ forkUrl: s.forkUrl, fields: s.fields }),
     });
   }
 
@@ -93,6 +99,7 @@ export default async function AdminSubmissionsPage() {
     const chapter = chapterFor(r.challengeId);
     rows.push({
       key: `reg:${r.id}`,
+      chapterId: chapter?.id ?? null,
       chapterName: chapter?.name ?? "Unknown match",
       challengeTitle: challenge?.title ?? "Unknown challenge",
       teamName: teamName(r.teamId),
@@ -100,6 +107,7 @@ export default async function AdminSubmissionsPage() {
       submissionId: null,
       projectName: null,
       updatedAt: null,
+      snapshot: null,
     });
   }
 
@@ -114,6 +122,20 @@ export default async function AdminSubmissionsPage() {
 
   const submittedCount = rows.filter((r) => r.submitted).length;
   const missingCount = rows.length - submittedCount;
+  // Forks still owed. These are the ones a juror cannot open on a private repo,
+  // so they are counted in the header rather than buried in the table.
+  const missingSnapshotRows = rows.filter((r) => r.snapshot === "missing");
+  const missingSnapshotCount = missingSnapshotRows.length;
+
+  // One retry control per affected match, so an operator can re-run the match
+  // that is actually being judged instead of every chapter in the season.
+  const chaptersMissingSnapshots = Array.from(
+    missingSnapshotRows.reduce((acc, r) => {
+      if (!r.chapterId) return acc;
+      acc.set(r.chapterId, { name: r.chapterName, count: (acc.get(r.chapterId)?.count ?? 0) + 1 });
+      return acc;
+    }, new Map<string, { name: string; count: number }>())
+  );
 
   return (
     <div>
@@ -123,6 +145,24 @@ export default async function AdminSubmissionsPage() {
           {submittedCount} submitted, {missingCount} registered without a
           submission.
         </p>
+        {missingSnapshotCount > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+            <p className="text-sm font-medium text-amber-800">
+              {missingSnapshotCount} submission{missingSnapshotCount === 1 ? "" : "s"} still
+              missing a repository snapshot. The jury sees the team&apos;s own repository
+              URL for these, which they cannot open if it is private.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-4">
+              {chaptersMissingSnapshots.map(([chapterId, info]) => (
+                <SnapshotRetry
+                  key={chapterId}
+                  chapterId={chapterId}
+                  label={`Retry ${info.count} in ${info.name}`}
+                />
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <LimitBanner count={subLimited ? subLimit : 0} limit={subLimit} label="submissions" />
@@ -141,6 +181,7 @@ export default async function AdminSubmissionsPage() {
                 <th className="pb-3 pr-4 font-medium ad-text-muted">Challenge</th>
                 <th className="pb-3 pr-4 font-medium ad-text-muted">Team</th>
                 <th className="pb-3 pr-4 font-medium ad-text-muted">Project</th>
+                <th className="pb-3 pr-4 font-medium ad-text-muted">Snapshot</th>
                 <th className="pb-3 pr-4 font-medium ad-text-muted">Updated</th>
                 <th className="pb-3 font-medium ad-text-muted"></th>
               </tr>
@@ -148,7 +189,7 @@ export default async function AdminSubmissionsPage() {
             <tbody className="divide-y ad-border">
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center ad-text-muted">
+                  <td colSpan={7} className="py-6 text-center ad-text-muted">
                     No submissions yet.
                   </td>
                 </tr>
@@ -165,6 +206,17 @@ export default async function AdminSubmissionsPage() {
                       <Badge variant="upcoming" light>
                         No submission
                       </Badge>
+                    )}
+                  </td>
+                  <td className="py-3 pr-4">
+                    {row.snapshot === null ? (
+                      <span className="ad-text-muted">—</span>
+                    ) : row.snapshot === "missing" ? (
+                      <Badge variant="upcoming" light>
+                        {snapshotStatusLabel(row.snapshot)}
+                      </Badge>
+                    ) : (
+                      <span className="ad-text-muted">{snapshotStatusLabel(row.snapshot)}</span>
                     )}
                   </td>
                   <td className="py-3 pr-4 ad-text-muted">

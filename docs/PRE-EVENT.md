@@ -15,6 +15,8 @@ Mandatory preparation before every EHL live event. 15k prize money is distribute
 | T-1 | Sentry alerts working (test error) | Dev | Discord notification received |
 | T-1 | Rate limits appropriate for event size | Dev | Review Upstash + Supabase auth limits |
 | T-1 | SMTP quota sufficient | Dev | Check provider dashboard |
+| T-1 | GitHub bot token valid for the whole event | Dev | `curl -sI -H "Authorization: token $GITHUB_TOKEN" https://api.github.com/user` returns 200; check the `github-authentication-token-expiration` header and that scopes include `repo`. Confirm the token is SSO-authorized for the snapshot org |
+| T-1 | Snapshot dry run on a dummy PRIVATE repo | Dev | Invite the bot, verify in the submission form, submit, confirm the fork appears in the snapshot org |
 | T-0 | Monitoring dashboard open during registration window | Dev | Real-time error + funnel visibility |
 | T-0 +30min | Check funnel conversion vs expected participant count | Dev | No unexpected drop-offs |
 
@@ -37,9 +39,13 @@ Mandatory preparation before every EHL live event. 15k prize money is distribute
 3. **Rate limiting too aggressive**: Increase limits in Upstash dashboard or set `RATE_LIMIT_DISABLED=true` temporarily.
 4. **Scoring bug discovered before announcement**: Delay announcement. Never announce wrong results. Fix first, announce second.
 5. **Scoring bug discovered after announcement**: Document everything in audit log, communicate transparently with teams, correct publicly.
+6. **Teams report submission errors mentioning the repository**: The submission itself is saved regardless (the repo snapshot never blocks it). Check `/admin/submissions` for the "Not snapshotted" count and follow `docs/RUNBOOKS.md` > Recovering missing repository snapshots. Usually a GitHub secondary rate limit from a deadline rush: it clears on its own, and the retry button closes the gap.
 
 ## Post-Event
 
+- [ ] **Before jury links go out**: confirm `/admin/submissions` shows no "Not snapshotted"
+      submissions. On private-repo challenges a missing fork means the juror cannot open
+      the project at all (see `docs/RUNBOOKS.md`)
 - [ ] Export audit log for the event period
 - [ ] Verify hash-chain integrity (`/admin/logs` > Verify Chain button)
 - [ ] Store audit export in ehl-ops repo (offline backup)

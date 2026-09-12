@@ -9,7 +9,8 @@ import { checkCheckpointBranch, entireGateErrorMessage } from "@/lib/entire";
 import type { SubmissionFieldConfig } from "@/lib/types";
 import { logEvent } from "@/lib/event-log";
 import { MIN_CHALLENGE_ROSTER, MAX_TEAM_SIZE } from "@/lib/config/limits";
-import { lockSubmissionsCore, makeSnapshotName } from "@/lib/submissions-lock";
+import { lockSubmissionsCore, makeSnapshotName, retrySnapshotsCore } from "@/lib/submissions-lock";
+import { SNAPSHOT_WARNING, type SnapshotRetryResult } from "@/lib/snapshot-status";
 
 export async function registerForChallenge(
   chapterId: string,
@@ -327,7 +328,10 @@ export async function submitProject(formData: FormData) {
     delta: { created: { project_name: projectName } },
   });
 
-  // Snapshot any repo fields (early copy, will be replaced at deadline)
+  // Snapshot any repo fields (early copy, will be replaced at deadline).
+  // Best-effort: see the else branch below for why this never blocks.
+  let snapshotWarning: string | null = null;
+
   try {
     const { data: challenge } = await adminClient
       .from("challenges")
@@ -380,11 +384,14 @@ export async function submitProject(formData: FormData) {
               (e) => console.error("Checkpoint branch capture failed:", e)
             );
           } else {
-            // Fork must always succeed: repos can change visibility at any time
+            // NEVER fail the submission here. The row above is already committed,
+            // and lib/submissions-lock.ts re-snapshots every repo at the deadline.
+            // A transient GitHub failure (secondary rate limit during the deadline
+            // rush, an expired bot token) must not tell a team their submission
+            // failed when it did not: they retry, which spends more of the same
+            // rate limit. Admins find the gap via fork_url IS NULL and retry it.
             console.error("Snapshot error:", result.error);
-            return {
-              error: `Could not create a snapshot of your repository: ${result.error}`,
-            };
+            snapshotWarning = SNAPSHOT_WARNING;
           }
         }
       }
@@ -392,11 +399,11 @@ export async function submitProject(formData: FormData) {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error("Auto-snapshot failed:", msg);
-    return { error: `Snapshot failed: ${msg}` };
+    snapshotWarning = SNAPSHOT_WARNING;
   }
 
   revalidatePath("/dashboard");
-  return { success: true };
+  return snapshotWarning ? { success: true, warning: snapshotWarning } : { success: true };
 }
 
 export async function lockSubmissions(challengeId: string) {
@@ -404,4 +411,35 @@ export async function lockSubmissions(challengeId: string) {
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
   return lockSubmissionsCore(challengeId);
+}
+
+/**
+ * Admin retry for submissions whose repo fork is still missing (fork_url NULL).
+ *
+ * Exists because neither the submit path nor the deadline lock fails loudly to
+ * the participant when GitHub refuses a fork: the gap has to be closable by an
+ * operator once the rate limit window clears or the bot token is rotated,
+ * BEFORE the jury tries to open a private repo they cannot read.
+ *
+ * Pass a submissionId for one team, or a chapterId for every missing fork in a
+ * match. Idempotent, so it is safe to press twice.
+ */
+export async function retrySnapshots(opts: {
+  submissionId?: string;
+  chapterId?: string;
+}): Promise<SnapshotRetryResult> {
+  const { requireAdminAction } = await import("@/lib/admin-auth");
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+
+  if (!opts.submissionId && !opts.chapterId) {
+    return { error: "A submission or chapter must be specified." };
+  }
+
+  const result = await retrySnapshotsCore(opts);
+
+  revalidatePath("/admin/submissions");
+  if (opts.chapterId) revalidatePath(`/admin/chapters/${opts.chapterId}`);
+
+  return { success: true as const, ...result };
 }

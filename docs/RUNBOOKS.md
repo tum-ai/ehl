@@ -105,3 +105,72 @@ to the deadline: registration stays open, so any export is a snapshot.
 
 Team sizes are bounded by `MIN_CHALLENGE_ROSTER` (2) and `MAX_TEAM_SIZE` (5) in
 `lib/config/limits.ts`. A two-person team is legal; only a solo team is refused.
+
+---
+
+## Recovering missing repository snapshots
+
+Every submission with a GitHub repo field is forked into the EHL snapshot org so
+the jury reads a copy under EHL control. When the jury judges **private** repos,
+that fork is the only thing they can open: without it they get a 404 on the
+team's own repository.
+
+### When this bites
+
+The fork is created by the GitHub bot account. It can fail for reasons that have
+nothing to do with the team:
+
+| Cause | Error shape | Fix |
+|---|---|---|
+| GitHub secondary rate limit (fork creation is throttled; a deadline rush of 30+ teams, each retrying, will hit it) | `Could not fork repository (403)` | Wait for the window to clear, then retry |
+| Bot token expired | `(401)` | Rotate the token, then retry |
+| Token not SSO-authorized for the snapshot org, or missing `repo` scope | `(403)` | Re-authorize in GitHub org settings, then retry |
+| Team made the repo private or revoked the bot's access after verifying | `(404)` | Ask the team to re-invite the bot, then retry |
+
+Neither the submit path nor the deadline lock fails the participant when this
+happens, by design: the submission is saved either way. The cost of that choice
+is that the gap is silent unless an operator looks, which is what this runbook
+is for.
+
+### Finding what is missing
+
+`submissions.fork_url IS NULL` is the durable record of a fork still owed.
+
+- **In the admin panel**: `/admin/submissions` shows a **Snapshot** column and, when
+  anything is missing, a banner counting them with a per-match retry button.
+- **In SQL** (when you want the list outside the UI):
+
+```sql
+select t.name as team, s.fields, s.fork_url
+from submissions s
+join teams t on t.id = s.team_id
+join challenges c on c.id = s.challenge_id
+where c.chapter_id = '<chapter-id>'
+  and s.fork_url is null;
+```
+
+### Retrying
+
+1. Fix the underlying cause first (wait out the rate limit, rotate the token, or
+   get the bot re-invited). Retrying into the same 403 just burns the limit.
+2. Press **Retry N in \<match\>** on `/admin/submissions`, or **Retry snapshot** on a
+   single submission's detail page.
+3. Read the result. On failure it prints the live GitHub error per team, which
+   tells you which of the four causes above you are actually in.
+4. Repeat until the banner is gone. The retry is idempotent: a submission that
+   already has a fork is skipped without calling GitHub, and an existing fork is
+   synced rather than recreated.
+
+### Do this BEFORE judging opens
+
+A juror who cannot open a repo will either score it as broken or stop to ask,
+and both cost more than a two-minute check. Confirm the banner on
+`/admin/submissions` is clear once the submission deadline has locked and before
+jury links go out.
+
+### Preventing it in the first place
+
+- Check the bot token's expiry and scopes before the event (see `docs/PRE-EVENT.md`).
+- Encourage teams to submit early and edit later: submission is an upsert, so
+  re-submitting updates the row, and early submissions spread fork calls out
+  instead of concentrating them into the final ten minutes.
