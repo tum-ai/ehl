@@ -197,7 +197,7 @@ server at the printed local URL/keys, and run `pnpm test:e2e:lifecycle`. See `do
 ```
 lib/
   actions/              — Server actions (registration, teams, submissions, jury, admin, applications, rsvp, event, auth, screening, flags, communications, showcase)
-  queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles, showcase)
+  queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles, showcase, submission-blocks)
   emails/               — React Email templates (layout.tsx shared, individual templates, text-block.ts for safe plain-text rendering)
   certificates/         — PDF certificate template + design-guide (@react-pdf/renderer), layout.ts (fixed text positions), designs.ts (custom background loading)
   code-review/          — AI review pipeline (ingest, openrouter, pipeline, prompts)
@@ -213,6 +213,10 @@ lib/
   team-membership.ts    — Resolves a user's CURRENT team when they hold several memberships (see Data Integrity 7)
   queries/paged.ts      — fetchPaged(): windowed reads that beat PostgREST's max_rows ceiling (see Data Integrity 8)
   showcase-shared.ts    — Partner-showcase consent predicate + derived SQL filter + types
+  submission-blocks.ts  — Reason codes for REFUSED submission attempts, and whose problem
+                          each one is ("ours" vs "theirs"). A blocked attempt writes no
+                          submissions row, so its event_log entry is the only trace it
+                          happened; summarizeBlocks() rolls those into the live admin counter
   snapshot-status.ts    — Derives repo-snapshot state from submissions.fork_url (the only
                           durable record that a fork is owed, since neither the submit path
                           nor the deadline lock fails a participant when GitHub refuses a

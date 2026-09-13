@@ -11,6 +11,7 @@ import { logEvent } from "@/lib/event-log";
 import { MIN_CHALLENGE_ROSTER, MAX_TEAM_SIZE } from "@/lib/config/limits";
 import { lockSubmissionsCore, makeSnapshotName, retrySnapshotsCore } from "@/lib/submissions-lock";
 import { SNAPSHOT_WARNING, type SnapshotRetryResult } from "@/lib/snapshot-status";
+import { BLOCK_ACTION, type BlockReason } from "@/lib/submission-blocks";
 
 export async function registerForChallenge(
   chapterId: string,
@@ -160,6 +161,31 @@ export async function registerForChallenge(
 /**
  * Generate a slug-safe repo name for a snapshot.
  */
+/**
+ * Record a submission attempt that was refused, then return the participant's
+ * error unchanged.
+ *
+ * A blocked submission writes no submissions row, so without this it left no
+ * trace at all and organizers learned about stuck teams only when someone came
+ * to the desk. Logged as the acting participant so the admin view can count
+ * DISTINCT teams, not just attempts.
+ */
+function blockSubmission(
+  reason: BlockReason,
+  message: string,
+  ctx: { userId: string; challengeId: string; teamId: string }
+): { error: string } {
+  logEvent({
+    action: BLOCK_ACTION,
+    entityType: "submission",
+    entityId: ctx.challengeId,
+    actorId: ctx.userId,
+    actorType: "participant",
+    delta: { blocked: { reason, team_id: ctx.teamId } },
+  });
+  return { error: message };
+}
+
 export async function submitProject(formData: FormData) {
   const challengeId = formData.get("challengeId") as string;
   const teamId = formData.get("teamId") as string;
@@ -199,7 +225,11 @@ export async function submitProject(formData: FormData) {
     .single();
 
   if (!membership) {
-    return { error: "You are not a member of this team." };
+    return blockSubmission("not_team_member", "You are not a member of this team.", {
+      userId: user.id,
+      challengeId,
+      teamId,
+    });
   }
 
   // Verify submitter is checked in for this chapter
@@ -225,7 +255,11 @@ export async function submitProject(formData: FormData) {
         .single();
 
       if (!checkinApp || checkinApp.status !== "checked_in") {
-        return { error: "You must be checked in to submit a project." };
+        return blockSubmission(
+          "not_checked_in",
+          "You must be checked in to submit a project.",
+          { userId: user.id, challengeId, teamId }
+        );
       }
     }
   }
@@ -239,7 +273,11 @@ export async function submitProject(formData: FormData) {
     .single();
 
   if (!registration) {
-    return { error: "Your team is not registered for this challenge." };
+    return blockSubmission(
+      "not_registered",
+      "Your team is not registered for this challenge.",
+      { userId: user.id, challengeId, teamId }
+    );
   }
 
   // Check if submission is locked (flag set by cron)
@@ -251,7 +289,11 @@ export async function submitProject(formData: FormData) {
     .single();
 
   if (existing?.is_locked) {
-    return { error: "Submissions are locked. The deadline has passed." };
+    return blockSubmission(
+      "submissions_locked",
+      "Submissions are locked. The deadline has passed.",
+      { userId: user.id, challengeId, teamId }
+    );
   }
 
   // Also check the actual deadline (cron may not have run yet)
@@ -269,7 +311,11 @@ export async function submitProject(formData: FormData) {
       .single();
 
     if (chapter?.submission_deadline && new Date(chapter.submission_deadline) <= new Date()) {
-      return { error: "The submission deadline has passed." };
+      return blockSubmission(
+        "deadline_passed",
+        "The submission deadline has passed.",
+        { userId: user.id, challengeId, teamId }
+      );
     }
   }
 
@@ -298,7 +344,19 @@ export async function submitProject(formData: FormData) {
 
         const check = await checkCheckpointBranch(parsed.owner, parsed.repo);
         if (!check.satisfiesGate) {
-          return { error: entireGateErrorMessage(check) };
+          // Which of the three it is decides who can act: only the last one is
+          // ours, and several of those at once is an incident, not a queue of
+          // teams to talk to.
+          const reason: BlockReason = check.checkUnavailable
+            ? "entire_check_unavailable"
+            : check.repoUnreadable
+              ? "entire_repo_unreadable"
+              : "entire_missing";
+          return blockSubmission(reason, entireGateErrorMessage(check), {
+            userId: user.id,
+            challengeId,
+            teamId,
+          });
         }
       }
     }

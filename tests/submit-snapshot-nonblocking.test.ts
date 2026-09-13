@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   logEvent: vi.fn(),
   revalidatePath: vi.fn(),
   upsert: vi.fn(),
+  checkCheckpointBranch: vi.fn(),
+  entireGateErrorMessage: vi.fn(),
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
@@ -27,8 +29,8 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminCli
 vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
 vi.mock("@/lib/queries/checkin", () => ({ getCheckinStatusForUsers: vi.fn() }));
 vi.mock("@/lib/entire", () => ({
-  checkCheckpointBranch: vi.fn(),
-  entireGateErrorMessage: vi.fn(),
+  checkCheckpointBranch: mocks.checkCheckpointBranch,
+  entireGateErrorMessage: mocks.entireGateErrorMessage,
 }));
 vi.mock("@/lib/github", () => ({
   parseGitHubRepo: (url: string) => {
@@ -48,7 +50,7 @@ const REPO_FIELD = [{ key: "repo", label: "Repository", type: "repo", required: 
  * Routes each read to a canned row by table + selected columns, so the long
  * gate sequence in submitProject reaches the snapshot step.
  */
-function adminClient() {
+function adminClient(entireRequired = false) {
   return {
     from(table: string) {
       const b: Record<string, unknown> = {};
@@ -75,7 +77,7 @@ function adminClient() {
         if (table === "chapters") return { data: { submission_deadline: null, slug: "zurich" } };
         if (table === "challenges") {
           if (selectCols.includes("entire_required")) {
-            return { data: { entire_required: false, submission_fields: REPO_FIELD } };
+            return { data: { entire_required: entireRequired, submission_fields: REPO_FIELD } };
           }
           if (selectCols.includes("submission_fields")) {
             return { data: { submission_fields: REPO_FIELD, chapter_id: "chapter-1" } };
@@ -181,6 +183,41 @@ describe("submitProject gates still block before the row is written", () => {
     expect(mocks.upsert).not.toHaveBeenCalled();
   });
 
+  // A blocked attempt writes no submissions row, so the audit entry is the ONLY
+  // trace it happened. Without it a stuck team is invisible to organizers.
+  it("records the blocked attempt so organizers can see stuck teams", async () => {
+    mocks.createAdminClient.mockReturnValue({
+      from: () => {
+        const b: Record<string, unknown> = {};
+        b.select = () => b;
+        b.eq = () => b;
+        b.single = async () => ({ data: null });
+        return b;
+      },
+    });
+
+    await submitProject(form());
+
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "submission.blocked",
+        entityType: "submission",
+        entityId: "challenge-1",
+        actorId: "user-1",
+        actorType: "participant",
+        delta: { blocked: { reason: "not_team_member", team_id: "team-1" } },
+      })
+    );
+  });
+
+  it("logs nothing for an unauthenticated caller (no actor to attribute)", async () => {
+    mocks.getUser.mockResolvedValue({ data: { user: null } });
+
+    await submitProject(form());
+
+    expect(mocks.logEvent).not.toHaveBeenCalled();
+  });
+
   it("rejects an unauthenticated caller", async () => {
     mocks.getUser.mockResolvedValue({ data: { user: null } });
 
@@ -188,5 +225,79 @@ describe("submitProject gates still block before the row is written", () => {
 
     expect(result).toEqual({ error: "Not authenticated." });
     expect(mocks.upsert).not.toHaveBeenCalled();
+  });
+});
+
+
+// The Entire gate runs on the SAME GitHub credentials as everything else, so it
+// can fail for reasons the team cannot act on. Which reason is recorded decides
+// whether an organizer sees a queue of teams to talk to or an incident of their
+// own, so the mapping is pinned here.
+describe("submitProject Entire gate attribution", () => {
+  beforeEach(() => {
+    mocks.createAdminClient.mockReturnValue(adminClient(true));
+    mocks.entireGateErrorMessage.mockReturnValue("gate message");
+  });
+
+  const CHECK_BASE = {
+    branchExists: false,
+    promptCount: 0,
+    checkpointCount: 0,
+    resolvedRef: null,
+    repoUnreadable: false,
+    checkUnavailable: false,
+    satisfiesGate: false,
+    notes: [],
+  };
+
+  it("records OUR failure when the check could not be completed", async () => {
+    mocks.checkCheckpointBranch.mockResolvedValue({ ...CHECK_BASE, checkUnavailable: true });
+
+    const result = await submitProject(form());
+
+    expect(result).toEqual({ error: "gate message" });
+    expect(mocks.upsert).not.toHaveBeenCalled();
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "submission.blocked",
+        delta: { blocked: { reason: "entire_check_unavailable", team_id: "team-1" } },
+      })
+    );
+  });
+
+  it("records THEIR access problem when the repo is unreadable", async () => {
+    mocks.checkCheckpointBranch.mockResolvedValue({ ...CHECK_BASE, repoUnreadable: true });
+
+    await submitProject(form());
+
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delta: { blocked: { reason: "entire_repo_unreadable", team_id: "team-1" } },
+      })
+    );
+  });
+
+  it("records a genuinely missing record as theirs", async () => {
+    mocks.checkCheckpointBranch.mockResolvedValue({ ...CHECK_BASE });
+
+    await submitProject(form());
+
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delta: { blocked: { reason: "entire_missing", team_id: "team-1" } },
+      })
+    );
+  });
+
+  it("does not block or log when the gate passes", async () => {
+    mocks.checkCheckpointBranch.mockResolvedValue({ ...CHECK_BASE, satisfiesGate: true });
+    mocks.snapshotRepo.mockResolvedValue({ snapshotUrl: "https://github.com/ehl-org/x" });
+
+    const result = await submitProject(form());
+
+    expect(result).toEqual({ success: true });
+    expect(mocks.logEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ action: "submission.blocked" })
+    );
   });
 });

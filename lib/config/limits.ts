@@ -58,6 +58,12 @@ export const QUERY_LIMITS = {
   usersLookingForTeam: envInt("LIMIT_USERS_LOOKING_FOR_TEAM", 500),
   codeReviewQueueDepth: envInt("LIMIT_CODE_REVIEW_QUEUE_DEPTH", 200),
   adminStatsApplications: envInt("LIMIT_ADMIN_STATS_APPLICATIONS", 10000),
+
+  // Blocked submission attempts read back for the live admin view. Bounded well
+  // under PostgREST's 1000-row ceiling on purpose: this is a short rolling
+  // window (minutes, not the season), and the view reports a count, so the exact
+  // tail beyond this adds nothing an operator would act on differently.
+  submissionBlocks: envInt("LIMIT_SUBMISSION_BLOCKS", 500),
   applicationNotes: envInt("LIMIT_APPLICATION_NOTES", 500),
   // Max recipients fetched per chapter broadcast send. Capped so the synchronous
   // send loop stays within the Vercel function timeout (see sendChapterBroadcast,

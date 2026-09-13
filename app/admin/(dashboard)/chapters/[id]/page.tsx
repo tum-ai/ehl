@@ -3,6 +3,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getChapterByIdAdmin } from "@/lib/queries";
 import { ChapterStatsPanel } from "@/components/admin/stats/chapter-stats-panel";
+import { SubmissionBlockers } from "@/components/admin/submission-blockers";
 import Link from "next/link";
 import { ChapterEditWrapper } from "./chapter-edit-wrapper";
 import { DeleteChapterButton } from "./delete-chapter-button";
@@ -30,6 +31,10 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
 
   // Show stats panel for chapters that are past the draft/announced stage
   const showStats = !["draft", "announced"].includes(chapter.status);
+  // Blocked submission attempts only mean anything while teams are actually
+  // submitting, or just after: showing "0 blocked" during application screening
+  // is noise that trains an operator to ignore the panel.
+  const showBlockers = ["submissions_open", "pitching"].includes(chapter.status);
 
   // The "Manage" links a local (chapter) admin may use: screening, members,
   // submissions/code-reviews, and the public page. Edit/status/scores/jury/
@@ -203,6 +208,12 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
       {showStats && (
         <div className="mt-6">
           <ChapterStatsPanel chapterId={chapter.id} />
+        </div>
+      )}
+
+      {showBlockers && (
+        <div className="mt-6">
+          <SubmissionBlockers chapterId={chapter.id} />
         </div>
       )}
 
