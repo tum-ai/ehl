@@ -1,0 +1,25 @@
+run it to get
+
+---
+
+is this correct? Hey @everyone,
+
+since the submission deadline is coming closer (12pm), we would like to remind you, that the repositories for this event the repositories must be private!
+
+**For that you must invite "ehl-gg" to your repository as a collaborator.**
+
+If you are having struggles/problems with the submission, feel free to talk to me at the front desk. Thanks)
+
+---
+
+is this fine as well: To let us access it:
+
+1. Invite ehl-gg as a collaborator on your GitHub repository (Settings → Collaborators).
+
+2. Make sure your Entire checkpoints are pushed (git push including the Entire refs). Submissions without Entire session data are rejected.
+
+3. In the submission form, paste your repo URL and click Verify (but dont go crazy on the button, you could get ratelimited)
+
+---
+
+do we still have the script for manual submission if teams are blocked?? i used it in munich for two teams so it should be lying around the repo somewhere
