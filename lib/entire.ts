@@ -126,10 +126,21 @@ async function getGitHubToken(): Promise<string | null> {
  * see, or an expired token) went unmentioned.
  */
 export function entireGateErrorMessage(check: CheckpointBranchCheck): string {
+  // OUR failure first: never hand the team an instruction when the check did not
+  // complete on our side. Deliberately says nothing about our infrastructure,
+  // only who owns the problem and what happens next.
+  if (check.checkUnavailable) {
+    return (
+      "We could not complete the session-record check just now, and this one is on " +
+      "us, not on you. Please try again in a few minutes, if the deadline allows so. If it keeps happening, " +
+      "tell an organizer and they will sort it out: do not change anything about " +
+      "your repository to try to fix this."
+    );
+  }
   if (check.repoUnreadable) {
     return (
       "We could not read your repository on GitHub. If it is private, invite " +
-      "\"ehl-gg\" as a collaborator (or make the repository public), then click Verify " +
+      "\"ehl-gg\" as a collaborator, then click Verify " +
       "again. If you renamed or moved it, paste the current URL. This is not a problem " +
       "with your Entire session record: we never got far enough to look at it."
     );
@@ -255,19 +266,39 @@ type TreeItem = { path: string; type: string };
  * Any other outcome (2xx, rate limit, network error) is treated as readable, so
  * a transient blip can never invent a "your repo is private" accusation.
  */
+/**
+ * Ask GitHub whether the repo is readable, and — when it is not — whose problem
+ * that is.
+ *
+ * GitHub answers 404 (not 403) for a private repo we have no access to, so that
+ * it never leaks whether the repo exists. That makes 404 the TEAM's side: the
+ * repo is missing, renamed, or ehl-gg was never invited, all of which they can
+ * fix. 401/403 mean our own credentials were refused, and a network failure
+ * means we never got an answer at all: those are OURS, and the team can do
+ * nothing about either.
+ */
 async function probeRepoAccess(
   owner: string,
   repo: string,
   headers: Record<string, string>
-): Promise<{ readable: boolean; status: number | null }> {
+): Promise<{ readable: boolean; status: number | null; ourSide: boolean }> {
   try {
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
-    if (res.status === 401 || res.status === 403 || res.status === 404) {
-      return { readable: false, status: res.status };
+    if (res.status === 401 || res.status === 403) {
+      return { readable: false, status: res.status, ourSide: true };
     }
-    return { readable: true, status: res.status };
+    if (res.status === 404) {
+      return { readable: false, status: res.status, ourSide: false };
+    }
+    if (res.status >= 500) {
+      return { readable: false, status: res.status, ourSide: true };
+    }
+    return { readable: true, status: res.status, ourSide: false };
   } catch {
-    return { readable: true, status: null };
+    // We never reached GitHub. Previously this reported "readable", which sent
+    // the caller down the "no Entire record found" path and told the team to go
+    // install Entire because OUR request failed.
+    return { readable: false, status: null, ourSide: true };
   }
 }
 
@@ -362,6 +393,7 @@ export async function checkCheckpointBranch(
     checkpointCount: 0,
     resolvedRef: null,
     repoUnreadable: false,
+    checkUnavailable: false,
     satisfiesGate: false,
     notes,
   };
@@ -376,7 +408,9 @@ export async function checkCheckpointBranch(
     notes.push(
       `Could not query the Entire branch (${e instanceof Error ? e.message : "network error"}).`
     );
-    return empty;
+    // Our request failed. Absence of a record was never established, so this
+    // must not be reported as the team having no Entire record.
+    return { ...empty, checkUnavailable: true };
   }
 
   if (!tree) {
@@ -386,9 +420,12 @@ export async function checkCheckpointBranch(
     const access = await probeRepoAccess(owner, repo, headers);
     if (!access.readable) {
       notes.push(
-        `Repository ${owner}/${repo} is not readable (HTTP ${access.status}); ` +
+        `Repository ${owner}/${repo} is not readable (HTTP ${access.status ?? "no response"}); ` +
           "no conclusion drawn about its Entire record."
       );
+      if (access.ourSide) {
+        return { ...empty, checkUnavailable: true };
+      }
       return { ...empty, repoUnreadable: true };
     }
     notes.push("No recognized Entire checkpoint branch or ref found.");
@@ -453,6 +490,7 @@ export async function checkCheckpointBranch(
     checkpointCount,
     resolvedRef: tree.ref,
     repoUnreadable: false,
+    checkUnavailable: false,
     satisfiesGate: branchExists && promptCount >= 1,
     notes,
   };

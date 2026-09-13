@@ -557,6 +557,13 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 - Global admins see all submissions; chapter admins see only their own chapter's
 - **Snapshot status column**: whether each submission's repository was forked into the
   EHL snapshot org. A submission with a repo but no fork shows "Not snapshotted"
+- **Blocked submission attempts** (chapter page, while status is `submissions_open` or
+  `pitching`): a live panel, polled every 20s, counting attempts that were REFUSED in the
+  last hour, by reason and by distinct teams. A blocked attempt writes no submission row,
+  so before this a stuck team stayed invisible until someone came to the desk. Reasons are
+  split by who can act: anything on OUR side (the session-record check failing on our own
+  GitHub access) is listed first and flagged, because the desk cannot help those teams by
+  talking to them
 - **Snapshot retry**: when any fork is missing, a banner counts them and offers a
   per-match "Retry N in <match>" button; the submission detail page has a per-team
   "Retry snapshot" button. Both re-run the fork and report the live GitHub error on

@@ -174,3 +174,21 @@ jury links go out.
 - Encourage teams to submit early and edit later: submission is an upsert, so
   re-submitting updates the row, and early submissions spread fork calls out
   instead of concentrating them into the final ten minutes.
+
+### Watching for stuck teams while submissions are open
+
+A refused submission writes no row, so it leaves no trace except an `event_log`
+entry. The chapter admin page shows those live while the chapter is
+`submissions_open` or `pitching`, in the **Blocked submission attempts** panel
+(last 60 minutes, polled every 20s, counted by reason and by distinct teams).
+
+Read it by the split, not the total:
+
+- **"only we can fix"** (the session-record check failing on our GitHub access):
+  the desk cannot help these teams. Check the bot token and the snapshot status.
+  Several at once is an incident, not a queue.
+- **Everything else** (not checked in, team not registered, no Entire record,
+  repository not readable): a desk conversation with a specific team.
+
+One team retrying five times counts as five attempts from one team. The panel
+shows both numbers so a single frustrated team is never mistaken for a wave.

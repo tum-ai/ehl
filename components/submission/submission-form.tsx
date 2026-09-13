@@ -179,11 +179,11 @@ export function SubmissionForm({
 
     const result = await submitProject(formData);
 
-    if (result?.error) {
-      setError(result.error);
+    if (result && "error" in result) {
+      setError(result.error ?? "Something went wrong. Please try again.");
     } else {
       setSuccess(true);
-      setWarning(result?.warning ?? null);
+      setWarning(result && "warning" in result ? (result.warning ?? null) : null);
     }
     setSaving(false);
   }

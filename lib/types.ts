@@ -244,6 +244,15 @@ export interface CheckpointBranchCheck {
   // genuinely carries no Entire record". Both fail the gate, but they need
   // opposite instructions, so never collapse them into one message.
   repoUnreadable: boolean;
+  // True when the check could not be COMPLETED for a reason on our side (our
+  // GitHub credentials, or GitHub itself being unavailable to us), as opposed to
+  // anything the team can act on. Distinct from repoUnreadable, which means we
+  // reached GitHub and it told us the team's repo is not available to us.
+  //
+  // The team must never be blamed for this: telling them to invite ehl-gg or to
+  // install Entire when our own request failed sends them chasing a problem they
+  // do not have, at the moment they have least time to spare.
+  checkUnavailable: boolean;
   // True when the branch exists and has at least one prompt: passes the gate.
   satisfiesGate: boolean;
   // Non-fatal notes (e.g. "counted prompts via metadata fallback",
