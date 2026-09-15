@@ -1,0 +1,33 @@
+how many people have already invited ehl-gg to their repo as collaborator
+
+---
+
+is it like planned that they are not accepted? will the be accepted when they finally submit?
+
+---
+
+but generally speaking no blockers or red flags yet?
+
+---
+
+if i would invite myself as ajudge just to see the ui and have some info, do other judges see it aswell?
+
+---
+
+ok so one team couldnt upload their pdf with the error please try again something bla bla, chekc logs it was team oasis and it failed for them
+
+---
+
+sebastian the judge with the mail Sebastian.BA.Baeuml@bmw-motorrad.de cannot acces the judging protal since it says for his mail no such jury with such mail even tho he received the mail invite on exact that mail. he does not have github tho added
+
+---
+
+run it
+
+---
+
+did you create the pr that briefly fixes this?
+
+---
+
+do
