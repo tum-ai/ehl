@@ -159,6 +159,15 @@ export function slugify(name: string): string {
 }
 
 /**
+ * Escape LIKE/ILIKE wildcards so a value matches only itself. Without this an
+ * underscore in an email address (a valid character) would match any character,
+ * letting "a_b@x.com" select "axb@x.com".
+ */
+export function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+/**
  * Validate that a redirect path is safe (internal, no open redirect).
  * Returns the path if safe, null otherwise.
  */
