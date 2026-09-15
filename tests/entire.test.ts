@@ -95,6 +95,7 @@ describe("entireGateErrorMessage", () => {
     checkpointCount: 0,
     resolvedRef: null,
     repoUnreadable: false,
+    checkUnavailable: false,
     satisfiesGate: false,
     notes: [],
   };
@@ -213,10 +214,27 @@ describe("checkCheckpointBranch", () => {
     expect(entireGateErrorMessage(r)).toMatch(/could not read your repository/i);
   });
 
-  it.each([401, 403])("treats HTTP %i on the repo as unreadable", async (status) => {
+  // 401/403 mean OUR credentials were refused, so this is not the team's repo
+  // being unreadable: it is our check failing to run. Reporting it as
+  // repoUnreadable told the team to invite ehl-gg to fix a problem on our side.
+  // (The 500 case below has always been treated this way; these two now match.)
+  it.each([401, 403])("treats HTTP %i as OUR failure, not the team's", async (status) => {
     globalThis.fetch = mockFetch((url) => (isRepoProbe(url) ? { status } : { status: 404 }));
     const r = await checkCheckpointBranch("o", "r");
+    expect(r.checkUnavailable).toBe(true);
+    expect(r.repoUnreadable).toBe(false);
+    expect(r.satisfiesGate).toBe(false);
+    expect(entireGateErrorMessage(r)).toMatch(/on us, not on you/i);
+    expect(entireGateErrorMessage(r)).not.toMatch(/ehl-gg/);
+  });
+
+  // 404 stays the team's to fix: GitHub answers 404 (not 403) for a private repo
+  // we have no access to, so it is the shape of "invite ehl-gg" or "wrong URL".
+  it("keeps HTTP 404 as the team's to fix", async () => {
+    globalThis.fetch = mockFetch(() => ({ status: 404 }));
+    const r = await checkCheckpointBranch("o", "r");
     expect(r.repoUnreadable).toBe(true);
+    expect(r.checkUnavailable).toBe(false);
   });
 
   // A rate limit or a blip must never be turned into "your repo is private".
@@ -428,5 +446,75 @@ describe("listEntireCheckpointRefs", () => {
     const refs = await listEntireCheckpointRefs("o", "r", {});
     expect(refs.length).toBe(MAX_ENTIRE_CHECKPOINT_REFS);
     expect(pages).toBe(1);
+  });
+});
+
+// ─── Whose fault is it: ours or the team's ───────────────────────────────────
+//
+// The Entire gate runs on the same GitHub credentials as everything else. When
+// OUR side of that fails, the old code reported it as either "invite ehl-gg" or
+// "you have no Entire record", both of which send a team chasing a problem they
+// do not have, minutes before a deadline. These pin the separation.
+describe("entireGateErrorMessage: our failure vs theirs", () => {
+  const base: CheckpointBranchCheck = {
+    branchExists: false,
+    promptCount: 0,
+    checkpointCount: 0,
+    resolvedRef: null,
+    repoUnreadable: false,
+    checkUnavailable: false,
+    satisfiesGate: false,
+    notes: [],
+  };
+
+  it("owns the problem when the check could not be completed", () => {
+    const msg = entireGateErrorMessage({ ...base, checkUnavailable: true });
+    expect(msg).toMatch(/on us, not on you/i);
+    expect(msg).toMatch(/try again/i);
+  });
+
+  it("never tells the team to change anything when the failure is ours", () => {
+    const msg = entireGateErrorMessage({ ...base, checkUnavailable: true });
+    expect(msg).not.toMatch(/ehl-gg/);
+    expect(msg).not.toMatch(/entire enable/);
+    expect(msg).not.toMatch(/recognized Entire checkpoint branch or ref/i);
+    expect(msg).not.toMatch(/make the repository public/i);
+  });
+
+  it("leaks no infrastructure detail to the participant", () => {
+    const msg = entireGateErrorMessage({ ...base, checkUnavailable: true });
+    for (const leak of [/rate limit/i, /token/i, /401/, /403/, /quota/i, /github api/i]) {
+      expect(msg).not.toMatch(leak);
+    }
+  });
+
+  it("prefers our-failure over every team-facing message", () => {
+    // checkUnavailable arrives alongside branchExists=false, and can coincide
+    // with repoUnreadable; ours must win both.
+    const msg = entireGateErrorMessage({
+      ...base,
+      branchExists: false,
+      repoUnreadable: true,
+      checkUnavailable: true,
+    });
+    expect(msg).toMatch(/on us, not on you/i);
+    expect(msg).not.toMatch(/ehl-gg/);
+  });
+
+  it("still blames nobody but points the team at access when the repo is theirs to fix", () => {
+    const msg = entireGateErrorMessage({ ...base, repoUnreadable: true });
+    expect(msg).toMatch(/ehl-gg/);
+    expect(msg).not.toMatch(/on us, not on you/i);
+  });
+
+  it("contains no em dash in any branch (house style)", () => {
+    for (const c of [
+      { ...base, checkUnavailable: true },
+      { ...base, repoUnreadable: true },
+      { ...base, branchExists: false },
+      { ...base, branchExists: true },
+    ]) {
+      expect(entireGateErrorMessage(c)).not.toContain("—");
+    }
   });
 });

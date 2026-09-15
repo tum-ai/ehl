@@ -39,7 +39,11 @@ Mandatory preparation before every EHL live event. 15k prize money is distribute
 3. **Rate limiting too aggressive**: Increase limits in Upstash dashboard or set `RATE_LIMIT_DISABLED=true` temporarily.
 4. **Scoring bug discovered before announcement**: Delay announcement. Never announce wrong results. Fix first, announce second.
 5. **Scoring bug discovered after announcement**: Document everything in audit log, communicate transparently with teams, correct publicly.
-6. **Teams report submission errors mentioning the repository**: The submission itself is saved regardless (the repo snapshot never blocks it). Check `/admin/submissions` for the "Not snapshotted" count and follow `docs/RUNBOOKS.md` > Recovering missing repository snapshots. Usually a GitHub secondary rate limit from a deadline rush: it clears on its own, and the retry button closes the gap.
+6. **Watch the chapter page during the submission window.** The "Blocked submission
+   attempts" panel counts refused attempts live. Anything listed under "only we can fix"
+   means our GitHub access is failing: the teams behind those numbers cannot be helped at
+   the desk, so check the bot token and the snapshot status instead of talking to them.
+7. **Teams report submission errors mentioning the repository**: The submission itself is saved regardless (the repo snapshot never blocks it). Check `/admin/submissions` for the "Not snapshotted" count and follow `docs/RUNBOOKS.md` > Recovering missing repository snapshots. Usually a GitHub secondary rate limit from a deadline rush: it clears on its own, and the retry button closes the gap.
 
 ## Post-Event
 
