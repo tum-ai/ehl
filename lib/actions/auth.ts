@@ -13,7 +13,7 @@ import {
   renderPasswordResetEmail,
   renderCreateAccountInviteEmail,
 } from "@/lib/emails/render";
-import { getSafeRedirect, getSiteUrl } from "@/lib/utils";
+import { escapeLikePattern, getSafeRedirect, getSiteUrl } from "@/lib/utils";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, authLimiter, resetLimiter, resetEmailLimiter } from "@/lib/ratelimit";
 import { getLockingTeamId } from "@/lib/team-membership";
@@ -153,11 +153,13 @@ export async function signInJury(formData: FormData) {
   const siteUrl = getSiteUrl();
   const adminClient = createAdminClient();
 
-  // Verify the user exists and is a jury member via profiles table
+  // Verify the user exists and is a jury member via profiles table. Matched
+  // case-insensitively: jurors invited before inviteJury lowercased the address
+  // still have a mixed-case profile email, which an exact match never finds.
   const { data: profile } = await adminClient
     .from("profiles")
     .select("id, role, name")
-    .eq("email", email.trim().toLowerCase())
+    .ilike("email", escapeLikePattern(email.trim()))
     .single();
 
   if (!profile || (profile.role !== "jury" && profile.role !== "admin")) {
@@ -454,6 +456,11 @@ export async function inviteJury(
   const adminClient = createAdminClient();
   const siteUrl = getSiteUrl();
 
+  // Store the email lowercased. signInJury looks the profile up by the
+  // lowercased address, so a mixed-case row (as typed by the admin) could never
+  // be found and the juror was told no jury account exists.
+  const normalizedEmail = email.trim().toLowerCase();
+
   // GitHub username: always OPTIONAL. A missing one costs the juror access to
   // private snapshot forks, but never blocks the invite: the admin usually does
   // not know the handle at invite time, and being unable to invite a juror is a
@@ -474,7 +481,7 @@ export async function inviteJury(
   const { data: existingProfile } = await adminClient
     .from("profiles")
     .select("id")
-    .eq("email", email.trim().toLowerCase())
+    .eq("email", normalizedEmail)
     .single();
 
   let userId: string;
@@ -486,7 +493,7 @@ export async function inviteJury(
     {
       // Create user account (no password needed for magic link auth)
       const { data, error } = await adminClient.auth.admin.createUser({
-        email,
+        email: normalizedEmail,
         email_confirm: true,
         user_metadata: { name },
       });
@@ -514,7 +521,7 @@ export async function inviteJury(
   // captured during an earlier invite.
   await adminClient.from("profiles").upsert({
     id: userId,
-    email,
+    email: normalizedEmail,
     name,
     role: "jury",
     ...(normalizedGithub ? { github_username: normalizedGithub } : {}),
@@ -531,7 +538,7 @@ export async function inviteJury(
   // Generate a magic link for the jury member
   const { data: linkData, error: linkError } = await adminClient.auth.admin.generateLink({
     type: "magiclink",
-    email,
+    email: normalizedEmail,
     options: {
       redirectTo: `${siteUrl}/auth/callback?next=/jury`,
     },
@@ -559,7 +566,7 @@ export async function inviteJury(
   });
 
   await sendEmail({
-    to: email,
+    to: normalizedEmail,
     subject: "You're invited to judge at the EHL",
     html,
   });
