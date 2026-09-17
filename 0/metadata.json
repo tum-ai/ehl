@@ -1,0 +1,79 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01M2R6Y51NE7BTAZ8271SZKAW3",
+  "session_id": "6ef7837f-a8a3-446c-8e4c-ccccb0baf58a",
+  "strategy": "manual-commit",
+  "created_at": "2026-09-17T17:34:28.661979Z",
+  "branch": "feat/podium-shared-places",
+  "checkpoints_count": 1,
+  "save_step_count": 1,
+  "files_touched": [
+    "components/leaderboard/podium.tsx",
+    "components/podium/LandingPodiumClient.tsx",
+    "docs/FEATURES.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5",
+  "turn_id": "6bfae6cc310a",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 230,
+    "cache_creation_tokens": 197860,
+    "cache_read_tokens": 15738771,
+    "output_tokens": 63587,
+    "api_call_count": 114
+  },
+  "session_metrics": {
+    "turn_count": 1
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-09-17T17:34:28.530148Z",
+    "agent_lines": 0,
+    "agent_removed": 0,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 190,
+    "total_committed": 0,
+    "total_lines_changed": 190,
+    "agent_percentage": 0,
+    "metric_version": 2
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 1,
+      "user_lines_added": 843,
+      "user_lines_removed": 190,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0,
+      "user_added_per_file": {
+        "AGENTS.md": 277,
+        "components/leaderboard/podium.tsx": 22,
+        "components/podium/LandingPodiumClient.tsx": 19,
+        "docs/FEATURES.md": 1,
+        "lib/podium.ts": 57,
+        "scripts/download-checked-in-cvs.ts": 82,
+        "tests/podium.test.tsx": 102,
+        "to-do.txt": 200,
+        "todo.txt": 83
+      },
+      "user_removed_per_file": {
+        "components/leaderboard/podium.tsx": 129,
+        "components/podium/LandingPodiumClient.tsx": 60,
+        "docs/FEATURES.md": 1
+      }
+    },
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 642,
+      "user_lines_removed": 0,
+      "agent_lines_added": 201,
+      "agent_lines_removed": 190,
+      "user_added_per_file": {
+        "AGENTS.md": 277,
+        "scripts/download-checked-in-cvs.ts": 82,
+        "to-do.txt": 200,
+        "todo.txt": 83
+      }
+    }
+  ]
+}
