@@ -428,6 +428,11 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        )
      ) as present`,
   },
+  // 00067 adds loyalty_bonuses and re-creates the leaderboard view with a
+  // loyalty_bonus column and a points-only rank. The column proves the new view
+  // definition was applied; it does not prove the rank expression or RLS on the
+  // table if a database has drifted since.
+  { prefix: "00067", label: "leaderboard_loyalty_bonus", sql: column("leaderboard", "loyalty_bonus") },
 ];
 
 /**

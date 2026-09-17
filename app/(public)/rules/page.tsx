@@ -354,8 +354,8 @@ export default async function RulesPage() {
             </p>
             <p>
               The Finale is a special event where qualified teams compete for the
-              championship title. Format and details will be announced as the
-              season progresses.
+              championship title. Other participants can also join the Grand Finale and compete for the challenge prizes, 
+              but only the top 15 finalists are eligible for the EHL championship title and prize.
             </p>
           </div>
         </div>

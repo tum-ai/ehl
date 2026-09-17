@@ -168,56 +168,30 @@ describe("calculateLeaderboard", () => {
     expect(result[2].rank).toBe(3);
   });
 
-  it("breaks ties using bestFinish (lower is better)", () => {
-    const teams = [makeTeam("t1", "Alpha"), makeTeam("t2", "Beta")];
-    // Both have 8 points total, but t1 has a 1st place finish and t2 has a 2nd + participation
+  it("does not break ties with bestFinish: equal points share a rank", () => {
+    const teams = [makeTeam("t2", "Beta"), makeTeam("t1", "Alpha")];
     const scores = [
-      makeScore("t1", "c1", 1, 8),
-      makeScore("t2", "c1", 2, 7),
-      makeScore("t2", "c2", null, 2), // +2 participation = 9 total? No, let's make equal
-    ];
-    // Actually let's make them truly equal points
-    const teams2 = [makeTeam("t1", "Alpha"), makeTeam("t2", "Beta")];
-    const scores2 = [
-      makeScore("t1", "c1", 2, 7),  // 7 points, best finish: 2nd
-      makeScore("t2", "c1", 4, 4),  // 4 points
-      makeScore("t2", "c2", 3, 6),  // +6 = not equal... let me recalc
-    ];
-    // Let's just do: t1 = 8 points (1st), t2 = 8 points (2nd + participation)
-    const teams3 = [makeTeam("t1", "Alpha"), makeTeam("t2", "Beta")];
-    const scores3 = [
-      makeScore("t1", "c1", 1, 8),               // total: 8, best: 1
-      makeScore("t2", "c1", 2, 7),               // 7
+      makeScore("t1", "c1", 1, 8),                       // total: 8, best: 1
+      makeScore("t2", "c1", 2, 7),                       // 7
       { ...makeScore("t2", "c2", null, 1), points: 1 },  // total: 8, best: 2
     ];
-    const result = calculateLeaderboard(teams3, scores3, [emptyChapter]);
-    // Both have 8 points, but t1 has best finish of 1, t2 has best finish of 2
+    const result = calculateLeaderboard(teams, scores, [emptyChapter]);
+    expect(result[0].rank).toBe(1);
+    expect(result[1].rank).toBe(1);
+    // Inside a tie the order is by name, display only
     expect(result[0].team.id).toBe("t1");
     expect(result[1].team.id).toBe("t2");
-    // Same rank because same points but different bestFinish? No - different bestFinish = different rank
-    expect(result[0].rank).toBe(1);
-    expect(result[1].rank).toBe(2);
   });
 
-  it("assigns same rank for truly tied teams (same points + same bestFinish)", () => {
+  it("assigns same rank for equal points even when bestFinish differs", () => {
     const teams = [makeTeam("t1", "Alpha"), makeTeam("t2", "Beta")];
     const scores = [
       makeScore("t1", "c1", 4, 4),  // total: 4, best: 4
-      makeScore("t2", "c1", 5, 4),  // total: 4, best: 5 - NOT same bestFinish
+      makeScore("t2", "c1", 5, 4),  // total: 4, best: 5
     ];
     const result = calculateLeaderboard(teams, scores, [emptyChapter]);
-    // Different bestFinish, so different ranks
     expect(result[0].rank).toBe(1);
-    expect(result[1].rank).toBe(2);
-
-    // Now truly tied
-    const scores2 = [
-      makeScore("t1", "c1", 4, 4),  // total: 4, best: 4
-      makeScore("t2", "c1", 4, 4),  // total: 4, best: 4
-    ];
-    const result2 = calculateLeaderboard(teams, scores2, [emptyChapter]);
-    expect(result2[0].rank).toBe(1);
-    expect(result2[1].rank).toBe(1); // same rank
+    expect(result[1].rank).toBe(1);
   });
 
   it("handles rank gaps after ties correctly", () => {
@@ -250,22 +224,20 @@ describe("calculateLeaderboard", () => {
     expect(result[0].bestFinish).toBe(1);
   });
 
-  it("teams with null bestFinish rank below teams with a bestFinish at same points", () => {
-    const teams = [makeTeam("t1", "Alpha"), makeTeam("t2", "Beta")];
+  it("a team with no placement ties with a placed team on equal points", () => {
+    const teams = [makeTeam("t1", "Alpha"), makeTeam("t2", "Beta"), makeTeam("t3", "Gamma")];
     const scores = [
-      makeScore("t1", "c1", null, 2),  // total: 2, best: null
-      makeScore("t2", "c1", 5, 4),     // total: 4, best: 5
-    ];
-    // t2 has more points so ranks first regardless
-    // Let's make them equal points
-    const scores2 = [
       makeScore("t1", "c1", null, 2),
       { ...makeScore("t1", "c2", null, 2), chapterId: "c2" },  // total: 4, best: null
-      makeScore("t2", "c1", 4, 4),     // total: 4, best: 4
+      makeScore("t2", "c1", 4, 4),                            // total: 4, best: 4
+      makeScore("t3", "c1", null, 2),                         // total: 2
     ];
-    const result = calculateLeaderboard(teams, scores2, [emptyChapter]);
-    expect(result[0].team.id).toBe("t2"); // has bestFinish
-    expect(result[1].team.id).toBe("t1"); // null bestFinish ranks lower
+    const result = calculateLeaderboard(teams, scores, [emptyChapter]);
+    expect(result.map((e) => [e.team.id, e.rank])).toEqual([
+      ["t1", 1],
+      ["t2", 1],
+      ["t3", 3],
+    ]);
   });
 
   it("handles all teams with zero scores", () => {
@@ -334,7 +306,7 @@ describe("calculateLeaderboard", () => {
     expect(result[4].team.name).toBe("ByteMe");
     expect(result[4].totalPoints).toBe(2);
 
-    // t2 and t1 both have bestFinish=1, but t2 has more points -> different rank
+    // Different points -> different rank
     expect(result[0].rank).toBe(1);
     expect(result[1].rank).toBe(2);
   });

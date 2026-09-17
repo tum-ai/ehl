@@ -304,7 +304,7 @@ Each match awards placement points per challenge:
 | 4th-5th | 4 |
 | 6th+ (participated) | 2 |
 
-Season standings aggregate points across all matches. Tiebreaker: best single-match finish.
+Season standings aggregate points across all matches, plus any loyalty bonus. Teams with equal points share a rank.
 
 ## Deploying for Your Organization
 
