@@ -5,6 +5,7 @@ import { useInView } from "framer-motion";
 import type { LeaderboardEntry } from "@/lib/types";
 import { RANK_COLORS } from "@/lib/design-tokens";
 import { GlassPillar } from "./GlassPillar";
+import { buildPodium } from "@/lib/podium";
 
 interface LandingPodiumClientProps {
   entries: LeaderboardEntry[];
@@ -20,15 +21,14 @@ export function LandingPodiumClient({ entries }: LandingPodiumClientProps) {
   const ref = useRef<HTMLDivElement>(null);
   const isInView = useInView(ref, { once: true, amount: 0.3 });
 
-  const rank1 = entries.filter((e) => e.rank === 1);
+  // Every team on rank 1, 2 or 3 gets a pillar: a tie widens that place.
+  // Same grouping as components/leaderboard/podium.tsx.
+  const { slots, hiddenCount, tiedForFirst } = buildPodium(entries);
+  if (slots.length < 3 && hiddenCount === 0) return null;
 
-  // Two or more tied for 1st: there is no distinct rank 2, so render the tied
-  // leaders consistently (matches components/leaderboard/podium.tsx) instead of
-  // the 2nd/1st/3rd layout, which would have no rank-2 entry to show.
-  if (rank1.length >= 2) {
-    return (
-      <div ref={ref}>
-        {/* Trophy + tied banner */}
+  return (
+    <div ref={ref} className={`relative mx-auto ${slots.length > 3 ? "max-w-5xl" : "max-w-2xl"}`}>
+      {tiedForFirst >= 2 && (
         <div className="mb-10 flex flex-col items-center gap-3">
           <svg
             className="h-10 w-10 text-ci-jasmine drop-shadow-[0_0_20px_rgba(255,206,119,0.5)] sm:h-12 sm:w-12"
@@ -46,78 +46,37 @@ export function LandingPodiumClient({ entries }: LandingPodiumClientProps) {
           <div className="flex items-center gap-3">
             <div className="h-px w-10 bg-gradient-to-r from-transparent to-ci-jasmine/40" />
             <span className="font-hero-heading text-xs font-black uppercase tracking-[0.3em] text-ci-jasmine">
-              {rank1.length} Teams Tied for 1st
+              {tiedForFirst} Teams Tied for 1st
             </span>
             <div className="h-px w-10 bg-gradient-to-l from-transparent to-ci-jasmine/40" />
           </div>
         </div>
+      )}
 
-        {/* Stage spotlight effect */}
-        <div className="stage-spotlight pointer-events-none absolute inset-x-0 -top-20 h-80" />
-
-        {/* Equal-height pillars */}
-        <div className="relative flex items-end justify-center gap-1.5 sm:gap-5">
-          {rank1.map((entry, i) => (
-            <div key={entry.team.id} className="min-w-0 flex-1 sm:max-w-[180px]">
-              <GlassPillar
-                rank={1}
-                teamName={entry.team.name}
-                points={entry.totalPoints}
-                color={RANK_COLORS[1]}
-                height="h-40 sm:h-48"
-                delay={i * 0.12}
-                isInView={isInView}
-              />
-            </div>
-          ))}
-        </div>
-
-        {/* Base line */}
-        <div className="mx-auto mt-0 h-[2px] max-w-xl bg-gradient-to-r from-transparent via-ci-jasmine/30 to-transparent" />
-      </div>
-    );
-  }
-
-  // Classic top 3 (2nd / 1st / 3rd order)
-  const top3 = entries.filter((e) => e.rank <= 3).slice(0, 3);
-  if (top3.length < 3) return null;
-
-  const second = top3.find((e) => e.rank === 2);
-  const first = top3.find((e) => e.rank === 1);
-  const third = top3.find((e) => e.rank === 3);
-
-  // With ties there may be no distinct rank 2 or 3 (e.g. ranks [1,1,3]). Build
-  // the podium from whatever ranks actually exist, in 2nd/1st/3rd visual order,
-  // so a tied leaderboard renders instead of crashing on a missing entry.
-  const podiumOrder: { entry: LeaderboardEntry; rank: number }[] = [];
-  if (second) podiumOrder.push({ entry: second, rank: 2 });
-  if (first) podiumOrder.push({ entry: first, rank: 1 });
-  if (third) podiumOrder.push({ entry: third, rank: 3 });
-
-  if (podiumOrder.length === 0) {
-    return null;
-  }
-
-  return (
-    <div ref={ref} className="relative mx-auto max-w-2xl">
       {/* Stage spotlight effect */}
       <div className="stage-spotlight-wide pointer-events-none absolute inset-x-0 -top-20 h-80" />
       <div className="relative flex items-end justify-center gap-1.5 sm:gap-5">
-        {podiumOrder.map(({ entry, rank }, i) => (
-          <div key={entry.team.id} className="w-full min-w-0 max-w-[33%] sm:max-w-[200px]">
+        {slots.map(({ entry, rank }, i) => (
+          <div key={entry.team.id} className="min-w-0 flex-1 sm:max-w-[200px]">
             <GlassPillar
               rank={rank}
               teamName={entry.team.name}
               points={entry.totalPoints}
               color={RANK_COLORS[rank] ?? RANK_COLORS[3]}
               height={RANK_HEIGHTS_CLASSIC[rank] ?? "h-24 sm:h-32"}
-              delay={i === 1 ? 0 : i === 0 ? 0.12 : 0.24}
+              delay={(rank - 1) * 0.12 + i * 0.04}
               isInView={isInView}
             />
           </div>
         ))}
       </div>
       <div className="mx-auto mt-0 h-[2px] max-w-lg bg-gradient-to-r from-transparent via-ci-jasmine/20 to-transparent" />
+
+      {hiddenCount > 0 && (
+        <p className="mt-4 text-center text-xs text-text-muted">
+          +{hiddenCount} more tied, see the full leaderboard
+        </p>
+      )}
     </div>
   );
 }
