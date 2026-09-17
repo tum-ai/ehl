@@ -154,23 +154,20 @@ export function calculateLeaderboard(
       totalPoints,
       matchesPlayed,
       bestFinish,
+      loyaltyBonus: 0,
     };
   });
 
-  entries.sort((a, b) => {
-    if (b.totalPoints !== a.totalPoints) return b.totalPoints - a.totalPoints;
-    if (a.bestFinish === null && b.bestFinish === null) return 0;
-    if (a.bestFinish === null) return 1;
-    if (b.bestFinish === null) return -1;
-    return a.bestFinish - b.bestFinish;
-  });
+  // Points only, no tiebreaker (mirrors the leaderboard view, migration 00067).
+  // Name order inside a tie is display only.
+  entries.sort((a, b) => b.totalPoints - a.totalPoints || a.team.name.localeCompare(b.team.name));
 
-  // Assign ranks with ties (same points + same bestFinish = same rank)
+  // Equal points = same rank
   let currentRank = 1;
   entries.forEach((entry, i) => {
     if (i > 0) {
       const prev = entries[i - 1];
-      if (entry.totalPoints !== prev.totalPoints || entry.bestFinish !== prev.bestFinish) {
+      if (entry.totalPoints !== prev.totalPoints) {
         currentRank = i + 1;
       }
     }

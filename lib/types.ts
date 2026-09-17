@@ -402,6 +402,8 @@ export interface LeaderboardEntry {
   totalPoints: number;
   matchesPlayed: number;
   bestFinish: number | null;
+  // Season loyalty bonus already included in totalPoints; 0 when none.
+  loyaltyBonus: number;
 }
 
 export interface Partner {

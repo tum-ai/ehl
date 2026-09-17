@@ -157,6 +157,7 @@ export async function getLeaderboard(): Promise<LeaderboardEntry[]> {
     totalPoints: row.total_points as number,
     matchesPlayed: row.matches_played as number,
     bestFinish: (row.best_finish as number) ?? null,
+    loyaltyBonus: Number(row.loyalty_bonus ?? 0),
   }));
 }
 

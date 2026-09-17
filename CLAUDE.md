@@ -89,11 +89,11 @@ draft -> announced -> applications_open -> screening -> registration_open -> sub
 Status transitions are controlled by admins via status control panel. Some transitions are automated by the cron endpoint (`/api/cron/deadline-check`).
 
 ### Scoring
-Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, participated=2. Season leaderboard aggregates across matches.
+Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, participated=2. Season leaderboard aggregates across matches, plus any `loyalty_bonuses` row. Rank is by total points only: equal totals share a rank (no best-finish tiebreaker).
 
 ## Database
 
-66 sequential migrations in `supabase/migrations/`. Key tables:
+67 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055;
   `github_username`, migration 00066, is the bare GitHub handle used to add jury
@@ -119,6 +119,9 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
   never reads or writes `applications.status`, is not part of the acceptance
   email, and dropping the table removes the feature)
 - `scores`, `partners`, `media`
+- `loyalty_bonuses` (migration 00067: hand-awarded season loyalty bonus, one row per
+  team, added to the leaderboard total and shown next to the team name. Service-role
+  only, no RLS policies; the public sees it through the `leaderboard` view)
 - `chapter_communications` (admin-only per-chapter acceptance-email subject/message +
   event info; a SEPARATE table, never on the publicly-readable `chapters` row),
   `chapter_broadcasts` (broadcast email history)
