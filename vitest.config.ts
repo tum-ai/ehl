@@ -11,6 +11,8 @@ export default defineConfig({
     // of the project, including dependency test files from its node_modules.
     exclude: [...configDefaults.exclude, "e2e/**", ".claude/**"],
   },
+  // Same JSX runtime as Next, so components without `import React` render in tests.
+  esbuild: { jsx: "automatic" },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "."),

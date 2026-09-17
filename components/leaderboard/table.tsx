@@ -52,6 +52,14 @@ export function LeaderboardTable({ entries }: LeaderboardTableProps) {
                 <span className="font-hero-display font-bold text-text-primary transition-colors duration-200 group-hover:text-ci-jasmine">
                   {entry.team.name}
                 </span>
+                {entry.loyaltyBonus > 0 && (
+                  <span
+                    className="ml-2 inline-block whitespace-nowrap rounded-full bg-ci-lavender/10 px-2 py-0.5 align-middle font-mono text-xs font-bold text-ci-lavender"
+                    title={`Includes a +${entry.loyaltyBonus} loyalty bonus`}
+                  >
+                    +{entry.loyaltyBonus} loyalty
+                  </span>
+                )}
               </td>
               <td className="hidden px-6 py-4 text-sm text-text-muted sm:table-cell">
                 {entry.team.university || "-"}

@@ -41,7 +41,7 @@ Accessible to everyone without login.
 
 ### Leaderboard (`/leaderboard`)
 - Season standings with podium for top 3
-- Sortable table with rank, team, points, matches played, best finish
+- Sortable table with rank, team, points, matches played, best finish. Teams with equal points share a rank; a team with a loyalty bonus shows a "+N loyalty" label next to its name (bonus rows are added by hand in `loyalty_bonuses`)
 - Scoring rules explainer (how points are awarded)
 
 ### Team Profiles (`/team/<slug>`)
