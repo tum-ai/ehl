@@ -1,0 +1,69 @@
+There is currently a tiebreaker implemented. How hard would that be to remove? In the leaderboard, does it require a new migration or anything?
+
+---
+
+ok and is the loyalty bonus implemented in code?
+
+---
+
+Okay, I want to remove the tiebreaker as simply as possible, without altering any data, just so the team Piloty, for example, is also tied at 14th with all the others. That's the one thing.
+
+The other thing: on the same session, I want Bussis to be the only team that deserves the loyalty bonus to get their bonus now. On the leaderboard, it should say that they got +6 for loyalty. Somehow, this should be incorporated, not on the podium but in the board itself.
+
+---
+
+apply on test database first, docker now running so do everything where you need docker for testing veryfying. not commit anythin yet or do on prod!
+
+---
+
+<task-notification>
+<task-id>b0gr1y034</task-id>
+<tool-use-id>toolu_01Je73GdRyGrvf94nKh4HuvG</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/0abb2cac-d39e-4a59-be9f-873dea8c02aa/tasks/b0gr1y034.output</output-file>
+<status>completed</status>
+<summary>Background command "psql "REDACTED" -qc "delete from loyalty_bonuses where reason='local visual check'" &amp;&amp; source /private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/0abb2cac-d39e-4a59-be9f-873dea8c02aa/scratchpad/localenv.sh &amp;&amp; CI=true BASE_URL=http://localhost:3001 pnpm exec playwright test --project=lifecycle --project=smoke-chromium --reporter=line 2&gt;&amp;1 | tail -40" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b5znchp3p</task-id>
+<tool-use-id>toolu_013KZSUgLiryHBg1FZTS2EFB</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/0abb2cac-d39e-4a59-be9f-873dea8c02aa/tasks/b5znchp3p.output</output-file>
+<status>completed</status>
+<summary>Background command "source /private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/0abb2cac-d39e-4a59-be9f-873dea8c02aa/scratchpad/localenv.sh &amp;&amp; NODE_ENV=development exec pnpm dev --port 3001 &gt; /private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/0abb2cac-d39e-4a59-be9f-873dea8c02aa/scratchpad/dev.log 2&gt;&amp;1" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+in the test database (or the one that is visible when opening http://localhost:3000) i want the beta Hackers team to have this bonus so ican visually verify how this will look like on prod
+
+---
+
+how is the podium now on prod gonna look like since no tiebreak no more?
+
+---
+
+ok thats fine, what should i do to get the current changes to prod? do we need to open pr? are there code changes besides the frontend +6 loyalty?
+
+---
+
+use codex to double check these changes and if they are safe for an open source repo pr
+
+---
+
+<task-notification>
+<task-id>b0ts3ltjx</task-id>
+<tool-use-id>toolu_01M6UzyMjtZc66ZShJdLXuou</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/0abb2cac-d39e-4a59-be9f-873dea8c02aa/tasks/b0ts3ltjx.output</output-file>
+<status>completed</status>
+<summary>Background command "codex review --uncommitted "Review ONLY these changed files: supabase/migrations/00067_leaderboard_loyalty_bonus.sql, scripts/migration-checks.ts, lib/scoring.ts, lib/types.ts, lib/queries/chapters.ts, components/leaderboard/table.tsx, tests/scoring.test.ts, tests/leaderboard-table.test.tsx, vitest.config.ts, CLAUDE.md, README.md, docs/FEATURES.md. Do NOT open or read the untracked .entire/ directory, any .env* file, .claude/, or docs/ACCOUNTS*. Read CLAUDE.md for repo rules.
+
+Context: removes the best-finish tiebreaker from the public season leaderboard view (equal points share a rank) and adds a hand-awarded loyalty bonus table (loyalty_bonuses, RLS on, no policies, service role only) whose points are added to total_points in the leaderboard view and shown as a '+N loyalty' pill in the table. No existing data is modified.
+
+Check: (1) correctness of the SQL (CREATE OR REPLACE VIEW column compatibility and types, join fan-out, rank semantics, RLS and the view exposing only the bonus amount, Supabase security-definer view implications); (2) the migration works on a clean 'supabase start' apply in strict order and is safe to apply ad-hoc to an existing prod DB, and whether it can be re-run; (3) TypeScript/UI bugs and deploy-order safety (code before migration and vice versa); (4) test quality and repo rules in CLAUDE.md; (5) OPEN-SOURCE SAFETY: anything in the diff that must not be in a public repo (credentials, Supabase project refs, internal URLs, emails, personal data, real team ids, org-internal context). Report concrete findings with file:line and severity; say explicitly if nothing blocks the PR." 2&gt;&amp;1 | tail -120" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+fix 2,3,4
