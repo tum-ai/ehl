@@ -1,0 +1,78 @@
+There is a loyalty bonus announced for the EHL. Analyse how it works and which team would get it, then create a brief report in HTML that I can open on my phone and that shows:
+- how many teams changed completely
+- how many teams would get which loyalty points
+- what the table would look like
+- how that would affect this stuff
+- general statistics, like how many teams changed completely
+You have my permission to read only queries from the database for that.
+
+---
+
+For the future, create the script based on what you did right now, because after Munich we will need to read again how they changed. Create something based on that and document it as well, since this will be needed once again. Only locally: don't push, don't commit. Just for you, for the next time.
+
+---
+
+Now I need the analysis of the artefact to be reworked. Edit it and create an overview of the match, then the people, and how it transitions to the next match, and so on. At the end, create a score for how many teams, with the current rules, would get how many points. Also, suggest how you would loosen the rule and how many teams would get the points then. Keep the same outline, but make it more quantitative and per match, and make it easier to see the transition.
+
+---
+
+This seems weird. Double-check the harissa lineup because I remember at least two people being the same.
+
+---
+
+where is the html located? save it in my downloads folder
+
+---
+
+Very brief and very simple. What is the problem with the manually entered team for the Makeathon? Do we have rosters for them or don't?
+
+---
+
+How were you able to rebuild it? I imagine it is very simple, like for a kid. You only have the participants for the makeathon, not a team. How did you make up a team from the participants?
+
+---
+
+You are confusing me. We have the Makeathon, which was imported later. What was imported there? Very brief, very simple.
+
+---
+
+We only have the applications, not who actually submitted.
+
+---
+
+So, the script that created the scores is based on the submission or not, right?
+
+---
+
+i dont get the problem
+
+---
+
+what are possibilities to make a super simple loyalty bonus update, so that its descending and stepwise incremental? so team with least changes gets most and so on...
+
+---
+
+why is this same points different ranking?     Swiss Clocks    -    1    1st    8
+19    Piloty    TU Darmstadt    2    5th    8
+
+---
+
+new bonus, one team gets bonus points when (3) when they had identical roster acros three matches. 6 points bonus and everything else stays same, output how that would affect the leaderboard now
+
+---
+
+new bonus, one team gets bonus points when (3) when they had identical three people in their roster acros three matches. 6 points bonus and everything else stays same, output how that would affect the leaderboard now
+
+---
+
+new bonus, one team gets bonus 3 points when they had identical three people in their roster acros three matches. 6 points bonus and everything else stays same, output how that would affect the leaderboard now
+
+---
+
+since when do we have the tiebreak implemented + what would change without it?#
+
+---
+
+/plan now, for the final, we want to send out later custom mails to the top 15 places teams. Meaning that currently everybody until 8 points gets this mail. First of all, that. I want to create it so that they get an email and they can click "I'm in" or "I'm out" for the final. If they click "I'm in," it kind of serves as an application, which is directly accepted, so their form is skipped. They are directly accepted, and they get this accepted email with their QR code and so on.
+
+Is that possible for every member of these teams? How would you do it with this direct acceptance? Let's say the applications are currently open. How would that function? Keep in mind, I don't want complex logic. I just want reliability and simplicity.
