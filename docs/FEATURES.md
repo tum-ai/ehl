@@ -40,7 +40,7 @@ Accessible to everyone without login.
   - **Completed**: Results with placements, scores, photos
 
 ### Leaderboard (`/leaderboard`)
-- Season standings with podium for top 3
+- Season standings with podium for places 1 to 3. Every team tied on a podium place gets its own pillar (two teams tied for 3rd both stand on the podium), up to 9 pillars; any remaining tied teams are counted in a "+N more tied" note
 - Sortable table with rank, team, points, matches played, best finish. Teams with equal points share a rank; a team with a loyalty bonus shows a "+N loyalty" label next to its name (bonus rows are added by hand in `loyalty_bonuses`)
 - Scoring rules explainer (how points are awarded)
 
