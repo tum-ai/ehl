@@ -1,0 +1,61 @@
+the content of the mail should be the following: Betreff: 
+You're in 🏆 EHL Grand Finale, Munich — Oct 10-11
+
+
+Email:
+
+
+Hey [Person Name],
+
+Congratulations! Your team, [Team Name], has made it into the top 15 of the European Hackathon League.
+We are very excited to have you as finalists in this first ever iteration of the league, and we would like to invite you to the EHL Grand Finale in Munich on 10–11 October.
+
+Out of all the teams that competed in the league this season, yours is one of the final line-up. That's a big deal, so congratulations — you've earned it.
+
+Here's what that means for you:
+
+*You're a finalist, not just a participant.*
+There will be other teams at the Grand Finale too — regular participants who will be competing in the challenges as usual. Everyone hacks in the same three challenge tracks, presented by our partners BMW, Atira and Tacto, on the same two days. However, only finalists like your team can qualify for the final pitch in front of the grand jury, and only finalists are eligible for the title of EHL Overall Winner. Bragging rights and LinkedIn gold included ;D
+
+*How advancement works this time:* each challenge track is judged in the same way as always, but only finalists can advance to the final pitch round on the big stage. So, even if a team of regular participants wins their track outright, it's the two highest-placed finalist teams from each track who move on – that's six teams in total who will pitch live in front of the grand jury to decide the EHL Overall Winner.
+
+*What's in it for you as a finalist?*
+•⁠  ⁠Exclusive EHL Finalist merchandise
+•⁠  ⁠Eligibility for the EHL Grand Prize, which has a significantly larger prize than previous events (we'll share the exact amount closer to the event)
+•⁠  ⁠Everything you always get at our hackathons: food, drinks, networking, and challenge prizes
+
+*What we need from you:* Please RSVP by 30 September to confirm your place. To compete, your team needs to consist of three to five members, each of whom must RSVP in time.
+
+👉 RSVP here: [RSVP LINK]
+
+For any questions you may still have, feel free to email us at makeathon@tum-ai.com and we'll sort it out.
+See you in Munich! Can't wait to see what you build.
+
+The TUM.ai Makeathon Team
+
+---
+
+send a test copy of the mail to mykhayloserdyuk@tum-ai.com
+
+---
+
+confirm database says that, its not true imo since its already in the ui that 10.10-11.10
+
+---
+
+how is the application thing handled when teams rsvp? or press the link im in
+
+---
+
+implement the plan
+
+---
+
+<task-notification>
+<task-id>bd3s1mtxz</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/9a15739d-88d3-407e-8f33-86d528b361d3/tasks/bd3s1mtxz.output</output-file>
+<status>completed</status>
+<summary>Background command "eval "$(supabase status -o env 2&gt;/dev/null)" &amp;&amp; NEXT_PUBLIC_SUPABASE_URL="$API_URL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" NEXT_PUBLIC_SITE_URL=http://localhost:3001 SMTP_HOST=127.0.0.1 SMTP_PORT=54325 SMTP_USER=test SMTP_PASSWORD=test SMTP_FROM=ehl@example.com pnpm dev --port 3001 &gt; /tmp/ehl-dev.log 2&gt;&amp;1 &amp;
+echo started; sleep 1; echo ok" completed (exit code 0)</summary>
+</task-notification>
