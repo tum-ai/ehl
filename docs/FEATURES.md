@@ -186,6 +186,42 @@ Available to participants who are checked in at an event.
 - Roles: anyone holding the emailed link can answer it; sending and viewing are available
   to global admins and to that chapter's local admins.
 
+### Grand Finale invite (`/finale/<token>`)
+- The top league teams do not apply for the Finale through the public form. A global
+  admin opens **Admin -> Chapters -> Grand Finale -> Grand Finale Invites** and presses
+  **Send invites**. Every CURRENT member of every team ranked `FINALE_INVITE_MAX_RANK`
+  (15) or better on the season leaderboard gets a personal emailed link. Ties are
+  included, because the leaderboard view already shares a rank on equal points, so the
+  invite list and the public table can never disagree.
+- The page behind the link offers **"I'm in"** and **"I'm out"**.
+  - **"I'm in" IS the application.** It creates an ACCEPTED application for the Finale
+    chapter, with the person's name, form answers, CV and optional consents copied from
+    their most recent application at any earlier match (a person who never applied gets
+    their name from their profile and an empty form), and then sends the normal
+    acceptance email with the check-in QR code. They fill in nothing.
+  - **"I'm out"** is recorded and nothing else happens.
+- Per PERSON, not per team: every member answers their own link, and a team needs three
+  to five confirmed members to compete. The admin board lists each qualifying team with
+  who answered what, so organisers can chase teams that are short.
+- If someone already has a Finale application: `pending` / `waitlisted` / `rejected` is
+  promoted to accepted, an already `accepted` or `checked_in` row is left alone (no second
+  acceptance email), and a `cancelled` row is never revived by a public link (they are
+  told to contact the organisers).
+- **The first answer is final**, enforced in the database (the update is conditional on
+  `response IS NULL`), so a double click cannot create two applications.
+- The answer is recorded ONLY by a POST from a deliberate click. Opening the link writes
+  nothing: mail scanners fetch every URL in an email, and here a GET-recorded answer would
+  accept people and mail them a QR code.
+- The invite token is an unguessable per-person UUID in the admin-only `finale_invites`
+  table. A row exists only once someone has been invited, so pressing send twice mails
+  nobody twice, and a member who joins a qualifying team later is picked up on the next
+  press. A person on two qualifying teams is invited once.
+- The dates and the RSVP deadline in the email are fixed constants in `lib/finale.ts`,
+  not derived from the chapter row. If the event moves, change both.
+- Roles: anyone holding the emailed link can answer it; sending and the board are
+  GLOBAL admin only, because the qualifying teams come from the season leaderboard rather
+  than from one chapter's applicants.
+
 ### Check-in (Admin side)
 - Admin scans participant QR code at `/admin/check-in`
 - QR code is embedded in the acceptance email

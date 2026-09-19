@@ -37,6 +37,10 @@ export const QUERY_LIMITS = {
   screeningScores: envInt("LIMIT_SCREENING_SCORES", 5000),
   scores: envInt("LIMIT_SCORES", 1000),
   leaderboard: envInt("LIMIT_LEADERBOARD", 500),
+  // Members of the Grand Finale's qualifying teams, and their invite rows. At
+  // most ~20 teams of 5 (Season 1: 19 teams / 86 people), so 500 is generous and
+  // stays under PostgREST's 1000-row ceiling, which means no paging is needed.
+  finaleInvites: envInt("LIMIT_FINALE_INVITES", 500),
   // 400: a real event produces 200-300 curated gallery photos (Paris: 223) and
   // they render as lazy-loaded w400 thumbnails, so the page stays light.
   media: envInt("LIMIT_MEDIA", 400),

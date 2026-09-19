@@ -295,6 +295,14 @@ describe("redactSecretTokens", () => {
     ).toBe("https://ehl.gg/rsvp/<redacted>");
   });
 
+  it("redacts a /finale/<token> path (Grand Finale invite bearer link)", () => {
+    // This one accepts the person and mails their check-in QR, so a leaked
+    // token in an error report is worse than a leaked RSVP token.
+    expect(
+      redactSecretTokens("https://ehl.gg/finale/09bc21bb-0ec0-4aa1-903a-ba5ec01d41d4")
+    ).toBe("https://ehl.gg/finale/<redacted>");
+  });
+
   it("redacts an /invite/<token> path (team-join bearer link)", () => {
     expect(redactSecretTokens("https://ehl.gg/invite/3f9a-team-invite")).toBe(
       "https://ehl.gg/invite/<redacted>"

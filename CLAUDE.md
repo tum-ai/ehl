@@ -93,7 +93,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-67 sequential migrations in `supabase/migrations/`. Key tables:
+68 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055;
   `github_username`, migration 00066, is the bare GitHub handle used to add jury
@@ -118,6 +118,13 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
   would be readable by the applicant's own session. Deliberately decoupled: it
   never reads or writes `applications.status`, is not part of the acceptance
   email, and dropping the table removes the feature)
+- `finale_invites` (migration 00068: per-person Grand Finale invite for members of the
+  top-ranked teams. An unguessable emailed token; "I'm in" creates an ACCEPTED application
+  for the Finale chapter and triggers the normal acceptance email with the QR code, so a
+  finalist never fills in the form. A SEPARATE table, never columns on `applications`:
+  the invite exists BEFORE any application does, and RLS gates ROWS not COLUMNS, so a
+  token column would be readable by the invitee's own session. First answer wins, enforced
+  by `WHERE response IS NULL`)
 - `scores`, `partners`, `media`
 - `loyalty_bonuses` (migration 00067: hand-awarded season loyalty bonus, one row per
   team, added to the leaderboard total and shown next to the team name. Service-role
@@ -199,7 +206,7 @@ server at the printed local URL/keys, and run `pnpm test:e2e:lifecycle`. See `do
 ## Project Structure
 ```
 lib/
-  actions/              — Server actions (registration, teams, submissions, jury, admin, applications, rsvp, event, auth, screening, flags, communications, showcase)
+  actions/              — Server actions (registration, teams, submissions, jury, admin, applications, rsvp, finale-invites, event, auth, screening, flags, communications, showcase)
   queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles, showcase, submission-blocks)
   emails/               — React Email templates (layout.tsx shared, individual templates, text-block.ts for safe plain-text rendering)
   certificates/         — PDF certificate template + design-guide (@react-pdf/renderer), layout.ts (fixed text positions), designs.ts (custom background loading)
@@ -231,6 +238,16 @@ lib/
                           email (concurrency matching the SMTP pool + a wall-clock budget
                           under the function timeout). Shared by the acceptance, rejection
                           and RSVP sends
+  finale.ts             — fixed facts about the Grand Finale invite round (cutoff rank,
+                          dates, RSVP deadline, subject line). Constants, not values read
+                          from the chapter row, so the email, the invite page and the admin
+                          board state the same thing
+  acceptance-email.ts   — deliverAcceptanceEmail(): the acceptance email with the check-in
+                          QR, in ONE place. Shared by the admin bulk send and by a Finale
+                          invitee clicking "I'm in", so the two can never drift. NOT a
+                          "use server" module: every export of one is a callable endpoint,
+                          and a sender taking an application row would let a client mail
+                          anything anywhere
   rsvp-window.ts        — the 48h RSVP response window (RSVP_WINDOW_HOURS), derived from
                           application_rsvps.email_sent_at so the email, the page and the
                           server action cannot disagree about the deadline

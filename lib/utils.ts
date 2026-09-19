@@ -19,7 +19,7 @@ import { twMerge } from "tailwind-merge";
  * Adding a new token-in-path route? Add its segment to SECRET_PATH_SEGMENTS —
  * tests/utils.test.ts pins the covered set.
  */
-const SECRET_PATH_SEGMENTS = ["showcase", "walk-in", "invite", "rsvp"] as const;
+const SECRET_PATH_SEGMENTS = ["showcase", "walk-in", "invite", "rsvp", "finale"] as const;
 const SECRET_QUERY_PARAMS = [
   "token",
   "token_hash",

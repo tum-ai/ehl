@@ -12,22 +12,22 @@ import { sendEmail } from "@/lib/email";
 import { sendEmailAfterResponse } from "@/lib/email-deferred";
 import {
   renderApplicationReceivedEmail,
-  renderApplicationAcceptedEmail,
   renderApplicationRejectedEmail,
   renderApplicationCancelledEmail,
 } from "@/lib/emails/render";
 import { getSession } from "@/lib/actions/auth";
 import { getChapterCommunications } from "@/lib/queries";
-import { acceptanceEmailSubject } from "@/lib/communications";
-import { splitParagraphs } from "@/lib/emails/text-block";
 import { getCurrentMembership } from "@/lib/team-membership";
 import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
 import { CV_MAX_BYTES, CV_MAX_LABEL } from "@/lib/config/upload-limits";
 import { formatDateRange } from "@/lib/utils";
 import type { ApplicationStatus, ApplicationTeamMember } from "@/lib/types";
 import { buildApplicationInsert } from "@/lib/applications-shared";
+import {
+  deliverAcceptanceEmail,
+  type AcceptanceEmailApplication,
+} from "@/lib/acceptance-email";
 import { uploadFile } from "@/lib/gdrive";
-import QRCode from "qrcode";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, applicationLimiter, apiLimiter } from "@/lib/ratelimit";
 import { runBudgetedConcurrent, EMAIL_SEND_BUDGET_MS } from "@/lib/bulk-send";
@@ -560,59 +560,22 @@ export async function sendAcceptanceEmails(
   // far it got. The acceptance_email_sent_at stamp made that recoverable, but
   // only if the admin knew to press again.
   const { skipped } = await runBudgetedConcurrent(pending, async (app) => {
-    const chapter = app.chapters as Record<string, unknown>;
-    const dateStr = formatDateRange(
-      chapter.date as string,
-      chapter.date_end as string | null
-    );
-
-    // When both are null this reproduces the legacy email exactly: the literal
-    // subject and a template with no message block.
-    const subject = acceptanceEmailSubject(
-      comms.acceptanceEmailSubject,
-      chapter.name as string
-    );
-    const customMessageParagraphs = comms.acceptanceEmailMessage
-      ? splitParagraphs(comms.acceptanceEmailMessage)
-      : undefined;
-
     try {
-      // QR generation and render are inside the try so one bad row (e.g. a
-      // null check_in_token) fails only that applicant, not the whole batch.
-      const qrCodeBuffer = await QRCode.toBuffer(app.check_in_token as string, {
-        width: 400,
-        margin: 1,
-        color: { dark: "#0B0B1A", light: "#FFFFFF" },
-      });
-
-      const html = await renderApplicationAcceptedEmail({
-        firstName: app.first_name as string,
-        chapterName: chapter.name as string,
-        chapterCity: `${chapter.city}, ${chapter.country}`,
-        chapterDate: dateStr,
-        chapterSlug: chapter.slug as string,
-        checkInToken: app.check_in_token as string,
-        customMessageParagraphs,
-      });
-
-      await sendEmail({
-        to: app.email as string,
-        subject,
-        html,
-        skipRateLimit: true,
-        attachments: [
-          {
-            filename: "qr-code.png",
-            content: qrCodeBuffer,
-            contentType: "image/png",
-            cid: "qr-code",
-          },
-        ],
-      });
-      await adminClient
-        .from("applications")
-        .update({ acceptance_email_sent_at: new Date().toISOString() })
-        .eq("id", app.id);
+      // Rendering, sending and stamping live in lib/acceptance-email.ts, shared
+      // with the Grand Finale invite flow so both paths mail the identical
+      // message. One bad row (e.g. a null check_in_token) throws here and fails
+      // only that applicant, not the whole batch. When both customisation
+      // fields are null the email is byte-identical to the legacy one.
+      await deliverAcceptanceEmail(
+        {
+          id: app.id as string,
+          email: app.email as string,
+          first_name: app.first_name as string,
+          check_in_token: app.check_in_token as string,
+          chapters: app.chapters as AcceptanceEmailApplication["chapters"],
+        },
+        comms
+      );
       sent++;
     } catch (err) {
       console.error(`Failed to send acceptance email to ${app.email}:`, err);
