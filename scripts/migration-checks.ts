@@ -433,6 +433,31 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
   // definition was applied; it does not prove the rank expression or RLS on the
   // table if a database has drifted since.
   { prefix: "00067", label: "leaderboard_loyalty_bonus", sql: column("leaderboard", "loyalty_bonus") },
+  {
+    // Grand Finale invites, in their own table for the same reason as 00065
+    // (RLS gates rows not columns, and the invite exists before any application
+    // does). Probe asserts the table, the unique token index the invite page
+    // lookup depends on, and the one-invite-per-person-per-chapter constraint
+    // that makes the send idempotent for someone on two qualifying teams.
+    prefix: "00068",
+    label: "finale_invites",
+    sql: `select (
+       exists (
+         select 1 from information_schema.tables
+         where table_schema = 'public' and table_name = 'finale_invites'
+       )
+       and exists (
+         select 1 from pg_indexes
+         where schemaname = 'public' and tablename = 'finale_invites'
+           and indexname = 'finale_invites_token_unique'
+       )
+       and exists (
+         select 1 from pg_constraint
+         where conrelid = 'public.finale_invites'::regclass and contype = 'u'
+           and conname = 'finale_invites_chapter_id_user_id_key'
+       )
+     ) as present`,
+  },
 ];
 
 /**
