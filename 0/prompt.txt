@@ -1,0 +1,19 @@
+the current walk-in-regestration has a crucial flaw: people with an already existing account, need to log-in with that mail an
+
+---
+
+/plan the current walk-in-regestration has a crucial flaw: people with an already existing account, need to log-in with that mail at the top and they get redirected to log-in page then to home. so the walk in code needs to be scanned again or they need to navigate back in the browser. there needs to be a clearer-walk in regestration, that does not conflict with people that already have an account and it should be clear for them to log-in first. or the just say that they have the account already with this mail, then they fill out form get redirected to log-in, then it says youre in (or something like that). so plan different ways to make it more intuitive, better account handling and not conflicting wiht already existing account or not. propose how to handle it, with utilising already existing logic.
+
+---
+
+i dont like the check after typing the mail. thats a whole data base read from that form thats extra
+
+---
+
+<task-notification>
+<task-id>bshtbmbs5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/29ecffd1-d5df-4157-b753-12bf579383f4/tasks/bshtbmbs5.output</output-file>
+<status>completed</status>
+<summary>Background command "Start worktree dev server on port 3002" completed (exit code 0)</summary>
+</task-notification>
