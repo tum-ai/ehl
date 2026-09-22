@@ -4,13 +4,16 @@ import { EmailLayout, Heading, Text, Divider } from "./layout";
 interface VerificationCodeEmailProps {
   name: string;
   code: string;
-  type: "registration" | "solo_registration" | "member_confirm";
+  type: "registration" | "solo_registration" | "member_confirm" | "application_registration";
   teamName?: string;
+  /** application_registration only: the match being applied to. */
+  chapterName?: string;
   presidentName?: string;
 }
 
-export function VerificationCodeEmail({ name, code, type, teamName, presidentName }: VerificationCodeEmailProps) {
-  const isRegistration = type === "registration" || type === "solo_registration";
+export function VerificationCodeEmail({ name, code, type, teamName, presidentName, chapterName }: VerificationCodeEmailProps) {
+  const isRegistration =
+    type === "registration" || type === "solo_registration" || type === "application_registration";
   const preview = isRegistration
     ? `Your EHL verification code: ${code}`
     : `Confirm your spot on Team ${teamName}: ${code}`;
@@ -21,7 +24,13 @@ export function VerificationCodeEmail({ name, code, type, teamName, presidentNam
         {isRegistration ? "Verify Your Email" : "Confirm Your Spot"}
       </Heading>
 
-      {type === "solo_registration" ? (
+      {type === "application_registration" ? (
+        <Text>
+          Hey {name}, enter this code to confirm your email and submit your application
+          to <strong style={{ color: "#E8B84B" }}>{chapterName}</strong>. Your application is
+          not sent until you do.
+        </Text>
+      ) : type === "solo_registration" ? (
         <Text>
           Hey {name}, enter this code to complete your registration
           for the European Hackathon League.

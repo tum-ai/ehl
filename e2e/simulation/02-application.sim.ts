@@ -21,7 +21,7 @@ import {
   clearMailbox,
   cleanupSimData,
 } from "./sim-helpers";
-import { tinyPdfBuffer } from "./sim-helpers";
+import { tinyPdfBuffer, fillApplyPasswordFields, confirmApplyCodeViaMail } from "./sim-helpers";
 
 const CHAPTER_NAME = "Sim Apply Match";
 
@@ -88,9 +88,11 @@ test.describe("Simulation: application with CV upload (real UI)", () => {
     const since = new Date().toISOString();
 
     await page.goto(`/apply/${slug}`);
-    // Anonymous: enter email and blur to reveal the rest of the form.
+    // Anonymous: enter email and blur to reveal the rest of the form. A new
+    // address sets the password of the account the application creates.
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="email"]').blur();
+    await fillApplyPasswordFields(page);
 
     await fillApplicationForm(page, { firstName: "Sim", lastName: "Applicant" });
 
@@ -102,6 +104,9 @@ test.describe("Simulation: application with CV upload (real UI)", () => {
     });
 
     await page.getByRole("button", { name: /submit application/i }).click();
+
+    // Code step: nothing is saved until the emailed code is confirmed.
+    await confirmApplyCodeViaMail(page, email, since);
 
     // Success screen.
     await expect(page.getByText(/application submitted/i)).toBeVisible({ timeout: 20000 });
@@ -131,6 +136,7 @@ test.describe("Simulation: application with CV upload (real UI)", () => {
     await page.goto(`/apply/${slug}`);
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="email"]').blur();
+    await fillApplyPasswordFields(page);
 
     await fillApplicationForm(page, { firstName: "Sim", lastName: "BadCv" });
 

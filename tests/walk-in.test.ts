@@ -540,3 +540,20 @@ describe("rotateWalkInToken", () => {
     );
   });
 });
+
+describe("submitWalkInApplication: account link (00069)", () => {
+  it("links the application to the account it just created", async () => {
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi
+      .fn()
+      .mockResolvedValue({ data: { user: { id: "new-user-1" } }, error: null });
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls, responder: happyResponder("hacking"), auth: { createUser } })
+    );
+
+    await submitWalkInApplication(baseForm());
+
+    const insert = calls.find((c) => c.table === "applications" && c.op === "insert");
+    expect(insert?.payload).toMatchObject({ user_id: "new-user-1", status: "accepted" });
+  });
+});

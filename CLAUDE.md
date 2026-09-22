@@ -93,7 +93,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-68 sequential migrations in `supabase/migrations/`. Key tables:
+69 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055;
   `github_username`, migration 00066, is the bare GitHub handle used to add jury
@@ -109,7 +109,15 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
   walk-in form), `challenges`, `challenge_registrations`
 - `submissions`, `code_reviews`
 - `jury_assignments`, `jury_rankings`, `jury_feedback`
-- `applications`, `application_notes` (admin notes history), `screening_scores`, `verification_codes`, `participant_flags`
+- `applications` (`user_id`, migration 00069, links each application to its account.
+  Applying now creates the account: the public form verifies the email with a code
+  (`verification_codes` type `application_registration`) before the account and the
+  application exist. The link is kept by TRIGGERS in both directions, not by each
+  insert path: an application inserted for an email with a profile gets its id, and a
+  profile created or given its email later links every unlinked application with that
+  email. Nullable: pre-00069 applications without an account stay valid. Participant
+  reads still match on email, which is equivalent while the triggers hold),
+  `application_notes` (admin notes history), `screening_scores`, `verification_codes`, `participant_flags`
 - `application_rsvps` (post-acceptance RSVP, migration 00065: an admin-triggered
   standalone email asks every accepted applicant to confirm or decline, and the
   answer is logged here for headcount statistics only. A SEPARATE table, never
@@ -242,6 +250,10 @@ lib/
                           dates, RSVP deadline, subject line). Constants, not values read
                           from the chapter row, so the email, the invite page and the admin
                           board state the same thing
+  application-cv.ts     — validateCv() + attachCv(): the CV checks and the Drive upload
+                          shared by the apply and walk-in actions, so the size/type rules
+                          cannot drift. NOT "use server" (an uploader taking an
+                          application id must not be a callable endpoint)
   acceptance-email.ts   — deliverAcceptanceEmail(): the acceptance email with the check-in
                           QR, in ONE place. Shared by the admin bulk send and by a Finale
                           invitee clicking "I'm in", so the two can never drift. NOT a

@@ -7,10 +7,9 @@ import { requireChapterAdminAction } from "@/lib/admin-auth";
 import { getSession } from "@/lib/actions/auth";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, applicationLimiter, walkInTokenLimiter } from "@/lib/ratelimit";
-import { uploadFile } from "@/lib/gdrive";
 import { logEvent } from "@/lib/event-log";
 import { buildApplicationInsert } from "@/lib/applications-shared";
-import { CV_MAX_BYTES, CV_MAX_LABEL } from "@/lib/config/upload-limits";
+import { validateCv, attachCv } from "@/lib/application-cv";
 
 export interface WalkInChapter {
   id: string;
@@ -204,17 +203,9 @@ export async function submitWalkInApplication(
 
   // Validate the CV (optional) before any write so a Drive outage can never lose
   // the application. The upload happens AFTER the row is inserted.
-  const cvFile = formData.get("cv") as File | null;
-  const hasCv = !!cvFile && cvFile.size > 0;
-  if (hasCv) {
-    if (cvFile!.size > CV_MAX_BYTES) {
-      return { error: `CV file must be under ${CV_MAX_LABEL}.` };
-    }
-    const ext = cvFile!.name.split(".").pop()?.toLowerCase();
-    if (ext !== "pdf") {
-      return { error: "CV must be a PDF file." };
-    }
-  }
+  const cv = validateCv(formData);
+  if ("error" in cv) return cv;
+  const { cvFile } = cv;
 
   // Resolve the participant. Three paths reach here:
   //  - SIGNED-IN owner: reuse their authenticated account (session.user.id),
@@ -269,7 +260,7 @@ export async function submitWalkInApplication(
 
   const { data: inserted, error: insertError } = await adminClient
     .from("applications")
-    .insert({ ...baseInsert, status: "accepted" })
+    .insert({ ...baseInsert, status: "accepted", user_id: userId })
     .select("id, check_in_token")
     .single();
 
@@ -283,24 +274,15 @@ export async function submitWalkInApplication(
 
   // Upload the CV (optional) and attach it. A failure here does not lose the
   // application; the walk-in is told the CV part failed.
-  let cvUploadFailed = false;
-  if (hasCv) {
-    try {
-      const chapterName = chapter.name.replace(/[^a-zA-Z0-9 ]/g, "");
-      const fileName = `${lastName}_${firstName}_CV.pdf`;
-      const result = await uploadFile(cvFile!, fileName, "application/pdf", [
-        "CVs",
-        chapterName,
-      ]);
-      await adminClient
-        .from("applications")
-        .update({ cv_url: result.fileId })
-        .eq("id", inserted.id);
-    } catch (err) {
-      console.error("Walk-in CV upload error:", err);
-      cvUploadFailed = true;
-    }
-  }
+  const { cvUploadFailed } = cvFile
+    ? await attachCv(adminClient, {
+        applicationId: inserted.id as string,
+        cvFile,
+        chapterName: chapter.name,
+        firstName,
+        lastName,
+      })
+    : { cvUploadFailed: false };
 
   logEvent({
     action: "application.walk_in_registered",

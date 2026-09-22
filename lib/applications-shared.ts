@@ -1,7 +1,7 @@
 import type { ApplicationTeamMember } from "@/lib/types";
 
 // Builds the `applications` row payload from the submitted form. Extracted so the
-// normal apply flow (submitApplication) and the walk-in flow
+// normal apply flow (confirmApplication / startApplication) and the walk-in flow
 // (submitWalkInApplication in lib/actions/walk-in.ts) construct the row from a
 // single source of truth and can never drift (form_data shape, team-member
 // parsing, consent columns). The caller supplies the already-validated chapter,

@@ -197,7 +197,7 @@ Upstash free tier: 10,000 commands/day. At ~500 users, auth flows use ~2,000-5,0
 
 ### Verification Code Passwords
 
-During registration, users receive a verification code by email. The temporary password is encrypted server-side before storage:
+During registration, and when applying to a chapter without being signed in, users receive a verification code by email. The temporary password is encrypted server-side before storage:
 
 - **Algorithm**: AES-256-GCM
 - **Key**: `VERIFICATION_ENCRYPTION_KEY` env var (falls back to `SUPABASE_SERVICE_ROLE_KEY`)
@@ -471,6 +471,7 @@ External service limits that affect the platform. If you hit unexplained errors 
 |---------------|---------|
 | Brute-force login | Rate limiting (5/min) + Turnstile CAPTCHA |
 | Brute-force registration | Rate limiting (3/min) + Turnstile + email verification |
+| Fake / spam applications | Rate limiting + Turnstile + email verification code before any application or account is written. The verified record, not the resubmitted form, decides the email and chapter. A signed-in applicant's session email is used and the form's email is ignored |
 | SQL injection | Supabase client parameterizes all queries |
 | XSS | CSP headers + React's built-in escaping + SVG upload blocked |
 | CSRF | Supabase uses SameSite cookies + server actions use POST |

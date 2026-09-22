@@ -44,6 +44,9 @@ import { resolve } from "path";
 // Relative, not "@/": tsconfig excludes e2e from the path-alias project.
 import { CV_MAX_BYTES, CV_MAX_LABEL } from "../../lib/config/upload-limits";
 
+// Password for the accounts the apply form creates (apply-creates-account).
+const E2E_APPLY_PASSWORD = "e2e-apply-password";
+
 // ─── Per-run isolation token ─────────────────────────────────
 // The lifecycle chapter used to have a fixed slug ("e2e-match"), and
 // createChapter() defensively deletes any existing chapter with the same slug
@@ -537,12 +540,20 @@ test.describe.serial("Hackathon Lifecycle", () => {
       await setChapterStatus(chapterId, "applications_open");
     }
     await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
+    await admin.from("verification_codes").delete().eq("email", email);
+    // Applying now creates the account, so a previous run's account must go:
+    // with it the form would take the existing-account path instead.
+    const leftover = await getProfileByEmail(email);
+    if (leftover) await admin.auth.admin.deleteUser(leftover.id as string);
 
     await page.goto(`/apply/${chapterSlug}`, { waitUntil: "networkidle" });
 
-    // Entering an email with no account reveals the form (showForm gate).
+    // Entering an email with no account reveals the form (showForm gate) and
+    // asks for the password of the account the application creates.
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="email"]').blur();
+    await page.locator('input[name="password"]').fill(E2E_APPLY_PASSWORD);
+    await page.locator('input[name="passwordConfirm"]').fill(E2E_APPLY_PASSWORD);
 
     await page.locator('input[name="firstName"]').fill("E2E");
     await page.locator('input[name="lastName"]').fill("ApplyUI");
@@ -572,13 +583,30 @@ test.describe.serial("Hackathon Lifecycle", () => {
 
     await page.getByRole("button", { name: /submit application/i }).click();
 
+    // Nothing is saved until the emailed code is entered.
+    await expect(page.getByText("Confirm your email")).toBeVisible({ timeout: 30000 });
+    const { data: beforeCode } = await admin
+      .from("applications")
+      .select("id")
+      .eq("chapter_id", chapterId)
+      .eq("email", email)
+      .maybeSingle();
+    expect(beforeCode).toBeNull();
+    expect(await getProfileByEmail(email)).toBeNull();
+
+    const code = await getVerificationCode(email);
+    await page.getByLabel("Verification code").fill(code);
+    await page.getByRole("button", { name: /confirm & submit application/i }).click();
+
     // The success screen must appear — proving the UI submit succeeded.
     await expect(page.getByText("Application Submitted!")).toBeVisible({ timeout: 30000 });
+    // The new account is signed in.
+    await expect(page.getByRole("link", { name: "Go to your dashboard" })).toBeVisible();
 
     // And the row must exist in the DB, created BY THE UI (not seeded).
     const { data: app } = await admin
       .from("applications")
-      .select("first_name, last_name, cv_url, status")
+      .select("first_name, last_name, cv_url, status, user_id")
       .eq("chapter_id", chapterId)
       .eq("email", email)
       .single();
@@ -590,8 +618,17 @@ test.describe.serial("Hackathon Lifecycle", () => {
     // regardless (the hardening guarantees the app is saved even if CV fails).
     expect(app!.status).toBe("pending");
 
+    // Applying created the account, and the application is linked to it.
+    const profile = await getProfileByEmail(email);
+    expect(profile).toBeTruthy();
+    expect(app!.user_id).toBe(profile!.id);
+    // The consumed code (holding the encrypted password) is gone.
+    const { data: codes } = await admin.from("verification_codes").select("id").eq("email", email);
+    expect(codes).toEqual([]);
+
     // Cleanup
     await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
+    await admin.auth.admin.deleteUser(profile!.id as string);
   });
 
   test("3.1c Reject a CV that is not a PDF through the UI", async ({ page }) => {
@@ -607,6 +644,8 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await page.goto(`/apply/${chapterSlug}`, { waitUntil: "networkidle" });
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="email"]').blur();
+    await page.locator('input[name="password"]').fill(E2E_APPLY_PASSWORD);
+    await page.locator('input[name="passwordConfirm"]').fill(E2E_APPLY_PASSWORD);
 
     await page.locator('input[name="firstName"]').fill("E2E");
     await page.locator('input[name="lastName"]').fill("BadCV");
@@ -664,6 +703,8 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await page.goto(`/apply/${chapterSlug}`, { waitUntil: "networkidle" });
     await page.locator('input[name="email"]').fill(email);
     await page.locator('input[name="email"]').blur();
+    await page.locator('input[name="password"]').fill(E2E_APPLY_PASSWORD);
+    await page.locator('input[name="passwordConfirm"]').fill(E2E_APPLY_PASSWORD);
 
     await page.locator('input[name="firstName"]').fill("E2E");
     await page.locator('input[name="lastName"]').fill("BigCV");
@@ -792,6 +833,129 @@ test.describe.serial("Hackathon Lifecycle", () => {
       consent_sponsor_data: true,
     });
     expect(err2).toBeNull();
+  });
+
+  test("3.3 An email that already has an account applies by code and joins that account", async ({ page }) => {
+    // The escape hatch for someone who has an account but cannot log in: they
+    // continue without logging in, prove the address with the emailed code, and
+    // the application lands on the EXISTING account. No second account, no
+    // password asked, and (no password proven) no sign-in.
+    test.setTimeout(90000);
+    const admin = getAdminClient();
+    const email = "e2e-apply-existing@test-ehl.com";
+    const { data: ch } = await admin.from("chapters").select("status").eq("id", chapterId).single();
+    if (ch?.status !== "applications_open") {
+      await setChapterStatus(chapterId, "applications_open");
+    }
+    await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
+    await admin.from("verification_codes").delete().eq("email", email);
+    const userId = await createParticipant({ email, name: "E2E Existing" });
+
+    await page.goto(`/apply/${chapterSlug}`, { waitUntil: "networkidle" });
+    await page.locator('input[name="email"]').fill(email);
+    await page.locator('input[name="email"]').blur();
+    await expect(page.getByText("This email is already linked to an account.")).toBeVisible({
+      timeout: 15000,
+    });
+    await page.getByRole("button", { name: "continue without logging in" }).click();
+    // An existing account sets no password here.
+    await expect(page.locator('input[name="password"]')).toHaveCount(0);
+
+    await page.locator('input[name="firstName"]').fill("E2E");
+    await page.locator('input[name="lastName"]').fill("Existing");
+    await page.locator('input[name="dateOfBirth"]').fill("2000-01-15");
+    await page.locator('input[name="gender"][value="Male"]').check({ force: true });
+    await page.locator('input[name="locationCity"]').fill("Munich");
+    await page.locator('input[name="locationCountry"]').fill("Germany");
+    await page.locator('input[name="nationality"]').fill("German");
+    await page.locator('input[name="currentlyStudying"][value="false"]').check({ force: true });
+    await page.locator('input[name="hasProgrammingSkills"][value="true"]').check({ force: true });
+    await page.locator('input[name="isTumaiMember"][value="false"]').check({ force: true });
+    await page.locator('textarea[name="hackathonExperience"]').fill("x");
+    await page.locator('input[name="hasTeam"][value="false"]').check({ force: true });
+    await page.locator('input[name="dietaryRestrictions"][value="None"]').check({ force: true });
+    await page.locator('input[name="tshirtCut"][value="men\'s"]').check({ force: true });
+    await page.locator('input[name="tshirtSize"][value="M"]').check({ force: true });
+    await page.getByText("LinkedIn", { exact: true }).click();
+    await page.locator('input[name="wantsCv"][value="false"]').check({ force: true });
+
+    await page.getByRole("button", { name: /submit application/i }).click();
+    await expect(page.getByText("Confirm your email")).toBeVisible({ timeout: 30000 });
+    const code = await getVerificationCode(email);
+
+    // A wrong code is refused and saves nothing.
+    const wrong = code === "000000" ? "111111" : "000000";
+    await page.getByLabel("Verification code").fill(wrong);
+    await page.getByRole("button", { name: /confirm & submit application/i }).click();
+    await expect(page.getByText(/Incorrect code\. 4 attempts remaining\./)).toBeVisible({
+      timeout: 15000,
+    });
+    const { data: afterWrong } = await admin
+      .from("applications")
+      .select("id")
+      .eq("chapter_id", chapterId)
+      .eq("email", email)
+      .maybeSingle();
+    expect(afterWrong).toBeNull();
+
+    // The right code submits.
+    await page.getByLabel("Verification code").fill(code);
+    await page.getByRole("button", { name: /confirm & submit application/i }).click();
+    await expect(page.getByText("Application Submitted!")).toBeVisible({ timeout: 30000 });
+    await expect(page.getByText("It was added to your existing EHL account.")).toBeVisible();
+
+    const { data: app } = await admin
+      .from("applications")
+      .select("user_id, status")
+      .eq("chapter_id", chapterId)
+      .eq("email", email)
+      .single();
+    expect(app!.user_id).toBe(userId);
+    expect(app!.status).toBe("pending");
+    // Still exactly the one account.
+    expect((await getProfileByEmail(email))!.id).toBe(userId);
+
+    await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
+    await admin.auth.admin.deleteUser(userId);
+  });
+
+  test("3.4 The database links applications to accounts whichever is created first", async () => {
+    // 00069's triggers, against the real schema. 3.2 inserted rows straight into
+    // the table for accounts that already existed: the application-side trigger
+    // must have linked them. And an account created AFTER its application (a
+    // legacy applicant registering later) must be linked by the profile-side one.
+    const admin = getAdminClient();
+
+    for (const account of [E2E_ACCOUNTS.president, E2E_ACCOUNTS.solo]) {
+      const profile = await getProfileByEmail(account.email);
+      const { data: app } = await admin
+        .from("applications")
+        .select("user_id")
+        .eq("chapter_id", chapterId)
+        .eq("email", account.email)
+        .single();
+      expect(app!.user_id).toBe(profile!.id);
+    }
+
+    const lateEmail = "e2e-apply-late-account@test-ehl.com";
+    const leftover = await getProfileByEmail(lateEmail);
+    if (leftover) await admin.auth.admin.deleteUser(leftover.id as string);
+    const appId = await createApplication({
+      chapterId,
+      email: lateEmail,
+      firstName: "E2E",
+      lastName: "Late",
+      status: "pending",
+    });
+    const { data: before } = await admin.from("applications").select("user_id").eq("id", appId).single();
+    expect(before!.user_id).toBeNull();
+
+    const lateUserId = await createParticipant({ email: lateEmail, name: "E2E Late" });
+    const { data: after } = await admin.from("applications").select("user_id").eq("id", appId).single();
+    expect(after!.user_id).toBe(lateUserId);
+
+    await admin.from("applications").delete().eq("id", appId);
+    await admin.auth.admin.deleteUser(lateUserId);
   });
 
   // ── BLOCK 4: SCREENING ──────────────────────────────────
