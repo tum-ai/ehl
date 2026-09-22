@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Image from "next/image";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { getSession } from "@/lib/actions/auth";
@@ -20,6 +19,7 @@ import {
 import { redirect } from "next/navigation";
 import { formatDateRange } from "@/lib/utils";
 import { isPlacedPlacement } from "@/lib/scoring";
+import { CurrentHackathon, getCurrentHackathons } from "@/components/dashboard/current-hackathon";
 import { TeamManagement } from "@/components/dashboard/team-management";
 import { TeamlessView } from "@/components/dashboard/teamless-view";
 import { createClient } from "@/lib/supabase/server";
@@ -123,6 +123,15 @@ export default async function ParticipantDashboard() {
       .map((a) => a.chapter_id as string)
   );
 
+  const currentChapters = getCurrentHackathons(chapters, userApps ?? []);
+  const currentChapterIds = new Set(currentChapters.map((chapter) => chapter.id));
+  const otherChapters = chapters.filter((chapter) =>
+    chapter.status !== "draft" && appliedChapterIds.has(chapter.id) && !currentChapterIds.has(chapter.id)
+  );
+  const otherParticipation = matchHistory.filter((entry) => !currentChapterIds.has(entry.chapter.id));
+  const checkedInChapterIds = new Set((userApps ?? [])
+    .filter((app) => app.status === "checked_in").map((app) => app.chapter_id));
+
   const teamEntry = leaderboard.find((e) => e.team.id === team.id);
   const scoredChapterIds = new Set(publishedScores.map((s) => s.chapterId));
   // Members of placed teams (1st-5th) get both a personal achievement and a
@@ -161,31 +170,29 @@ export default async function ParticipantDashboard() {
         Welcome, {session.profile?.name || (isPresident ? "President" : "Member")}
       </p>
 
-      {/* Team info + stats */}
-      <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <p className="text-sm text-text-muted">Team</p>
-          <p className="mt-1 text-lg font-bold text-gold">{team.name}</p>
-          <p className="text-xs text-text-muted">{team.university || team.city || "No origin set"}</p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-muted">Rank</p>
-          <p className="mt-1 text-3xl font-mono font-bold text-gold">
-            {teamEntry ? `#${teamEntry.rank}` : "-"}
-          </p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-muted">Points</p>
-          <p className="mt-1 text-3xl font-mono font-bold text-gold">
-            {teamEntry?.totalPoints ?? 0}
-          </p>
-        </Card>
-        <Card>
-          <p className="text-sm text-text-muted">Members</p>
-          <p className="mt-1 text-3xl font-mono font-bold text-gold">
-            {members.length}
-          </p>
-        </Card>
+      {currentChapters.length > 0 && (
+        <section aria-labelledby="current-hackathons-heading" className="mt-6 space-y-4">
+          <h2 id="current-hackathons-heading" className="text-sm font-bold uppercase tracking-wider text-gold">
+            {currentChapters.length === 1 ? "Your current hackathon" : "Your current hackathons"}
+          </h2>
+          {currentChapters.map((chapter) => (
+            <CurrentHackathon
+              key={chapter.id}
+              chapter={chapter}
+              participation={matchHistory.find((entry) => entry.chapter.id === chapter.id)}
+              checkedIn={checkedInChapterIds.has(chapter.id)}
+              isPresident={isPresident}
+            />
+          ))}
+        </section>
+      )}
+
+      <div className="mt-8">
+        <h2 className="text-sm font-bold uppercase tracking-wider text-text-muted">Your team</h2>
+        <p className="mt-2 text-xl font-bold text-gold">{team.name}</p>
+        <p className="mt-1 text-sm text-text-secondary">
+          {members.length} members{team.university || team.city ? ` · ${team.university || team.city}` : ""}
+        </p>
       </div>
 
       {/* Solo team warning */}
@@ -239,15 +246,33 @@ export default async function ParticipantDashboard() {
         </div>
       )}
 
+      <section aria-labelledby="season-overview-heading" className="mt-8">
+        <h2 id="season-overview-heading" className="text-sm font-bold uppercase tracking-wider text-text-muted">
+          Season overview
+        </h2>
+        <Card className="mt-3">
+          <dl className="grid grid-cols-2 gap-4">
+            <div>
+              <dt className="text-sm text-text-muted">Rank</dt>
+              <dd className="mt-1 text-2xl font-mono font-bold text-gold">
+                {teamEntry ? `#${teamEntry.rank}` : "Unranked"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-sm text-text-muted">Points</dt>
+              <dd className="mt-1 text-2xl font-mono font-bold text-gold">{teamEntry?.totalPoints ?? 0}</dd>
+            </div>
+          </dl>
+        </Card>
+      </section>
+
       {/* Matches */}
       <div className="mt-8">
         <h2 className="text-sm font-bold uppercase tracking-wider text-text-muted">
-          Matches
+          {currentChapters.length > 0 ? "Other matches" : "Matches"}
         </h2>
         <div className="mt-4 space-y-2">
-          {chapters
-            .filter((c) => c.status !== "draft" && appliedChapterIds.has(c.id))
-            .map((chapter) => {
+          {otherChapters.map((chapter) => {
               const isCompleted = chapter.status === "completed";
               const hasParticipated = matchHistory.some((m) => m.chapter.id === chapter.id);
               const hasCertificate = isCompleted && scoredChapterIds.has(chapter.id);
@@ -318,7 +343,10 @@ export default async function ParticipantDashboard() {
                 </div>
               );
             })}
-          {chapters.filter((c) => c.status !== "draft" && appliedChapterIds.has(c.id)).length === 0 && (
+          {otherChapters.length === 0 && currentChapters.length > 0 && (
+            <p className="py-4 text-sm text-text-muted">No other matches yet.</p>
+          )}
+          {otherChapters.length === 0 && currentChapters.length === 0 && (
             <p className="text-sm text-text-muted py-4">
               You haven&apos;t applied to any matches yet. Browse <Link href="/matches" className="text-gold hover:underline">upcoming matches</Link> to get started.
             </p>
@@ -327,13 +355,13 @@ export default async function ParticipantDashboard() {
       </div>
 
       {/* Match Participation History */}
-      {matchHistory.length > 0 && (
+      {otherParticipation.length > 0 && (
         <div className="mt-8">
           <h2 className="text-sm font-bold uppercase tracking-wider text-text-muted">
             Your Participation
           </h2>
           <div className="mt-4 space-y-3">
-            {matchHistory.map((entry) => (
+            {otherParticipation.map((entry) => (
               <Card key={`${entry.chapter.id}-${entry.challenge?.id}`} className="p-4">
                 <div className="flex items-start justify-between">
                   <div>
