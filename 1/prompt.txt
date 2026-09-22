@@ -1,0 +1,25 @@
+there is currently a WIP draft from couple months back #53. how is the current application workflow working? people can apply wihtout an account?
+
+---
+
+first locally rebase, test and improve if gaps arise. i want the logic to be up to date with changes made since then and the functionality completely tested before the pr draft improves
+
+---
+
+<task-notification>
+<task-id>btbdoj91j</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/4b089b05-630a-4937-a1b7-2ce6e1acdee6/tasks/btbdoj91j.output</output-file>
+<status>completed</status>
+<summary>Background command "Start local Supabase with all migrations" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>b7ft03oig</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/4b089b05-630a-4937-a1b7-2ce6e1acdee6/tasks/b7ft03oig.output</output-file>
+<status>completed</status>
+<summary>Background command "Start dev server against local stack, isolated env" completed (exit code 0)</summary>
+</task-notification>
