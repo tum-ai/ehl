@@ -27,6 +27,7 @@ import {
   fillApplicationFields,
   registerSoloViaUI,
   simEmail,
+  SIM_PASSWORD,
   adminClient,
   cleanupSimData,
   clearMailbox,
@@ -36,6 +37,7 @@ const CHAPTER_NAME = "Sim Walk-in Match";
 const WALKIN_EMAIL = simEmail("sim-walkin");
 const WALKIN_PASSWORD = "WalkInPass123!";
 const EXISTING_EMAIL = simEmail("sim-walkin-existing");
+const LOGGED_OUT_EXISTING_EMAIL = simEmail("sim-walkin-existing-pw");
 
 test.describe("Simulation: walk-in registration (real UI)", () => {
   let chapterId: string;
@@ -293,6 +295,98 @@ test.describe("Simulation: walk-in registration (real UI)", () => {
       .eq("chapter_id", chapterId)
       .eq("email", EXISTING_EMAIL);
     expect(appCount, "still exactly one application (idempotent)").toBe(1);
+
+    await ctx.close();
+  });
+
+  test("a LOGGED-OUT existing user registers with their password on the walk-in page, never sent to /login", async ({ browser }) => {
+    // Regression: the walk-in used to send an existing account holder to /login,
+    // which lands on /dashboard, so the walk-in token and everything they typed
+    // were lost. Now the form asks for their EHL password and registers them in
+    // place. Even when they first pick "I'm new", the form keeps what they typed
+    // and switches to the password mode.
+    const db = adminClient();
+    const { data: rows } = await db
+      .from("chapter_walk_in")
+      .select("walk_in_token")
+      .eq("chapter_id", chapterId);
+    const token = rows![0].walk_in_token as string;
+
+    // A pre-existing account, created in its own context.
+    const regCtx = await browser.newContext();
+    await registerSoloViaUI(await regCtx.newPage(), {
+      name: "Returning Walkin",
+      email: LOGGED_OUT_EXISTING_EMAIL,
+    });
+    await regCtx.close();
+    const { data: prof } = await db
+      .from("profiles")
+      .select("id")
+      .eq("email", LOGGED_OUT_EXISTING_EMAIL)
+      .single();
+
+    // A fresh LOGGED-OUT context opens the walk-in link.
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    await page.goto(`/walk-in/${token}`);
+    await expect(page.getByRole("heading", { name: "Walk-In Registration" })).toBeVisible();
+
+    // They wrongly stay in the default "I'm new" mode and submit.
+    await page.locator('input[name="email"]').fill(LOGGED_OUT_EXISTING_EMAIL);
+    await page.locator('input[name="password"]').fill("SomeNewPass123!");
+    await page.locator('input[name="confirmPassword"]').fill("SomeNewPass123!");
+    await fillApplicationFields(page, {
+      firstName: "Returning",
+      lastName: "Walkin",
+      cvMode: "optional",
+    });
+    await page.getByRole("button", { name: /register & create account/i }).click();
+
+    // The form switches to the existing-account mode on the SAME page: one
+    // password field, no confirm field, and the account notice.
+    await expect(page.getByText(/already has an EHL account/i)).toBeVisible({ timeout: 20000 });
+    await expect(page).toHaveURL(new RegExp(`/walk-in/${token}$`));
+    await expect(page.getByRole("radio", { name: /i already have an account/i })).toHaveAttribute(
+      "aria-checked",
+      "true"
+    );
+    await expect(page.locator('input[name="confirmPassword"]')).toHaveCount(0);
+
+    // A wrong password is refused in place.
+    await page.locator('input[name="password"]').fill("WrongPass123!");
+    await page.getByRole("button", { name: /sign in & register/i }).click();
+    await expect(page.getByText(/doesn't match this EHL account/i)).toBeVisible({ timeout: 20000 });
+
+    // The right password registers them. The application fields were NOT
+    // re-filled: what they typed before the mode switch survived.
+    await page.locator('input[name="password"]').fill(SIM_PASSWORD);
+    await page.getByRole("button", { name: /sign in & register/i }).click();
+    await expect(page.getByText(/you're registered/i)).toBeVisible({ timeout: 20000 });
+    await expect(page.getByText(/existing EHL account/i)).toBeVisible();
+    await expect(page.getByRole("img", { name: "Your check-in QR code" })).toBeVisible();
+
+    // DB: an accepted application for the EXISTING account, and still exactly one
+    // profile for this email (no second account).
+    const { data: app } = await db
+      .from("applications")
+      .select("status, check_in_token, first_name")
+      .eq("chapter_id", chapterId)
+      .eq("email", LOGGED_OUT_EXISTING_EMAIL)
+      .maybeSingle();
+    expect(app, "accepted application created for the existing account").toBeTruthy();
+    expect(app!.status).toBe("accepted");
+    expect(app!.check_in_token).toBeTruthy();
+    expect(app!.first_name).toBe("Returning");
+    const { count: profCount } = await db
+      .from("profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("email", LOGGED_OUT_EXISTING_EMAIL);
+    expect(profCount).toBe(1);
+    expect(prof!.id).toBeTruthy();
+
+    // They are now signed in: the dashboard opens without a login redirect.
+    await page.goto("/dashboard");
+    await expect(page).toHaveURL(/\/dashboard/);
 
     await ctx.close();
   });

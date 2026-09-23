@@ -38,6 +38,15 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [cvUploadFailed, setCvUploadFailed] = useState(false);
 
+  // "new" creates an EHL account (password + confirm). "existing" registers with
+  // an account the walk-in already has (its password only), so they never have to
+  // leave this page to sign in. The server has the final say and answers with a
+  // code that flips the mode when the choice was wrong.
+  const [accountMode, setAccountMode] = useState<"new" | "existing">("new");
+  const [modeNotice, setModeNotice] = useState<string | null>(null);
+  // Which mode actually registered them, for the success copy.
+  const [registeredWithExisting, setRegisteredWithExisting] = useState(false);
+
   const [email, setEmail] = useState(signedInEmail ?? "");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -45,6 +54,7 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
   const turnstileRef = useRef<TurnstileRef>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const fieldsRef = useRef<ApplicationFieldsHandle>(null);
+  const accountCardRef = useRef<HTMLDivElement>(null);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -63,7 +73,13 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
 
     // Password is only needed to CREATE a new account. A signed-in owner reuses
     // their existing account, so skip the password checks for them.
-    if (!isSignedIn) {
+    if (!isSignedIn && accountMode === "existing") {
+      if (!password) {
+        setError("Please enter your EHL account password.");
+        setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+        return;
+      }
+    } else if (!isSignedIn) {
       if (password.length < 8) {
         setError("Password must be at least 8 characters.");
         setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
@@ -85,6 +101,7 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
     formData.set("walkInToken", walkInToken);
     formData.set("email", email);
     formData.set("password", password);
+    formData.set("accountMode", isSignedIn ? "new" : accountMode);
     fields.populate(formData);
 
     // Only guard that can speak: see lib/config/upload-limits.ts. On event WiFi
@@ -101,9 +118,18 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
     try {
       const result = await submitWalkInApplication(formData);
       if ("error" in result) {
-        setError(result.error);
         turnstileRef.current?.reset();
+        if (result.code === "account_exists" && accountMode === "new") {
+          // Keep everything they typed, only swap the password fields.
+          switchMode("existing", result.error);
+        } else if (result.code === "no_account" && accountMode === "existing") {
+          switchMode("new", result.error);
+        } else {
+          setError(result.error);
+          setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+        }
       } else {
+        setRegisteredWithExisting(isSignedIn || accountMode === "existing");
         setCvUploadFailed(!!result.cvUploadFailed);
         setCheckInToken(result.checkInToken);
         try {
@@ -138,14 +164,27 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
     }
   }
 
+  function switchMode(mode: "new" | "existing", notice: string | null = null) {
+    setAccountMode(mode);
+    setPassword("");
+    setConfirmPassword("");
+    setError(null);
+    setModeNotice(notice);
+    if (notice) {
+      setTimeout(() => accountCardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+    }
+  }
+
   if (checkInToken) {
     return (
       <Section className="relative overflow-hidden">
         <div className="relative mx-auto max-w-md text-center">
           <h1 className="text-2xl font-black">You&apos;re registered!</h1>
           <p className="mt-3 text-text-secondary">
-            Welcome to <strong className="text-gold">{chapterName}</strong>. Your account
-            has been created and you are logged in.
+            Welcome to <strong className="text-gold">{chapterName}</strong>.{" "}
+            {registeredWithExisting
+              ? "You're in with your existing EHL account and logged in."
+              : "Your account has been created and you are logged in."}
           </p>
           <div className="mt-6 rounded-xl border border-gold/30 bg-gold/5 p-6">
             {qrDataUrl ? (
@@ -205,22 +244,58 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
           <div>
             <p className="font-bold text-text-primary">Register and join in one step</p>
             <p className="text-sm text-text-secondary">
-              This creates your EHL account and registers you for the event. You will be
-              accepted automatically. Already have an account?{" "}
-              <Link href="/login" className="text-gold hover:underline font-medium">
-                Sign in
-              </Link>
-              {" "}first, then reopen this link.
+              {isSignedIn
+                ? "This registers you for the event with your EHL account. You will be accepted automatically."
+                : "This registers you for the event and you will be accepted automatically. Already have an EHL account? Choose it below and use your password, no need to sign in first."}
             </p>
           </div>
         </div>
       </Card>
 
       {/* Account credentials */}
+      <div ref={accountCardRef}>
       <Card className="mb-6">
         <h2 className="text-lg font-bold">
-          {isSignedIn ? "Your Account" : "Create Your Account"}
+          {isSignedIn
+            ? "Your Account"
+            : accountMode === "existing"
+              ? "Sign In With Your Account"
+              : "Create Your Account"}
         </h2>
+        {!isSignedIn && (
+          <div
+            role="radiogroup"
+            aria-label="Do you already have an EHL account?"
+            className="mt-4 grid grid-cols-2 gap-2 rounded-lg border border-white/10 bg-surface-deep p-1"
+          >
+            {(
+              [
+                ["new", "I'm new to EHL"],
+                ["existing", "I already have an account"],
+              ] as const
+            ).map(([mode, label]) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={accountMode === mode}
+                onClick={() => accountMode !== mode && switchMode(mode)}
+                className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                  accountMode === mode
+                    ? "bg-purple/20 text-text-primary"
+                    : "text-text-muted hover:text-text-secondary"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {modeNotice && (
+          <div className="mt-4 rounded-lg border border-gold/20 bg-gold/5 p-3">
+            <p className="text-sm text-gold">{modeNotice}</p>
+          </div>
+        )}
         <div className="mt-4 space-y-4">
           <div>
             <label className="block text-sm text-text-muted">
@@ -244,7 +319,35 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
               </p>
             )}
           </div>
-          {!isSignedIn && (
+          {!isSignedIn && accountMode === "existing" && (
+            <div>
+              <label className="block text-sm text-text-muted">
+                Your EHL password <span className="text-error">*</span>
+              </label>
+              <input
+                type="password"
+                name="password"
+                autoComplete="current-password"
+                required
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+              />
+              <p className="mt-1 text-xs text-text-muted">
+                {/* New tab so this form, and everything typed into it, survives. */}
+                <Link
+                  href="/forgot-password"
+                  target="_blank"
+                  rel="noopener"
+                  className="text-purple hover:text-purple-light"
+                >
+                  Forgot password?
+                </Link>
+              </p>
+            </div>
+          )}
+          {!isSignedIn && accountMode === "new" && (
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <label className="block text-sm text-text-muted">
@@ -278,6 +381,7 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
           )}
         </div>
       </Card>
+      </div>
 
       <ApplicationFields ref={fieldsRef} cvMode="optional" />
 
@@ -291,7 +395,13 @@ export function WalkInForm({ walkInToken, chapterName, signedInEmail }: WalkInFo
 
       <div className="flex justify-end">
         <Button type="submit" disabled={loading}>
-          {loading ? "Registering..." : "Register & Create Account"}
+          {loading
+            ? "Registering..."
+            : isSignedIn
+              ? "Register"
+              : accountMode === "existing"
+                ? "Sign In & Register"
+                : "Register & Create Account"}
         </Button>
       </div>
     </form>
