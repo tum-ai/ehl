@@ -106,6 +106,16 @@ Requires participant account (email + password).
 
 ### Applications (`/apply/<chapter-slug>`)
 - Per-chapter application form
+- **Applying creates the EHL account.** A new applicant sets a password next to their
+  email; on submit they get a 6-digit code by email (15 minutes, 5 attempts), and only
+  when they enter it are the account and the application created, the "Application
+  received" email sent, and the applicant signed in. Nothing is saved before the code
+- An email that already has an account can log in first (the form is pre-filled and
+  submits at once), or "continue without logging in": no password is asked, the code
+  proves the address, and the application joins the existing account (not signed in)
+- A signed-in applicant always applies as their own account and needs no code
+- Every application is linked to its account (`applications.user_id`, migration
+  00069), whichever was created first. Applications from before the change stay valid
 - Fields: motivation, skills, experience, dietary restrictions
 - CV upload (PDF, stored in Google Drive). Optional by default, behind a
   "Do you want to upload your CV?" gate; **mandatory** when the chapter has

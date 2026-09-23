@@ -458,6 +458,43 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        )
      ) as present`,
   },
+  {
+    // Apply-creates-account: applications.user_id, the two triggers that keep it
+    // linked from either side, and the application_registration verification
+    // type the public apply form's code step inserts. Without the type the apply
+    // form cannot send a code at all, so it is asserted alongside the column.
+    prefix: "00069",
+    label: "application_user_link_and_registration",
+    sql: `select (
+       exists (
+         select 1 from information_schema.columns
+         where table_schema = 'public' and table_name = 'applications' and column_name = 'user_id'
+       )
+       and exists (
+         select 1 from pg_trigger
+         where tgrelid = 'public.applications'::regclass and tgname = 'link_application_to_profile'
+       )
+       and exists (
+         select 1 from pg_trigger
+         where tgrelid = 'public.profiles'::regclass and tgname = 'link_profile_applications'
+       )
+       and exists (
+         select 1 from pg_constraint
+         where conname = 'verification_codes_type_check'
+           and pg_get_constraintdef(oid) like '%application_registration%'
+       )
+     ) as present`,
+  },
+  {
+    // Participants may not change their own profiles.email (it is an identity
+    // for application reads and the 00069 link). Probe asserts the trigger.
+    prefix: "00070",
+    label: "prevent_profile_email_change",
+    sql: `select exists (
+       select 1 from pg_trigger
+       where tgrelid = 'public.profiles'::regclass and tgname = 'profiles_prevent_email_change'
+     ) as present`,
+  },
 ];
 
 /**

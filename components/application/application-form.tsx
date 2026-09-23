@@ -11,7 +11,8 @@ import {
   type ApplicationFieldsHandle,
 } from "@/components/application/application-fields";
 import {
-  submitApplication,
+  startApplication,
+  confirmApplication,
   checkEmailHasAccount,
   lookupExistingTeam,
 } from "@/lib/actions/applications";
@@ -53,12 +54,22 @@ export function ApplicationForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
   const [cvUploadFailed, setCvUploadFailed] = useState(false);
   const [lookingUp, setLookingUp] = useState(false);
   const [accountExists, setAccountExists] = useState(false);
+  // An existing account chose to apply by confirming a code instead of logging in.
+  const [continueWithCode, setContinueWithCode] = useState(false);
+  // The code step. The application form stays MOUNTED (only hidden) while it is
+  // shown, because confirming resends the whole form, CV included.
+  const [verificationId, setVerificationId] = useState<string | null>(null);
+  const [codeSentTo, setCodeSentTo] = useState("");
+  const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
   const turnstileRef = useRef<TurnstileRef>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const fieldsRef = useRef<ApplicationFieldsHandle>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const [email, setEmail] = useState(userProfile?.email ?? "");
   const [existingTeam, setExistingTeam] = useState<{ teamId: string; teamName: string } | null>(currentTeam ?? null);
@@ -68,6 +79,7 @@ export function ApplicationForm({
 
     setLookingUp(true);
     setAccountExists(false);
+    setContinueWithCode(false);
 
     // Only check if email is linked to an account (no data revealed)
     const hasAccount = await checkEmailHasAccount(email);
@@ -86,6 +98,28 @@ export function ApplicationForm({
     setLookingUp(false);
   }, [email, isLoggedIn]);
 
+  // A new address creates its account on submit, so it sets a password here.
+  // A signed-in user and an existing account (confirming by code) do not.
+  const needsPassword = !isLoggedIn && !accountExists;
+
+  function buildFormData(form: HTMLFormElement): FormData {
+    const formData = new FormData(form);
+    formData.set("chapterId", chapterId);
+    formData.set("email", email);
+    fieldsRef.current?.populate(formData);
+    if (!needsPassword) {
+      formData.delete("password");
+      formData.delete("passwordConfirm");
+    }
+    return formData;
+  }
+
+  function showSuccess(result: { cvUploadFailed: boolean; signedIn: boolean }) {
+    setCvUploadFailed(result.cvUploadFailed);
+    setSignedIn(result.signedIn);
+    setSuccess(true);
+  }
+
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
@@ -96,8 +130,22 @@ export function ApplicationForm({
     // Client-side validation for required fields (especially radio/select that browser can't validate)
     const missing = fields.getMissingFields(e.currentTarget);
     if (!email.trim()) missing.unshift("Email");
+    const password = (e.currentTarget.elements.namedItem("password") as HTMLInputElement | null)?.value ?? "";
+    const passwordConfirm =
+      (e.currentTarget.elements.namedItem("passwordConfirm") as HTMLInputElement | null)?.value ?? "";
+    if (needsPassword && !password) missing.push("Password");
     if (missing.length > 0) {
       setError(`Please fill in the following required fields: ${missing.join(", ")}`);
+      setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+      return;
+    }
+    if (needsPassword && password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
+      return;
+    }
+    if (needsPassword && password !== passwordConfirm) {
+      setError("Passwords do not match.");
       setTimeout(() => errorRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 50);
       return;
     }
@@ -106,11 +154,8 @@ export function ApplicationForm({
 
     const turnstileToken = turnstileRef.current?.getToken() ?? "";
 
-    const formData = new FormData(e.currentTarget);
+    const formData = buildFormData(e.currentTarget);
     if (turnstileToken) formData.set("cf-turnstile-response", turnstileToken);
-    formData.set("chapterId", chapterId);
-    formData.set("email", email);
-    fields.populate(formData);
 
     // Client-side CV size guard. This is the ONLY guard that can produce a
     // useful message: a body over the platform limit is rejected at the edge,
@@ -125,13 +170,20 @@ export function ApplicationForm({
     }
 
     try {
-      const result = await submitApplication(formData);
-      if (result?.error) {
+      const result = await startApplication(formData);
+      if (result && "error" in result) {
         setError(result.error);
         turnstileRef.current?.reset();
-      } else if (result?.success) {
-        setCvUploadFailed(!!result.cvUploadFailed);
-        setSuccess(true);
+      } else if (result && "verificationId" in result) {
+        setVerificationId(result.verificationId);
+        setCodeSentTo(result.email);
+        setCode("");
+        setCodeError(null);
+        // The Turnstile token was spent; a resubmit from the form needs a new one.
+        turnstileRef.current?.reset();
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      } else if (result && "success" in result) {
+        showSuccess(result);
       } else {
         setError("Something went wrong. Please try again.");
         turnstileRef.current?.reset();
@@ -163,6 +215,47 @@ export function ApplicationForm({
     }
   }
 
+  async function handleConfirm(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = formRef.current;
+    if (!form || !verificationId) return;
+    setCodeError(null);
+    setLoading(true);
+
+    const formData = buildFormData(form);
+    formData.set("verificationId", verificationId);
+    formData.set("code", code);
+
+    try {
+      const result = await confirmApplication(formData);
+      if (result && "success" in result) {
+        showSuccess(result);
+      } else if (result && "error" in result) {
+        setCodeError(result.error);
+      } else {
+        setCodeError("Something went wrong. Please try again.");
+      }
+    } catch (err) {
+      reportClientError(
+        toReportableError(err, { form: "apply-confirm" }),
+        "apply-confirm"
+      );
+      setCodeError(
+        isPayloadTooLargeError(err)
+          ? REQUEST_TOO_LARGE_MESSAGE
+          : "We couldn't confirm your application. Please check your connection and try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function backToForm() {
+    setVerificationId(null);
+    setCode("");
+    setCodeError(null);
+  }
+
   if (success) {
     return (
       <Section className="relative overflow-hidden">
@@ -179,6 +272,24 @@ export function ApplicationForm({
             Thanks for applying to <strong className="text-gold">{chapterName}</strong>.
             You will receive a confirmation email shortly. We will review your application and get back to you soon.
           </p>
+          <p className="mt-3 text-sm text-text-secondary">
+            {isLoggedIn
+              ? "You can follow it from your dashboard."
+              : signedIn
+                ? "We created your EHL account and logged you in, so you can follow your application from your dashboard."
+                : "It was added to your existing EHL account. Log in to follow it from your dashboard."}
+          </p>
+          <div className="mt-6 flex justify-center">
+            {isLoggedIn || signedIn ? (
+              <Link href="/dashboard" className="text-gold hover:underline font-medium">
+                Go to your dashboard
+              </Link>
+            ) : (
+              <Link href="/login?redirect=/dashboard" className="text-gold hover:underline font-medium">
+                Log in
+              </Link>
+            )}
+          </div>
           {cvUploadFailed && (
             <div className="mt-5 rounded-lg border border-gold/30 bg-gold/5 p-4 text-left">
               <p className="text-sm text-gold">
@@ -194,10 +305,65 @@ export function ApplicationForm({
   }
 
   // Show email field state
-  const showForm = isLoggedIn || (email && !accountExists);
+  const showForm = isLoggedIn || (email && (!accountExists || continueWithCode));
 
   return (
-    <form onSubmit={handleSubmit} noValidate className="relative mx-auto max-w-2xl">
+    <>
+    {verificationId && (
+      <form onSubmit={handleConfirm} className="relative mx-auto max-w-sm">
+        <div className="mb-8 text-center">
+          <h1 className="text-2xl font-black">Confirm your email</h1>
+          <p className="mt-3 text-text-secondary">
+            We sent a 6-digit code to <strong className="text-text-primary">{codeSentTo}</strong>.
+            Your application to <strong className="text-gold">{chapterName}</strong> is sent once you enter it.
+          </p>
+        </div>
+        <Card>
+          <div className="flex flex-col items-center">
+            <input
+              type="text"
+              name="code"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="000000"
+              maxLength={6}
+              required
+              aria-label="Verification code"
+              className="w-48 rounded-xl border border-white/10 bg-surface-deep px-4 py-4 text-center font-mono text-3xl font-black tracking-[0.3em] text-gold placeholder:text-text-muted/30 focus:border-gold/40 focus:outline-none"
+              autoFocus
+            />
+
+            {codeError && (
+              <div className="mt-4 w-full rounded-lg border border-error/20 bg-error/5 p-3">
+                <p className="text-center text-sm text-error">{codeError}</p>
+              </div>
+            )}
+
+            <div className="mt-6 w-full">
+              <Button type="submit" className="w-full" disabled={loading || code.length !== 6}>
+                {loading ? "Confirming..." : "Confirm & Submit Application"}
+              </Button>
+            </div>
+
+            <p className="mt-4 text-center text-xs text-text-muted">
+              The code expires in 15 minutes. Check your spam folder.{" "}
+              <button type="button" onClick={backToForm} className="underline">
+                Back to the form
+              </button>{" "}
+              to fix a detail or get a new code.
+            </p>
+          </div>
+        </Card>
+      </form>
+    )}
+    <form
+      ref={formRef}
+      onSubmit={handleSubmit}
+      noValidate
+      className={`relative mx-auto max-w-2xl${verificationId ? " hidden" : ""}`}
+    >
       {/* Auth banner for logged-in users */}
       {isLoggedIn && (
         <Card className="mb-6 border-gold/20">
@@ -234,11 +400,8 @@ export function ApplicationForm({
                 <Link href={`/login?redirect=/apply/${chapterSlug}`} className="text-gold hover:underline font-medium">
                   Log in
                 </Link>
-                {" "}to pre-fill your details.{" "}
-                <Link href={`/register?redirect=/apply/${chapterSlug}`} className="text-purple-light hover:underline font-medium">
-                  Register
-                </Link>
-                {" "}to create an account.
+                {" "}to pre-fill your details. New here? Applying creates your EHL account,
+                so you can follow your application from your dashboard.
               </p>
             </div>
           </div>
@@ -260,7 +423,11 @@ export function ApplicationForm({
                 required
                 placeholder="your@email.com"
                 value={email}
-                onChange={(e) => { setEmail(e.target.value); setAccountExists(false); }}
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  setAccountExists(false);
+                  setContinueWithCode(false);
+                }}
                 onBlur={handleEmailBlur}
                 className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
               />
@@ -268,7 +435,7 @@ export function ApplicationForm({
             {lookingUp && (
               <p className="mt-2 text-sm text-text-muted">Checking...</p>
             )}
-            {accountExists && (
+            {accountExists && !continueWithCode && (
               <div className="mt-3 rounded-lg border border-gold/20 bg-gold/5 p-3">
                 <p className="text-sm text-gold">
                   This email is already linked to an account.{" "}
@@ -278,11 +445,46 @@ export function ApplicationForm({
                   {" "}to apply with your saved profile, or{" "}
                   <button
                     type="button"
-                    onClick={() => setAccountExists(false)}
+                    onClick={() => setContinueWithCode(true)}
                     className="underline font-medium"
                   >
                     continue without logging in
-                  </button>.
+                  </button>
+                  {" "}and confirm with a code we email you.
+                </p>
+              </div>
+            )}
+            {email && needsPassword && (
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm text-text-muted">
+                    Password <span className="text-error">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    name="password"
+                    required
+                    minLength={8}
+                    placeholder="Min. 8 characters"
+                    autoComplete="new-password"
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-text-muted">
+                    Confirm password <span className="text-error">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    name="passwordConfirm"
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    className="mt-1 w-full rounded-lg border border-white/10 bg-surface-deep px-4 py-2.5 text-text-primary placeholder:text-text-muted focus:border-purple focus:outline-none"
+                  />
+                </div>
+                <p className="text-xs text-text-muted sm:col-span-2">
+                  This creates your EHL account. We email you a code to confirm the address before your application is sent.
                 </p>
               </div>
             )}
@@ -317,5 +519,6 @@ export function ApplicationForm({
         </>
       )}
     </form>
+    </>
   );
 }

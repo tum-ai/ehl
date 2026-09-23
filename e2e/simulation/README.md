@@ -37,7 +37,7 @@ node_modules/.bin/dotenv -e .env.e2e-live -- \
 | # | File | Covers (all through the real UI unless noted) |
 |---|------|-----------------------------------------------|
 | 01 | `01-registration.sim.ts` | Solo participant registration: mode picker → details → verification code from Mailpit → verify → authenticated; then re-login via `/login`. |
-| 02 | `02-application.sim.ts` | Admin opens applications (status control); an anonymous applicant fills the real `/apply/<slug>` form and uploads a PDF CV; confirmation email captured in Mailpit. Also asserts a non-PDF CV is rejected by the UI. |
+| 02 | `02-application.sim.ts` | Admin opens applications (status control); an anonymous applicant fills the real `/apply/<slug>` form (setting the password of the account it creates) and uploads a PDF CV, then confirms with the code from the real verification email; confirmation email captured in Mailpit. Also asserts a non-PDF CV is rejected by the UI. |
 | 03 | `03-screening.sim.ts` | Two applicants apply; admin accepts one / rejects one via the real screening table buttons; admin advances the chapter to `preparation` via the real status control. |
 | 04 | `04-teams.sim.ts` | President creates a team on the dashboard; invites a member by email → invite email in Mailpit → invitee accepts on the real `/invite/<token>` page. A "looking for team" user requests to join via the dashboard and the president approves via the real Join Requests UI. |
 | 05 | `05-challenge-and-submission.sim.ts` | Admin creates a chapter + challenge (real admin UI) and walks the status flow; a checked-in team registers for the challenge on the real event hub, then submits a project on the real submission form. |

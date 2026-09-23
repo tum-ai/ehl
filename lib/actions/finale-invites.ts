@@ -276,6 +276,7 @@ async function acceptInvitee(opts: {
       .insert({
         chapter_id: opts.chapterId,
         email: opts.email,
+        user_id: opts.userId,
         first_name: (previous?.first_name as string) ?? fallback.first,
         last_name: (previous?.last_name as string) ?? fallback.last,
         status: "accepted",
