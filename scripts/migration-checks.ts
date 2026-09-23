@@ -485,6 +485,16 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        )
      ) as present`,
   },
+  {
+    // Participants may not change their own profiles.email (it is an identity
+    // for application reads and the 00069 link). Probe asserts the trigger.
+    prefix: "00070",
+    label: "prevent_profile_email_change",
+    sql: `select exists (
+       select 1 from pg_trigger
+       where tgrelid = 'public.profiles'::regclass and tgname = 'profiles_prevent_email_change'
+     ) as present`,
+  },
 ];
 
 /**

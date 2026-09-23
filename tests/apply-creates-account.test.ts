@@ -39,6 +39,7 @@ const mocks = vi.hoisted(() => ({
   getCurrentMembership: vi.fn(),
   getSession: vi.fn(),
   createUser: vi.fn(),
+  getUserById: vi.fn(),
   signInWithPassword: vi.fn(),
 }));
 
@@ -122,7 +123,7 @@ function makeAdminClient(responder: Responder, calls: Call[]) {
       };
       return builder;
     },
-    auth: { admin: { createUser: mocks.createUser } },
+    auth: { admin: { createUser: mocks.createUser, getUserById: mocks.getUserById } },
   };
 }
 
@@ -159,6 +160,8 @@ interface World {
   duplicate?: boolean;
   record?: Record<string, unknown> | null;
   claimWins?: boolean;
+  /** A concurrent guess already spent the attempt this request read. */
+  attemptRaceLost?: boolean;
   insertError?: { code: string } | null;
   verificationInsertError?: boolean;
 }
@@ -184,6 +187,8 @@ function responderFor(w: World): Responder {
       if (c.op === "select") return { data: w.record ?? null };
       if (c.op === "update" && (c.payload as { verified_at?: unknown }).verified_at)
         return { data: w.claimWins === false ? null : { id: "ver-1" } };
+      if (c.op === "update" && "attempts" in (c.payload as object))
+        return { data: w.attemptRaceLost ? null : { id: "ver-1" } };
     }
     return { data: null, error: null };
   };
@@ -237,6 +242,7 @@ beforeEach(() => {
   mocks.sendEmail.mockResolvedValue(undefined);
   mocks.renderVerificationCodeEmail.mockResolvedValue("<html>code</html>");
   mocks.createUser.mockResolvedValue({ data: { user: { id: "new-user" } }, error: null });
+  mocks.getUserById.mockResolvedValue({ data: { user: { email: EMAIL } }, error: null });
   mocks.signInWithPassword.mockResolvedValue({ error: null });
   mocks.createClient.mockResolvedValue({
     auth: { signInWithPassword: mocks.signInWithPassword },
@@ -429,7 +435,10 @@ describe("confirmApplication rejects a bad code without writing anything", () =>
     const calls = setup({ record: verificationRecord({ attempts: 1 }) });
     const result = await confirmApplication(confirmForm({ code: "000000" }));
     expect(result).toEqual({ error: "Incorrect code. 3 attempts remaining." });
-    expect(of(calls, "verification_codes", "update")[0].payload).toEqual({ attempts: 2 });
+    const [spend] = of(calls, "verification_codes", "update");
+    expect(spend.payload).toEqual({ attempts: 2 });
+    // Compare-and-swap: only matches while attempts still holds the value read.
+    expect(spend.filters).toMatchObject({ id: "ver-1", attempts: 1, verified_at: null });
     expect(claims(calls)).toHaveLength(0);
     expect(of(calls, "applications", "insert")).toHaveLength(0);
     expect(mocks.createUser).not.toHaveBeenCalled();
@@ -576,7 +585,7 @@ describe("confirmApplication keeps the code usable when it cannot finish", () =>
     });
     const result = await confirmApplication(confirmForm());
     expect(result).toEqual({ error: "Please answer the motivation question." });
-    expect(claims(calls)).toHaveLength(0);
+    expect(of(calls, "verification_codes", "update")).toHaveLength(0);
     expect(mocks.createUser).not.toHaveBeenCalled();
   });
 
@@ -622,5 +631,92 @@ describe("confirmApplication keeps the code usable when it cannot finish", () =>
     const result = await confirmApplication(confirmForm({ code: "" }));
     expect(result).toEqual({ error: "Please enter the code from your email." });
     expect(calls).toHaveLength(0);
+  });
+});
+
+// ─── Review follow-ups ──────────────────────────────────────────
+
+describe("confirmApplication spends each attempt atomically", () => {
+  it("refuses a guess whose attempt a concurrent guess already spent, without comparing", async () => {
+    // The right code, but a parallel request got the attempt first: this one
+    // must neither claim nor create anything, or a burst of parallel guesses
+    // would all be compared against a single recorded attempt.
+    const calls = setup({ record: verificationRecord({ attempts: 2 }), attemptRaceLost: true });
+    const result = await confirmApplication(confirmForm());
+    expect(result).toEqual({ error: "Please try again." });
+    expect(claims(calls)).toHaveLength(0);
+    expect(mocks.createUser).not.toHaveBeenCalled();
+    expect(of(calls, "applications", "insert")).toHaveLength(0);
+  });
+
+  it("spends the attempt before the right code is accepted too", async () => {
+    const calls = setup({ record: verificationRecord() });
+    await confirmApplication(confirmForm());
+    const updates = of(calls, "verification_codes", "update");
+    expect(updates[0].payload).toEqual({ attempts: 1 });
+    expect((updates[1].payload as { verified_at: unknown }).verified_at).toBeTruthy();
+  });
+});
+
+describe("malformed answers are refused before anything is written", () => {
+  it("startApplication refuses an unreadable field before sending a code", async () => {
+    const calls = setup({});
+    const result = await startApplication(newAccountForm({ discoverySource: "{not json" }));
+    expect(result).toEqual({
+      error: "Some answers could not be read. Please reload the page and try again.",
+    });
+    expect(of(calls, "verification_codes", "insert")).toHaveLength(0);
+  });
+
+  it("confirmApplication refuses it without spending an attempt or claiming", async () => {
+    const calls = setup({ record: verificationRecord() });
+    const result = await confirmApplication(confirmForm({ discoverySource: "{not json" }));
+    expect(result).toEqual({
+      error: "Some answers could not be read. Please reload the page and try again.",
+    });
+    expect(of(calls, "verification_codes", "update")).toHaveLength(0);
+    expect(mocks.createUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("confirmApplication hands the code back when something throws", () => {
+  it("releases the claim when saving the application throws", async () => {
+    mocks.getCurrentMembership.mockRejectedValue(new Error("db hiccup"));
+    const calls = setup({ record: verificationRecord() });
+    const result = await confirmApplication(confirmForm());
+    expect(result).toEqual({ error: "Failed to submit application. Please try again." });
+    expect(releases(calls)).toHaveLength(1);
+    expect(of(calls, "verification_codes", "delete")).toHaveLength(0);
+  });
+});
+
+describe("the account identity comes from the auth record", () => {
+  it("does not attach to a profile whose auth email is a different address", async () => {
+    // A profile row claiming the verified address, while its login identity is
+    // someone else's: the application must not be linked to that account.
+    mocks.getUserById.mockResolvedValue({
+      data: { user: { email: "attacker@example.com" } },
+      error: null,
+    });
+    const calls = setup({ record: verificationRecord(), profile: { id: "attacker-user" } });
+    const result = await confirmApplication(confirmForm());
+    expect(result).toEqual({
+      error: "We could not match this email to an account. Please contact us.",
+    });
+    expect(of(calls, "applications", "insert")).toHaveLength(0);
+    expect(releases(calls)).toHaveLength(1);
+  });
+
+  it("a signed-in applicant applies as their auth email, not their profile's", async () => {
+    mocks.getSession.mockResolvedValue({
+      user: { id: "session-user", email: EMAIL },
+      profile: { id: "session-user", email: "someone-else@example.com" },
+    });
+    const calls = setup({});
+    await startApplication(form());
+    expect(of(calls, "applications", "insert")[0].payload).toMatchObject({
+      email: EMAIL,
+      user_id: "session-user",
+    });
   });
 });

@@ -93,7 +93,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-69 sequential migrations in `supabase/migrations/`. Key tables:
+70 sequential migrations in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055;
   `github_username`, migration 00066, is the bare GitHub handle used to add jury
@@ -116,7 +116,9 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
   insert path: an application inserted for an email with a profile gets its id, and a
   profile created or given its email later links every unlinked application with that
   email. Nullable: pre-00069 applications without an account stay valid. Participant
-  reads still match on email, which is equivalent while the triggers hold),
+  reads still match on email, which is equivalent while the triggers hold. Because
+  profiles.email is an identity, migration 00070 lets only the service role change
+  it: a participant's own REST update of it is refused, as 00030 does for `role`),
   `application_notes` (admin notes history), `screening_scores`, `verification_codes`, `participant_flags`
 - `application_rsvps` (post-acceptance RSVP, migration 00065: an admin-triggered
   standalone email asks every accepted applicant to confirm or decline, and the

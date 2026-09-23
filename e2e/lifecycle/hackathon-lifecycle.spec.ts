@@ -600,7 +600,6 @@ test.describe.serial("Hackathon Lifecycle", () => {
 
     // The success screen must appear — proving the UI submit succeeded.
     await expect(page.getByText("Application Submitted!")).toBeVisible({ timeout: 30000 });
-    // The new account is signed in.
     await expect(page.getByRole("link", { name: "Go to your dashboard" })).toBeVisible();
 
     // And the row must exist in the DB, created BY THE UI (not seeded).
@@ -625,6 +624,12 @@ test.describe.serial("Hackathon Lifecycle", () => {
     // The consumed code (holding the encrypted password) is gone.
     const { data: codes } = await admin.from("verification_codes").select("id").eq("email", email);
     expect(codes).toEqual([]);
+
+    // The new account is really signed in: the session cookie opens a protected
+    // page, rather than the success screen merely saying so.
+    await page.goto("/dashboard");
+    await page.waitForLoadState("domcontentloaded");
+    expect(page.url()).not.toContain("/login");
 
     // Cleanup
     await admin.from("applications").delete().eq("chapter_id", chapterId).eq("email", email);
@@ -903,6 +908,10 @@ test.describe.serial("Hackathon Lifecycle", () => {
     await page.getByRole("button", { name: /confirm & submit application/i }).click();
     await expect(page.getByText("Application Submitted!")).toBeVisible({ timeout: 30000 });
     await expect(page.getByText("It was added to your existing EHL account.")).toBeVisible();
+    // The code proved the address, not the password: no session was created.
+    await page.goto("/dashboard");
+    await page.waitForLoadState("domcontentloaded");
+    expect(page.url()).toContain("/login");
 
     const { data: app } = await admin
       .from("applications")

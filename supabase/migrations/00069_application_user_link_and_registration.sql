@@ -21,7 +21,8 @@
 --     application with that email.
 -- Linking by email grants nothing new: every participant read of applications
 -- already matches on the profile's email (the "Users read own applications"
--- policy, the dashboard).
+-- policy, the dashboard). That makes profiles.email an identity, which is why
+-- 00070 stops participants from changing their own.
 --
 -- No unique index on (chapter_id, user_id): UNIQUE(chapter_id, email) from 00004
 -- already allows one application per person per chapter, and a second index could
@@ -48,8 +49,10 @@ from (
 where a.user_id is null
   and lower(a.email) = m.email_lc;
 
--- Application side: fill user_id on insert (and on an email correction) from the
--- matching profile. Never overwrites a user_id the caller already set.
+-- Application side: on insert, fill user_id from the matching profile (a
+-- user_id the caller set is kept). On an email CHANGE, recompute it from the new
+-- address: keeping the old link would leave the row owned by one account while
+-- the email-based read policy shows it to another.
 create or replace function public.link_application_to_profile()
 returns trigger
 language plpgsql
@@ -60,6 +63,13 @@ declare
   match_id uuid;
   match_count int;
 begin
+  if tg_op = 'UPDATE' then
+    if new.email is not distinct from old.email then
+      return new;
+    end if;
+    new.user_id := null;
+  end if;
+
   if new.user_id is null and new.email is not null then
     select min(p.id::text)::uuid, count(*) into match_id, match_count
     from public.profiles p

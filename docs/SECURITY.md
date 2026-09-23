@@ -471,6 +471,8 @@ External service limits that affect the platform. If you hit unexplained errors 
 |---------------|---------|
 | Brute-force login | Rate limiting (5/min) + Turnstile CAPTCHA |
 | Brute-force registration | Rate limiting (3/min) + Turnstile + email verification |
+| Taking over another person's applications by editing one's own profile email | `profiles.email` can only be changed by the service role (migration 00070, mirrors the 00030 role guard). The apply flow identifies a signed-in applicant by the auth email and only attaches to an existing account whose auth email matches the verified address |
+| Brute-forcing an application code with parallel requests | Each guess spends its attempt with a compare-and-swap update before the code is compared, so concurrent guesses cannot share one attempt (5 per code) |
 | Fake / spam applications | Rate limiting + Turnstile + email verification code before any application or account is written. The verified record, not the resubmitted form, decides the email and chapter. A signed-in applicant's session email is used and the form's email is ignored |
 | SQL injection | Supabase client parameterizes all queries |
 | XSS | CSP headers + React's built-in escaping + SVG upload blocked |
