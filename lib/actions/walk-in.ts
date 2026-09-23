@@ -196,24 +196,18 @@ export async function submitWalkInApplication(
   let ownerUserId: string | null = signedInAsThisEmail ? earlySession!.user.id : null;
 
   if (!isOwner && wantsExistingAccount) {
-    if (!existingProfile) {
-      // They think they have an account, but this email has none. Never create
-      // one from a password they typed only once: send them to account creation,
-      // which asks for the confirmation.
-      return {
-        error:
-          "We couldn't find an EHL account with this email. Create one below instead.",
-        code: "no_account",
-      };
-    }
     // Admin and jury accounts never sign in with a password (same rule and same
     // generic message as signIn in lib/actions/auth.ts).
-    if (existingProfile.role === "admin" || existingProfile.role === "jury") {
+    if (existingProfile?.role === "admin" || existingProfile?.role === "jury") {
       return { error: "Invalid email or password.", code: "account_exists" };
     }
     const authRl = await checkRateLimit(authLimiter, ip, "walk-in-login");
     if (authRl.limited) return { error: authRl.error! };
 
+    // Try the password even when no profile row matched: an auth user can exist
+    // without one (an imported account), and answering "no account" would send
+    // them to account creation, whose createUser duplicate sends them straight
+    // back here. A successful sign-in reaches the profile repair below.
     // Sets the session cookie, so the walk-in also ends up logged in.
     const supabase = await createClient();
     const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
@@ -221,6 +215,16 @@ export async function submitWalkInApplication(
       password,
     });
     if (signInError || !signInData?.user) {
+      if (!existingProfile) {
+        // They think they have an account, but this email has none. Never
+        // create one from a password they typed only once: send them to
+        // account creation, which asks for the confirmation.
+        return {
+          error:
+            "We couldn't find an EHL account with this email. Create one below instead.",
+          code: "no_account",
+        };
+      }
       return {
         error:
           "That password doesn't match this EHL account. Try again, or reset it with \"Forgot password?\".",

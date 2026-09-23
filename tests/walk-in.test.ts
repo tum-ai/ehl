@@ -640,7 +640,12 @@ describe("submitWalkInApplication: existing-account mode", () => {
   });
 
   it("no account for this email: code no_account, never creates one from an unconfirmed password", async () => {
-    const signInWithPassword = mockPasswordSignIn({ data: { user: null }, error: null });
+    // The password is still tried (a profileless auth user could own the email,
+    // see below); Supabase refuses it because no such login exists.
+    const signInWithPassword = mockPasswordSignIn({
+      data: { user: null },
+      error: { message: "Invalid login credentials" },
+    });
     const calls: Array<{ table: string; op: string; payload: unknown }> = [];
     const createUser = vi.fn();
     mocks.createAdminClient.mockReturnValue(
@@ -653,8 +658,30 @@ describe("submitWalkInApplication: existing-account mode", () => {
       code: "no_account",
     });
     expect(createUser).not.toHaveBeenCalled();
-    expect(signInWithPassword).not.toHaveBeenCalled();
+    expect(signInWithPassword).toHaveBeenCalledTimes(1);
     expect(calls.filter((c) => c.op !== "select")).toEqual([]);
+  });
+
+  it("auth user WITHOUT a profile row, correct password: signs in and repairs the profile, no mode-switch loop", async () => {
+    // A profileless login (imported account) must not be told "no account": that
+    // sends the form to account creation, whose createUser duplicate answers
+    // account_exists and sends it straight back.
+    const signInWithPassword = mockPasswordSignIn({
+      data: { user: { id: "profileless-user" } },
+      error: null,
+    });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi.fn();
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls, responder: existingAccountResponder({}), auth: { createUser } })
+    );
+
+    const result = await submitWalkInApplication(existingForm());
+    expect(result).toEqual({ success: true, checkInToken: "fresh-token", cvUploadFailed: false });
+    expect(signInWithPassword).toHaveBeenCalledTimes(1);
+    expect(createUser).not.toHaveBeenCalled();
+    const upsert = calls.find((c) => c.table === "profiles" && c.op === "upsert");
+    expect((upsert!.payload as { id: string }).id).toBe("profileless-user");
   });
 
   it.each(["admin", "jury"])(
