@@ -36,6 +36,7 @@ vi.mock("@/lib/turnstile", () => ({ verifyTurnstileToken: mocks.verifyTurnstileT
 vi.mock("@/lib/ratelimit", () => ({
   checkRateLimit: mocks.checkRateLimit,
   applicationLimiter: {},
+  authLimiter: {},
   walkInTokenLimiter: {},
 }));
 vi.mock("@/lib/gdrive", () => ({ uploadFile: mocks.uploadFile }));
@@ -505,6 +506,254 @@ describe("submitWalkInApplication", () => {
     const result = await submitWalkInApplication(baseForm({ password: "short" }));
     expect("error" in result && result.error).toMatch(/at least 8/i);
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
+  });
+});
+
+// "I already have an account" mode: an existing account holder registers on the
+// walk-in page itself with their EHL password. Sending them to /login dropped the
+// walk-in token (login lands on /dashboard) and everything they had typed.
+describe("submitWalkInApplication: existing-account mode", () => {
+  function existingAccountResponder(opts: {
+    app?: Record<string, unknown> | null;
+    profile?: Record<string, unknown> | null;
+  }) {
+    return ({ table, op }: { table: string; op: string }) => {
+      if (table === "chapter_walk_in" && op === "select")
+        return { data: { chapter_id: CHAPTER_ID } };
+      if (table === "chapters" && op === "select")
+        return { data: { id: CHAPTER_ID, name: "Paris", status: "hacking" } };
+      if (table === "applications" && op === "select") return { data: opts.app ?? null };
+      if (table === "profiles" && op === "select") return { data: opts.profile ?? null };
+      if (table === "applications" && op === "insert")
+        return { data: { id: "new-app", check_in_token: "fresh-token" }, error: null };
+      return { data: null, error: null };
+    };
+  }
+
+  function mockPasswordSignIn(result: { data: unknown; error: unknown }) {
+    const signInWithPassword = vi.fn().mockResolvedValue(result);
+    mocks.createServerClient.mockResolvedValue({ auth: { signInWithPassword } });
+    return signInWithPassword;
+  }
+
+  const existingForm = (extra: Record<string, string> = {}) =>
+    baseForm({ accountMode: "existing", ...extra });
+
+  it("correct password, no app here: signs in, reuses the account (no createUser), inserts an accepted app", async () => {
+    const signInWithPassword = mockPasswordSignIn({
+      data: { user: { id: "existing-user" } },
+      error: null,
+    });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi.fn();
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: existingAccountResponder({
+          profile: { id: "existing-user", role: "participant" },
+        }),
+        auth: { createUser },
+      })
+    );
+
+    const result = await submitWalkInApplication(existingForm());
+    expect(result).toEqual({ success: true, checkInToken: "fresh-token", cvUploadFailed: false });
+
+    expect(signInWithPassword).toHaveBeenCalledTimes(1);
+    expect(signInWithPassword).toHaveBeenCalledWith({
+      email: "walkin@example.com",
+      password: "supersecret",
+    });
+    expect(createUser).not.toHaveBeenCalled();
+    const upsert = calls.find((c) => c.table === "profiles" && c.op === "upsert");
+    expect((upsert!.payload as { id: string }).id).toBe("existing-user");
+    const insert = calls.find((c) => c.table === "applications" && c.op === "insert");
+    expect(insert?.payload).toMatchObject({
+      chapter_id: CHAPTER_ID,
+      email: "walkin@example.com",
+      status: "accepted",
+    });
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "application.walk_in_registered", actorId: "existing-user" })
+    );
+  });
+
+  it("wrong password: code account_exists, nothing written, no createUser", async () => {
+    mockPasswordSignIn({ data: { user: null }, error: { message: "Invalid login credentials" } });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi.fn();
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: existingAccountResponder({
+          profile: { id: "existing-user", role: "participant" },
+        }),
+        auth: { createUser },
+      })
+    );
+
+    const result = await submitWalkInApplication(existingForm());
+    expect(result).toEqual({
+      error:
+        'That password doesn\'t match this EHL account. Try again, or reset it with "Forgot password?".',
+      code: "account_exists",
+    });
+    expect(createUser).not.toHaveBeenCalled();
+    expect(calls.filter((c) => c.op !== "select")).toEqual([]);
+  });
+
+  it("correct password and an ACCEPTED app here: returns that check-in token, writes nothing", async () => {
+    mockPasswordSignIn({ data: { user: { id: "existing-user" } }, error: null });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: existingAccountResponder({
+          app: { id: "app-1", status: "accepted", check_in_token: "existing-token" },
+          profile: { id: "existing-user", role: "participant" },
+        }),
+      })
+    );
+
+    const result = await submitWalkInApplication(existingForm());
+    expect(result).toEqual({ success: true, checkInToken: "existing-token" });
+    expect(calls.filter((c) => c.op !== "select")).toEqual([]);
+  });
+
+  it("correct password but a PENDING app here: sent to the desk, not promoted", async () => {
+    mockPasswordSignIn({ data: { user: { id: "existing-user" } }, error: null });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: existingAccountResponder({
+          app: { id: "app-1", status: "pending", check_in_token: "secret" },
+          profile: { id: "existing-user", role: "participant" },
+        }),
+      })
+    );
+
+    const result = await submitWalkInApplication(existingForm());
+    expect("error" in result && result.error).toMatch(/registration desk/i);
+    expect("checkInToken" in result).toBe(false);
+    expect(calls.filter((c) => c.op !== "select")).toEqual([]);
+  });
+
+  it("no account for this email: code no_account, never creates one from an unconfirmed password", async () => {
+    const signInWithPassword = mockPasswordSignIn({ data: { user: null }, error: null });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    const createUser = vi.fn();
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls, responder: existingAccountResponder({}), auth: { createUser } })
+    );
+
+    const result = await submitWalkInApplication(existingForm());
+    expect(result).toEqual({
+      error: "We couldn't find an EHL account with this email. Create one below instead.",
+      code: "no_account",
+    });
+    expect(createUser).not.toHaveBeenCalled();
+    expect(signInWithPassword).not.toHaveBeenCalled();
+    expect(calls.filter((c) => c.op !== "select")).toEqual([]);
+  });
+
+  it.each(["admin", "jury"])(
+    "%s account: generic refusal, password sign-in never attempted",
+    async (role) => {
+      const signInWithPassword = mockPasswordSignIn({
+        data: { user: { id: "staff-user" } },
+        error: null,
+      });
+      const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+      mocks.createAdminClient.mockReturnValue(
+        makeAdminClient({
+          calls,
+          responder: existingAccountResponder({ profile: { id: "staff-user", role } }),
+        })
+      );
+
+      const result = await submitWalkInApplication(existingForm());
+      expect(result).toEqual({ error: "Invalid email or password.", code: "account_exists" });
+      expect(signInWithPassword).not.toHaveBeenCalled();
+      expect(calls.filter((c) => c.op !== "select")).toEqual([]);
+    }
+  );
+
+  it("the 8-character minimum is a rule for NEW passwords only", async () => {
+    mockPasswordSignIn({ data: { user: { id: "existing-user" } }, error: null });
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls: [],
+        responder: existingAccountResponder({
+          profile: { id: "existing-user", role: "participant" },
+        }),
+      })
+    );
+
+    const result = await submitWalkInApplication(existingForm({ password: "short" }));
+    expect("success" in result && result.success).toBe(true);
+  });
+
+  it("a rate-limited password attempt stops before signing in", async () => {
+    const signInWithPassword = mockPasswordSignIn({
+      data: { user: { id: "existing-user" } },
+      error: null,
+    });
+    mocks.checkRateLimit.mockImplementation(async (_l: unknown, _k: string, scope: string) =>
+      scope === "walk-in-login"
+        ? { limited: true, error: "Too many requests. Please try again later." }
+        : { limited: false }
+    );
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls: [],
+        responder: existingAccountResponder({
+          profile: { id: "existing-user", role: "participant" },
+        }),
+      })
+    );
+
+    const result = await submitWalkInApplication(existingForm());
+    expect(result).toEqual({ error: "Too many requests. Please try again later." });
+    expect(signInWithPassword).not.toHaveBeenCalled();
+  });
+
+  it("new-account mode with an email that has an account: code account_exists, no password sign-in", async () => {
+    // The form flips to the existing-account mode on this code. The password the
+    // walk-in typed to CREATE an account is never tried as a login.
+    const signInWithPassword = mockPasswordSignIn({
+      data: { user: { id: "existing-user" } },
+      error: null,
+    });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        calls,
+        responder: existingAccountResponder({
+          profile: { id: "existing-user", role: "participant" },
+        }),
+      })
+    );
+
+    const result = await submitWalkInApplication(baseForm());
+    expect("code" in result && result.code).toBe("account_exists");
+    expect(signInWithPassword).not.toHaveBeenCalled();
+    expect(calls.filter((c) => c.op !== "select")).toEqual([]);
+  });
+
+  it("new-account mode, auth user exists without a profile: createUser's duplicate maps to account_exists", async () => {
+    const createUser = vi.fn().mockResolvedValue({
+      data: { user: null },
+      error: { message: "A user with this email address has already been registered" },
+    });
+    const calls: Array<{ table: string; op: string; payload: unknown }> = [];
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ calls, responder: existingAccountResponder({}), auth: { createUser } })
+    );
+
+    const result = await submitWalkInApplication(baseForm());
+    expect("code" in result && result.code).toBe("account_exists");
+    expect(calls.find((c) => c.table === "applications" && c.op === "insert")).toBeUndefined();
   });
 });
 

@@ -6,7 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 import { requireChapterAdminAction } from "@/lib/admin-auth";
 import { getSession } from "@/lib/actions/auth";
 import { verifyTurnstileToken } from "@/lib/turnstile";
-import { checkRateLimit, applicationLimiter, walkInTokenLimiter } from "@/lib/ratelimit";
+import {
+  checkRateLimit,
+  applicationLimiter,
+  authLimiter,
+  walkInTokenLimiter,
+} from "@/lib/ratelimit";
 import { logEvent } from "@/lib/event-log";
 import { buildApplicationInsert } from "@/lib/applications-shared";
 import { validateCv, attachCv } from "@/lib/application-cv";
@@ -65,6 +70,11 @@ export async function getWalkInChapterByToken(
   };
 }
 
+// Error codes the walk-in form acts on: "account_exists" switches it to the
+// "I already have an account" mode (password only), "no_account" switches it back
+// to account creation (password + confirm).
+export type WalkInErrorCode = "account_exists" | "no_account";
+
 // ─── Submit a walk-in application (public, event-day) ────────
 //
 // A walk-in scans the per-chapter QR, fills the normal application form on their
@@ -74,12 +84,19 @@ export async function getWalkInChapterByToken(
 // submissions_open, so we only reject the hygiene statuses draft/completed.
 export async function submitWalkInApplication(
   formData: FormData
-): Promise<{ error: string } | { success: true; checkInToken: string; cvUploadFailed?: boolean }> {
+): Promise<
+  | { error: string; code?: WalkInErrorCode }
+  | { success: true; checkInToken: string; cvUploadFailed?: boolean }
+> {
   const walkInToken = (formData.get("walkInToken") as string)?.trim();
   const firstName = (formData.get("firstName") as string)?.trim();
   const lastName = (formData.get("lastName") as string)?.trim();
   const email = (formData.get("email") as string)?.trim().toLowerCase();
   const password = formData.get("password") as string;
+  // "existing": the walk-in says they already have an EHL account and typed its
+  // password, so we verify it instead of creating an account. Anything else is
+  // the default account-creation mode.
+  const wantsExistingAccount = formData.get("accountMode") === "existing";
   const turnstileToken = formData.get("cf-turnstile-response") as string;
 
   if (!walkInToken) {
@@ -96,9 +113,15 @@ export async function submitWalkInApplication(
   }
   if (!signedInAsThisEmail) {
     if (!password) {
-      return { error: "A password is required to create your account." };
+      return {
+        error: wantsExistingAccount
+          ? "Please enter your EHL account password."
+          : "A password is required to create your account.",
+      };
     }
-    if (password.length < 8) {
+    // Only a rule for NEW passwords: an existing account's password is checked
+    // by Supabase, not by us.
+    if (!wantsExistingAccount && password.length < 8) {
       return { error: "Password must be at least 8 characters." };
     }
   }
@@ -138,21 +161,22 @@ export async function submitWalkInApplication(
   // ── Existing-identity handling (idempotent walk-in) ───────────────────────
   // The walk-in QR is PUBLIC at the venue, so we must NEVER reveal an existing
   // applicant's personal check-in token from an emailed value alone. Idempotent
-  // behavior is gated on PROVEN identity: the caller must be SIGNED IN as the
-  // account that owns the email.
+  // behavior is gated on PROVEN identity: the caller must be the owner of the
+  // email, either already SIGNED IN as it, or signing in right here with the
+  // account's password ("I already have an account" mode). The second path is
+  // what keeps an existing account holder on this page: sending them to /login
+  // lost the walk-in token and everything they had typed.
   //
-  // Behavior matrix (signed in as `email`):
+  // Behavior matrix (proven owner of `email`):
   //   - accepted/checked_in application for THIS chapter → return the existing
   //     check-in token (no writes). Fixes the "already registered" dead-end.
   //   - no application for this chapter → create an accepted application for the
   //     EXISTING account (no new account), return its check-in token.
   //   - pending/waitlisted/rejected/cancelled here → don't auto-promote via a
   //     public QR; send them to the registration desk.
-  // Not signed in (or signed in as someone else) but the email already has an
-  // account → refuse with a sign-in-first path (no account takeover, no oracle).
-  // Reuses the session resolved at the top of the action.
-  const isOwnerSignedIn = signedInAsThisEmail;
-
+  // Not the proven owner but the email already has an account → refuse with
+  // code "account_exists" so the form asks for the account password (no account
+  // takeover, no second account).
   const { data: existingApp } = await adminClient
     .from("applications")
     .select("id, status, check_in_token")
@@ -162,17 +186,59 @@ export async function submitWalkInApplication(
 
   const { data: existingProfile } = await adminClient
     .from("profiles")
-    .select("id")
+    .select("id, role")
     .eq("email", email)
     .maybeSingle();
+
+  // Proven ownership: already signed in as this email, or the password sign-in
+  // below succeeds. ownerUserId is that account's auth user id.
+  let isOwner = signedInAsThisEmail;
+  let ownerUserId: string | null = signedInAsThisEmail ? earlySession!.user.id : null;
+
+  if (!isOwner && wantsExistingAccount) {
+    if (!existingProfile) {
+      // They think they have an account, but this email has none. Never create
+      // one from a password they typed only once: send them to account creation,
+      // which asks for the confirmation.
+      return {
+        error:
+          "We couldn't find an EHL account with this email. Create one below instead.",
+        code: "no_account",
+      };
+    }
+    // Admin and jury accounts never sign in with a password (same rule and same
+    // generic message as signIn in lib/actions/auth.ts).
+    if (existingProfile.role === "admin" || existingProfile.role === "jury") {
+      return { error: "Invalid email or password.", code: "account_exists" };
+    }
+    const authRl = await checkRateLimit(authLimiter, ip, "walk-in-login");
+    if (authRl.limited) return { error: authRl.error! };
+
+    // Sets the session cookie, so the walk-in also ends up logged in.
+    const supabase = await createClient();
+    const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
+    if (signInError || !signInData?.user) {
+      return {
+        error:
+          "That password doesn't match this EHL account. Try again, or reset it with \"Forgot password?\".",
+        code: "account_exists",
+      };
+    }
+    isOwner = true;
+    ownerUserId = signInData.user.id;
+  }
 
   if (existingApp) {
     // An application for this chapter already exists. Only the proven owner may
     // act on it; otherwise this stays a non-revealing generic message.
-    if (!isOwnerSignedIn) {
+    if (!isOwner) {
       return {
         error:
-          "An application with this email already exists for this match. Please sign in first, then reopen the walk-in link.",
+          "An application with this email already exists for this match. Please sign in first with your EHL account password.",
+        ...(existingProfile ? { code: "account_exists" as const } : {}),
       };
     }
     if (existingApp.status === "accepted" || existingApp.status === "checked_in") {
@@ -186,19 +252,17 @@ export async function submitWalkInApplication(
     };
   }
 
-  // An account exists for this email but the caller is NOT the signed-in owner:
-  // refuse (no second account, no password change). NOTE: existingProfile may be
-  // null even when an auth user exists (an imported/profileless user), so we also
-  // guard the create path below by isOwnerSignedIn, not just existingProfile.
-  if (existingProfile && !isOwnerSignedIn) {
+  // An account exists for this email but the caller is NOT the proven owner:
+  // refuse (no second account, no password change) and let the form switch to
+  // the "I already have an account" mode. NOTE: existingProfile may be null even
+  // when an auth user exists (an imported/profileless user); createUser failing
+  // below is mapped to the same code.
+  if (existingProfile && !isOwner) {
     return {
       error:
-        "An account with this email already exists. Please sign in first, then use the walk-in link.",
+        "This email already has an EHL account. Please sign in first: enter your EHL account password below.",
+      code: "account_exists",
     };
-  }
-  if (existingProfile) {
-    // Signed in as the owner: create an accepted application for the EXISTING
-    // account (no new auth user), then fall through to the shared insert path.
   }
 
   // Validate the CV (optional) before any write so a Drive outage can never lose
@@ -208,7 +272,8 @@ export async function submitWalkInApplication(
   const { cvFile } = cv;
 
   // Resolve the participant. Three paths reach here:
-  //  - SIGNED-IN owner: reuse their authenticated account (session.user.id),
+  //  - PROVEN owner (signed in already, or just signed in with the password):
+  //    reuse their authenticated account (ownerUserId),
   //    regardless of whether a profiles row exists. A valid session can have a
   //    NULL profile (an imported/profileless user — the exact bug that blocks
   //    team formation), so we ALSO repair the missing profile here. We must NOT
@@ -217,8 +282,8 @@ export async function submitWalkInApplication(
   //  - NEW person: create the auth user + profile (mirrors registration.ts).
   const fullName = `${firstName} ${lastName}`;
   let userId: string;
-  if (isOwnerSignedIn) {
-    userId = earlySession!.user.id;
+  if (isOwner) {
+    userId = ownerUserId!;
     // Self-heal: ensure the owner has a profile (idempotent; never downgrades an
     // existing role — upsert only sets role on first insert via the DB default).
     await adminClient
@@ -236,6 +301,15 @@ export async function submitWalkInApplication(
     });
 
     if (authError || !authData.user) {
+      // An auth user with this email exists but has no profile row (so the
+      // check above missed it): same answer as an existing account.
+      if (authError && /already (been )?registered|already exists/i.test(authError.message)) {
+        return {
+          error:
+            "This email already has an EHL account. Please sign in first: enter your EHL account password below.",
+          code: "account_exists",
+        };
+      }
       return { error: authError?.message || "Failed to create account." };
     }
 
@@ -294,9 +368,9 @@ export async function submitWalkInApplication(
   });
 
   // Sign the NEW user in so they land logged in (mirrors registration.ts). A
-  // signed-in owner is already authenticated — don't re-auth with the form
-  // password (which may be blank/irrelevant for them).
-  if (!isOwnerSignedIn) {
+  // proven owner is already authenticated (their session, or the password
+  // sign-in above), so don't sign in a second time.
+  if (!isOwner) {
     const supabase = await createClient();
     await supabase.auth.signInWithPassword({ email, password });
   }

@@ -248,8 +248,15 @@ Available to participants who are checked in at an event.
   the chapter from the token via a service-role server action; a rotated/invalid token 404s.
 - The token (not the chapter status) gates the form, so walk-ins work during hacking /
   submissions_open. Only `draft`/`completed` chapters are refused.
-- If the email already has an account, registration is refused ("sign in first, then use
-  the walk-in link") — no second account is created and the existing password is untouched.
+- Existing accounts register on the walk-in page itself, never via `/login` (which would
+  land on the dashboard and lose the walk-in token). The account card has two modes:
+  "I'm new to EHL" (password + confirm, creates the account) and "I already have an
+  account" (the EHL password only: it is checked, the walk-in is signed in and registered
+  against that account). If someone picks "I'm new" with an email that has an account, the
+  form keeps everything they typed and switches to the password mode. Picking "I already
+  have an account" for an email with none switches back to account creation, so an account
+  is never created from a password typed once. No second account is ever created and the
+  existing password is untouched. A visitor who is already signed in skips the password.
 - After registering, the walk-in sees their personal check-in QR and is checked in via the
   existing `/admin/check-in` flow (unchanged). They form or join a team later in the event hub.
 - Roles: anyone with the link can register a walk-in; the admin page is available to global
