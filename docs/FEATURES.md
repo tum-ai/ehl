@@ -75,7 +75,17 @@ Requires participant account (email + password).
 - Password reset via email link (`/forgot-password`)
 
 ### Dashboard (`/dashboard`)
-- **Team stats**: Rank, total points, member count
+- **Current hackathon first**: Ongoing matches for accepted or checked-in participants
+  appear above team management, with checked-in matches first. Multiple current
+  matches each retain their own card.
+- **Direct submission access**: Checked-in captains and members on a registered team
+  get "Submit project" or "Edit submission", linking directly to the existing match
+  page's submission form. Challenge selection, missing registration, pending check-in,
+  and closed deadlines show an appropriate action or explanation instead.
+- **Event navigation**: "Open hackathon" opens the match page, and "Event information"
+  opens the Event Hub.
+- **Team and season overview**: Team name and roster follow the current hackathon;
+  rank and points are grouped in a compact season summary below team management.
 - **Team discovery for teamless participants**:
   - Event-specific section for the current or next match
   - A team appears there only when it is looking for members and its president
@@ -87,8 +97,8 @@ Requires participant account (email + password).
   - Browse "looking for team" users and invite them
   - Toggle "looking for members" status
 - **Member roster** (read-only for non-presidents)
-- **Match list**: All non-draft matches with status badges
-  - "Unlocked" badge when team has access
+- **Other matches**: Non-draft matches with active applications and status badges;
+  current cards are not repeated in the list or participation history
   - Personal certificate links for completed matches with published scores:
     achievement plus neutral participation for placed members, participation
     only for unplaced members
@@ -146,8 +156,8 @@ Requires participant account (email + password).
 Available to participants who are checked in at an event.
 
 ### Event Hub (`/event/<slug>`)
-- Central page for everything happening during the hackathon
-- Shows current match status, deadlines, challenge info
+- Check-in, team setup, attendance and challenge selection.
+- "Open hackathon" links to the match page for challenges, submissions and pitch order.
 - **Event info panel**: an admin-maintained note (Discord link, schedule, venue) shown at
   the top of the hub. Visible to accepted participants even before they are checked in
   (the rest of the hub is gated on check-in). Edited under admin Communications.
@@ -329,7 +339,7 @@ Available to participants who are checked in at an event.
 - Send/receive join requests
 - "Looking for team" toggle on profile
 
-### Submissions (`/event/<slug>` submission section)
+### Submissions (`/matches/<slug>#submission`)
 - Upload project files (stored in Google Drive, organized by Chapter/Team)
 - Link GitHub repository (automatically forked for jury review). A GitHub failure at
   this step never fails the submission: the project is saved and the participant sees a
@@ -340,7 +350,7 @@ Available to participants who are checked in at an event.
 
 ### Pitch Order
 - Admin generates randomized pitch order per challenge
-- Displayed to teams and jury in the event hub
+- Displayed on the match page during pitching
 
 ---
 

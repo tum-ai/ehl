@@ -81,7 +81,7 @@ export function ChapterSubmissionsOpen({
 
       {/* Submission form for any registered team member */}
       {registeredChallenge && teamId && userRole && (
-        <div className="mt-8">
+        <div id="submission" className="mt-8 scroll-mt-24">
           <SubmissionForm
             challengeId={registeredChallenge.id}
             teamId={teamId}

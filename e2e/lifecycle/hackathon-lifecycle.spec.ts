@@ -27,6 +27,7 @@ import {
   createImportedParticipant,
   createParticipant,
   createTeam,
+  addTeamMember,
   createApplication,
   generateRecoveryLink,
   getTeamInviteToken,
@@ -2469,5 +2470,104 @@ test.describe.serial("Hackathon Lifecycle", () => {
         }
       }
     }
+  });
+});
+
+// Independent fixtures: these navigation checks do not reuse teams mutated by
+// earlier lifecycle tests, and they can also run alone with --grep.
+test.describe.serial("Dashboard submission navigation", () => {
+  const captainEmail = E2E_ACCOUNTS.president.email.replace("@", `-navigation-${RUN_ID}@`);
+  const memberEmail = E2E_ACCOUNTS.member.email.replace("@", `-navigation-${RUN_ID}@`);
+  let navigationChapter: { id: string; slug: string };
+  let navigationChallengeId: string;
+  let navigationTeamId: string;
+
+  test.beforeAll(async () => {
+    test.setTimeout(120000);
+    const captain = await createParticipant({ email: captainEmail, name: E2E_ACCOUNTS.president.name });
+    const member = await createParticipant({ email: memberEmail, name: E2E_ACCOUNTS.member.name });
+    navigationTeamId = await createTeam({ name: `E2E Navigation ${RUN_ID}`, presidentUserId: captain });
+    await addTeamMember(navigationTeamId, member);
+    navigationChapter = await createChapter({
+      name: `E2E Navigation Match ${RUN_ID}`, city: "Munich", country: "Germany",
+      description: "Navigation test event", date: "2099-09-22", dateEnd: "2099-09-23",
+    });
+    navigationChallengeId = await createChallenge({
+      chapterId: navigationChapter.id, title: "E2E Navigation Challenge", submissionFields: [],
+    });
+    await setChapterStatus(navigationChapter.id, "submissions_open");
+    await setChapterDeadlines(navigationChapter.id, { submissionDeadline: "2099-09-23T18:00:00Z" });
+    for (const email of [captainEmail, memberEmail]) {
+      await createApplication({ chapterId: navigationChapter.id, email, firstName: "E2E", lastName: "Navigation", status: "checked_in", existingTeamId: navigationTeamId });
+    }
+    await registerForChallenge({ chapterId: navigationChapter.id, challengeId: navigationChallengeId, teamId: navigationTeamId, roster: [captain, member] });
+  });
+
+  test("captain discovers submission before team management and saves through the direct link", async ({ page }) => {
+    test.setTimeout(60000);
+    await loginAsParticipant(page, captainEmail);
+    const current = page.getByRole("region", { name: "Your current hackathon", exact: true });
+    const submit = current.getByRole("link", { name: "Submit project", exact: true });
+    await expect(submit).toBeInViewport();
+    await expect(submit).toHaveAttribute("href", `/matches/${navigationChapter.slug}#submission`);
+    await submit.click();
+    await expect(page).toHaveURL(new RegExp(`/matches/${navigationChapter.slug}#submission$`));
+    await expect(page.getByRole("heading", { name: "Submit Project", exact: true })).toBeInViewport();
+    const submission = page.locator("#submission");
+    await submission.getByPlaceholder("Your project name").fill("E2E Navigation Project");
+    await submission.getByRole("button", { name: "Submit Project", exact: true }).click();
+    await expect(submission.getByText(/Submission saved successfully/)).toBeVisible();
+    const { data, error } = await getAdminClient().from("submissions").select("project_name")
+      .eq("challenge_id", navigationChallengeId).eq("team_id", navigationTeamId).single();
+    expect(error).toBeNull();
+    expect(data?.project_name).toBe("E2E Navigation Project");
+    await page.goto("/dashboard");
+    await expect(current.getByRole("link", { name: "Edit submission", exact: true })).toBeVisible();
+  });
+
+  test("ordinary member reaches the shared submission directly", async ({ page }) => {
+    test.setTimeout(60000);
+    await loginAsParticipant(page, memberEmail);
+    const current = page.getByRole("region", { name: "Your current hackathon", exact: true });
+    await expect(current.getByText("Any team member can submit for the team.")).toBeVisible();
+    await current.getByRole("link", { name: "Edit submission", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Edit Submission", exact: true })).toBeInViewport();
+    await expect(page.locator("#submission").getByPlaceholder("Your project name")).toHaveValue("E2E Navigation Project");
+  });
+
+  test("mobile dashboard exposes the action without sideways scrolling", async ({ page }) => {
+    test.setTimeout(60000);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loginAsParticipant(page, memberEmail);
+    const current = page.getByRole("region", { name: "Your current hackathon", exact: true });
+    const edit = current.getByRole("link", { name: "Edit submission", exact: true });
+    await expect(edit).toBeInViewport();
+    const dimensions = await page.evaluate(() => ({ width: document.documentElement.clientWidth, content: document.documentElement.scrollWidth }));
+    expect(dimensions.content).toBeLessThanOrEqual(dimensions.width);
+    await page.screenshot({ path: test.info().outputPath("dashboard-mobile.png"), fullPage: true });
+    await edit.click();
+    await expect(page.getByRole("heading", { name: "Edit Submission", exact: true })).toBeInViewport();
+    const formTop = await page.locator("#submission").evaluate((element) => element.getBoundingClientRect().top);
+    expect(formTop).toBeGreaterThanOrEqual(64);
+  });
+
+  test("event hub provides a route to the working match page", async ({ page }) => {
+    test.setTimeout(60000);
+    await loginAsParticipant(page, memberEmail);
+    await page.goto(`/event/${navigationChapter.slug}`);
+    const open = page.getByRole("link", { name: "Open hackathon", exact: true });
+    await expect(open).toHaveAttribute("href", `/matches/${navigationChapter.slug}`);
+    await open.click();
+    await expect(page.getByRole("heading", { name: "Edit Submission", exact: true })).toBeVisible();
+  });
+
+  test("expired deadline keeps the match reachable without an edit action", async ({ page }) => {
+    test.setTimeout(60000);
+    await setChapterDeadlines(navigationChapter.id, { submissionDeadline: "2000-01-01T00:00:00Z" });
+    await loginAsParticipant(page, captainEmail);
+    const current = page.getByRole("region", { name: "Your current hackathon", exact: true });
+    await expect(current.getByText("The submission deadline has passed.")).toBeVisible();
+    await expect(current.getByRole("link", { name: "Edit submission", exact: true })).toHaveCount(0);
+    await expect(current.getByRole("link", { name: "Open hackathon", exact: true })).toHaveAttribute("href", `/matches/${navigationChapter.slug}`);
   });
 });

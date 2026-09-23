@@ -12,8 +12,8 @@ export default async function ParticipantLayout({
   return (
     <div className="min-h-screen bg-surface-deep">
       <header className="border-b border-white/5">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-4">
+          <div className="flex shrink-0 items-center gap-3">
             <Link href="/">
               <Image
                 src="/images/ehl-logo.svg"
@@ -25,7 +25,7 @@ export default async function ParticipantLayout({
             </Link>
             <span className="text-xs text-text-muted">Team Dashboard</span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
             <Link
               href="/"
               className="text-sm text-text-muted hover:text-text-secondary transition-colors"
@@ -34,7 +34,7 @@ export default async function ParticipantLayout({
             </Link>
             {session && (
               <>
-                <span className="text-sm text-text-secondary">
+                <span className="min-w-0 break-all text-sm text-text-secondary">
                   {session.profile?.name || session.profile?.email}
                 </span>
                 <form action={signOutAction}>
