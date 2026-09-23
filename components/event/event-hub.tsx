@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { getEventStatus, getChapterEventInfo } from "@/lib/actions/event";
 import { TeamSelector } from "./team-selector";
 import { ChallengeSelector } from "./challenge-selector";
@@ -147,6 +148,14 @@ export function EventHub({ chapterId, chapterName, chapterSlug }: EventHubProps)
         <p className="mt-2 text-text-secondary">
           Welcome to the event hub. Complete the steps below to get started.
         </p>
+        <div className="mt-5">
+          <Button href={`/matches/${chapterSlug}`} className="w-full sm:w-auto">
+            Open hackathon
+          </Button>
+          <p className="mt-2 text-sm text-text-secondary">
+            Find challenges, project submissions and the pitch order on the hackathon page.
+          </p>
+        </div>
       </div>
 
       {/* Progress indicator */}

@@ -354,7 +354,7 @@ export async function getTeamMatchHistory(teamId: string): Promise<TeamMatchHist
   ] = await Promise.all([
     adminClient.from("challenge_registrations").select("chapter_id, challenge_id, team_id, roster, registered_at").eq("team_id", teamId),
     adminClient.from("scores").select("chapter_id, team_id, challenge_name, placement, points").eq("team_id", teamId),
-    adminClient.from("submissions").select("challenge_id, team_id, project_name, created_at").eq("team_id", teamId),
+    adminClient.from("submissions").select("challenge_id, team_id, project_name, created_at:submitted_at").eq("team_id", teamId),
     adminClient.from("chapters").select("id, name, slug, date, city, status").neq("status", "draft"),
     adminClient.from("challenges").select("id, title, chapter_id"),
   ]);
