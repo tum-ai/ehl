@@ -69,12 +69,23 @@ describe("no hardcoded CV size limits survive", () => {
   // Before this change the cap existed as a literal in four places and the UI
   // copy in a fifth, and they disagreed with reality and with docs/SECURITY.md.
   // Every consumer must now read the shared constant.
+  // The server-side check lives once in lib/application-cv.ts; both actions
+  // call it (pinned below), so it is the file that must read the constant.
   const consumers = [
     "components/application/application-form.tsx",
     "components/application/walk-in-form.tsx",
-    "lib/actions/applications.ts",
-    "lib/actions/walk-in.ts",
+    "lib/application-cv.ts",
   ];
+
+  it.each(["lib/actions/applications.ts", "lib/actions/walk-in.ts"])(
+    "%s validates the CV through the shared check",
+    (file) => {
+      const src = read(file);
+      expect(src).toMatch(/validateCv\(formData\)/);
+      expect(src).not.toMatch(/\d+\s*\*\s*1024\s*\*\s*1024/);
+      expect(src).not.toMatch(/\d+(\.\d+)?\s?MB/);
+    }
+  );
 
   it.each(consumers)("%s enforces the shared constant, not a literal", (file) => {
     const src = read(file);

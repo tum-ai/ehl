@@ -297,3 +297,14 @@ describe("respondToFinaleInvite: guards", () => {
     expect(await respondToFinaleInvite(TOKEN, "yes")).toEqual({ error: "Too many requests." });
   });
 });
+
+describe("respondToFinaleInvite: account link (00069)", () => {
+  it("links the created application to the invitee's account", async () => {
+    const { db: client, calls } = db({});
+    mocks.createAdminClient.mockReturnValue(client);
+
+    await respondToFinaleInvite(TOKEN, "yes");
+
+    expect(inserted(calls)).toMatchObject({ user_id: "u1", email: "ada@example.com" });
+  });
+});

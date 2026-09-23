@@ -5,7 +5,10 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // Which fields the public apply form makes mandatory used to be hardcoded in
 // getMissingFields() on the CLIENT, which means a non-browser caller skipped it
 // entirely. chapters.require_cv / require_motivation move that decision into the
-// DB, and submitApplication re-checks BOTH against the chapter row. We pin:
+// DB, and startApplication re-checks BOTH against the chapter row. These run as a
+// SIGNED-IN applicant, the path that inserts in one step; the signed-out path
+// (code first) enforces the same checks before sending a code, pinned in
+// tests/apply-creates-account.test.ts. We pin:
 //   - require_cv: a submission with no CV is refused and inserts NOTHING
 //   - require_cv: a valid PDF is accepted
 //   - require_motivation: blank / whitespace-only is refused, inserts NOTHING
@@ -20,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   logEvent: vi.fn(),
   sendEmailAfterResponse: vi.fn(),
   getCurrentMembership: vi.fn(),
+  getSession: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
@@ -35,11 +39,12 @@ vi.mock("@/lib/email-deferred", () => ({
 }));
 vi.mock("@/lib/emails/render", () => ({
   renderApplicationReceivedEmail: vi.fn().mockResolvedValue("<html></html>"),
+  renderVerificationCodeEmail: vi.fn().mockResolvedValue("<html></html>"),
   renderApplicationAcceptedEmail: vi.fn(),
   renderApplicationRejectedEmail: vi.fn(),
   renderApplicationCancelledEmail: vi.fn(),
 }));
-vi.mock("@/lib/actions/auth", () => ({ getSession: vi.fn() }));
+vi.mock("@/lib/actions/auth", () => ({ getSession: mocks.getSession }));
 vi.mock("@/lib/queries", () => ({ getChapterCommunications: vi.fn() }));
 vi.mock("@/lib/team-membership", () => ({
   getCurrentMembership: mocks.getCurrentMembership,
@@ -55,7 +60,7 @@ vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
 vi.mock("qrcode", () => ({ default: { toDataURL: vi.fn() } }));
 vi.mock("next/headers", () => ({ headers: () => ({ get: () => "1.2.3.4" }) }));
 
-import { submitApplication } from "@/lib/actions/applications";
+import { startApplication as submitApplication } from "@/lib/actions/applications";
 
 const CHAPTER_ID = "chapter-zurich";
 
@@ -144,6 +149,10 @@ beforeEach(() => {
   mocks.checkRateLimit.mockResolvedValue({ limited: false });
   mocks.getCurrentMembership.mockResolvedValue(null);
   mocks.uploadFile.mockResolvedValue({ fileId: "drive-file-1" });
+  mocks.getSession.mockResolvedValue({
+    user: { id: "user-ada", email: "ada@example.com" },
+    profile: { id: "user-ada", email: "ada@example.com" },
+  });
 });
 
 describe("chapter.require_cv", () => {
@@ -174,7 +183,7 @@ describe("chapter.require_cv", () => {
 
     const result = await submitApplication(baseForm({ cv: pdf() }));
 
-    expect(result).toEqual({ success: true, cvUploadFailed: false });
+    expect(result).toEqual({ success: true, cvUploadFailed: false, signedIn: true });
     expect(inserts(calls)).toHaveLength(1);
     expect(mocks.uploadFile).toHaveBeenCalledTimes(1);
     const update = calls.find((c) => c.table === "applications" && c.op === "update");
@@ -243,7 +252,7 @@ describe("chapter.require_motivation", () => {
       baseForm({ motivation: "I want to ship something real with a team." })
     );
 
-    expect(result).toEqual({ success: true, cvUploadFailed: false });
+    expect(result).toEqual({ success: true, cvUploadFailed: false, signedIn: true });
     const insert = inserts(calls)[0];
     expect((insert.payload as { form_data: { motivation: string } }).form_data.motivation).toBe(
       "I want to ship something real with a team."
@@ -263,7 +272,7 @@ describe("both flags off (every chapter that has not opted in)", () => {
 
     const result = await submitApplication(baseForm());
 
-    expect(result).toEqual({ success: true, cvUploadFailed: false });
+    expect(result).toEqual({ success: true, cvUploadFailed: false, signedIn: true });
     expect(inserts(calls)).toHaveLength(1);
     // No motivation asked -> the key is stored null, never undefined.
     expect(

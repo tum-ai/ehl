@@ -12,6 +12,7 @@ import { sendEmail } from "@/lib/email";
 import { sendEmailAfterResponse } from "@/lib/email-deferred";
 import {
   renderApplicationReceivedEmail,
+  renderVerificationCodeEmail,
   renderApplicationRejectedEmail,
   renderApplicationCancelledEmail,
 } from "@/lib/emails/render";
@@ -19,7 +20,6 @@ import { getSession } from "@/lib/actions/auth";
 import { getChapterCommunications } from "@/lib/queries";
 import { getCurrentMembership } from "@/lib/team-membership";
 import { MIN_CHALLENGE_ROSTER } from "@/lib/config/limits";
-import { CV_MAX_BYTES, CV_MAX_LABEL } from "@/lib/config/upload-limits";
 import { formatDateRange } from "@/lib/utils";
 import type { ApplicationStatus, ApplicationTeamMember } from "@/lib/types";
 import { buildApplicationInsert } from "@/lib/applications-shared";
@@ -27,144 +27,156 @@ import {
   deliverAcceptanceEmail,
   type AcceptanceEmailApplication,
 } from "@/lib/acceptance-email";
-import { uploadFile } from "@/lib/gdrive";
+import { validateCv, attachCv } from "@/lib/application-cv";
+import {
+  encryptPassword,
+  decryptPassword,
+  generateVerificationCode,
+} from "@/lib/crypto";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import { checkRateLimit, applicationLimiter, apiLimiter } from "@/lib/ratelimit";
 import { runBudgetedConcurrent, EMAIL_SEND_BUDGET_MS } from "@/lib/bulk-send";
 import { logEvent } from "@/lib/event-log";
 
-// ─── Shared application-insert builder ───────────────────────
+// ─── Apply (public): email-verified, creates the account ─────
 //
-// ─── Submit application (public) ─────────────────────────────
+// Applying to a chapter is a full EHL registration in one go. The applicant's
+// email is proven BEFORE anything is written, reusing the registration flow's
+// verification code as the spam gate, so a bot can no longer file applications
+// (or, now, create accounts) for an address it does not control.
+//
+//   startApplication    validates the whole form, then either submits at once
+//                       (signed in: the session already proves the email) or
+//                       emails a 6-digit code and returns a verificationId.
+//   confirmApplication  checks the code, then creates the account (or reuses the
+//                       existing one for that email) and saves the application.
+//
+// The client keeps the form mounted between the two steps and sends it AGAIN
+// with the code. That is how the CV reaches step two: a File is not JSON, so it
+// cannot ride along in verification_codes.metadata, and storing the rest of the
+// form there would copy personal data into a second table. The metadata holds
+// only what the code step owns: the chapter, the email, and (for a new account)
+// the encrypted password. The email and chapter are read from that record, never
+// from the resubmitted form, so a verified code cannot be spent on another
+// address or another chapter.
 
-export async function submitApplication(formData: FormData) {
-  const chapterId = formData.get("chapterId") as string;
-  const firstName = (formData.get("firstName") as string)?.trim();
-  const lastName = (formData.get("lastName") as string)?.trim();
-  const email = (formData.get("email") as string)?.trim().toLowerCase();
-  const turnstileToken = formData.get("cf-turnstile-response") as string;
+const APPLICATION_CODE_TTL_MS = 15 * 60 * 1000;
+const APPLICATION_CODE_MAX_ATTEMPTS = 5;
 
-  if (!chapterId || !firstName || !lastName || !email) {
-    return { error: "First name, last name, and email are required." };
-  }
+type ApplyChapter = {
+  id: string;
+  name: string;
+  city: string;
+  country: string;
+  date: string;
+  date_end: string | null;
+  status: string;
+  require_cv: boolean | null;
+  require_motivation: boolean | null;
+};
 
-  // Bot protection
-  const turnstileValid = await verifyTurnstileToken(turnstileToken);
-  if (!turnstileValid) {
-    return { error: "Bot verification failed. Please try again." };
-  }
+type ApplyResult =
+  | { error: string }
+  | { verificationId: string; email: string }
+  | { success: true; cvUploadFailed: boolean; signedIn: boolean };
 
-  // Rate limiting
-  const h = await headers();
-  const ip = h.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
-  const rl = await checkRateLimit(applicationLimiter, ip, "application");
-  if (rl.limited) return { error: rl.error! };
-
-  const adminClient = createAdminClient();
-
-  // Verify chapter is accepting applications
+async function loadOpenChapter(
+  adminClient: ReturnType<typeof createAdminClient>,
+  chapterId: string
+): Promise<ApplyChapter | null> {
   const { data: chapter } = await adminClient
     .from("chapters")
     .select(
-      "id, name, city, country, date, date_end, slug, status, require_cv, require_motivation"
+      "id, name, city, country, date, date_end, status, require_cv, require_motivation"
     )
     .eq("id", chapterId)
     .single();
+  if (!chapter || chapter.status !== "applications_open") return null;
+  return chapter as ApplyChapter;
+}
 
-  if (!chapter || chapter.status !== "applications_open") {
-    return { error: "Applications are not currently open for this match." };
-  }
-
-  // Check for duplicate application
+// Everything about the form that can be refused, checked in both steps: step one
+// so the applicant hears about a missing field before a code is sent, step two
+// because the form is resubmitted and a non-browser caller can change it.
+// Per-chapter requirements (00064) come from the chapter row, never the client.
+async function validateApplicationForm(
+  adminClient: ReturnType<typeof createAdminClient>,
+  formData: FormData,
+  chapter: ApplyChapter,
+  email: string
+): Promise<{ error: string } | { cvFile: File | null }> {
   const { data: existing } = await adminClient
     .from("applications")
     .select("id")
-    .eq("chapter_id", chapterId)
+    .eq("chapter_id", chapter.id)
     .eq("email", email)
-    .single();
-
+    .maybeSingle();
   if (existing) {
     return { error: "You have already applied for this match." };
   }
 
-  // Build the application row payload from the form (shared with the walk-in
-  // flow via buildApplicationInsert, so the two can never drift).
-  const baseInsert = buildApplicationInsert(formData, {
-    chapterId,
-    firstName,
-    lastName,
-    email,
-  });
+  const cv = validateCv(formData);
+  if ("error" in cv) return cv;
 
-  // Check for existing team (by email in team_members + profiles)
-  let existingTeamId: string | null = formData.get("existingTeamId") as string || null;
-
-  if (!existingTeamId) {
-    const { data: profileRow } = await adminClient
-      .from("profiles")
-      .select("id")
-      .eq("email", email)
-      .single();
-
-    if (profileRow) {
-      // Resolve the applicant's CURRENT team: an applicant who competed in an
-      // earlier chapter still holds that old membership, and an arbitrary pick
-      // would attach the application to the wrong team.
-      const memberRecord = await getCurrentMembership(
-        adminClient,
-        profileRow.id as string
-      );
-
-      existingTeamId = memberRecord?.teamId ?? null;
-    }
-  }
-
-  // Validate the CV before anything is written. The upload itself happens
-  // AFTER the application row is inserted, so a Drive outage or hang can
-  // never lose an application.
-  //
-  // The size check here is defence in depth against a non-browser caller, NOT
-  // the user-facing guard: a body over the platform limit never reaches this
-  // function at all (see lib/config/upload-limits.ts).
-  const cvFile = formData.get("cv") as File | null;
-  const hasCv = !!cvFile && cvFile.size > 0;
-  if (hasCv) {
-    if (cvFile!.size > CV_MAX_BYTES) {
-      return { error: `CV file must be under ${CV_MAX_LABEL}.` };
-    }
-    const ext = cvFile!.name.split(".").pop()?.toLowerCase();
-    if (ext !== "pdf") {
-      return { error: "CV must be a PDF file." };
-    }
-  }
-
-  // Per-chapter requirements (00064), re-checked against the chapter row rather
-  // than trusted from the client: the form's own required-ness lives entirely in
-  // getMissingFields() on the client, which a non-browser caller simply skips.
-  // Both run BEFORE the insert, so a rejected submission leaves no row behind.
   if (chapter.require_motivation) {
     const motivation = (formData.get("motivation") as string)?.trim();
     if (!motivation) {
       return { error: "Please answer the motivation question." };
     }
   }
-  if (chapter.require_cv && !hasCv) {
+  if (chapter.require_cv && !cv.cvFile) {
     return { error: "A CV (PDF) is required for this match." };
   }
 
-  // Insert application first (without CV), so the application is saved even
-  // if the CV upload later fails.
+  // Build the row once here, so a malformed field (buildApplicationInsert parses
+  // JSON) is refused BEFORE a code is spent or an account is created, instead of
+  // throwing halfway through step two.
+  try {
+    buildApplicationInsert(formData, { chapterId: chapter.id, firstName: "", lastName: "", email });
+  } catch {
+    return { error: "Some answers could not be read. Please reload the page and try again." };
+  }
+  return cv;
+}
+
+// Inserts the application for a PROVEN identity (a session, or a verified code)
+// and runs the post-insert side effects. user_id is set explicitly here; the
+// 00069 trigger would also fill it from the email, but this path knows the id.
+async function saveApplication(
+  adminClient: ReturnType<typeof createAdminClient>,
+  opts: {
+    formData: FormData;
+    chapter: ApplyChapter;
+    email: string;
+    firstName: string;
+    lastName: string;
+    userId: string;
+    cvFile: File | null;
+  }
+): Promise<{ error: string } | { cvUploadFailed: boolean }> {
+  const { formData, chapter, email, firstName, lastName, userId, cvFile } = opts;
+
+  // The applicant's CURRENT team, derived from the proven account. Never taken
+  // from the form: a client-supplied team id would let anyone attach their
+  // application to a team they are not on. A brand-new account has none.
+  const membership = await getCurrentMembership(adminClient, userId);
+
   const { data: inserted, error: insertError } = await adminClient
     .from("applications")
     .insert({
-      ...baseInsert,
-      existing_team_id: existingTeamId,
+      ...buildApplicationInsert(formData, {
+        chapterId: chapter.id,
+        firstName,
+        lastName,
+        email,
+      }),
+      user_id: userId,
+      existing_team_id: membership?.teamId ?? null,
     })
     .select("id")
     .single();
 
   if (insertError || !inserted) {
-    // Unique violation: same email already applied to this chapter.
     if (insertError?.code === "23505") {
       return { error: "You have already applied to this match with this email." };
     }
@@ -172,46 +184,32 @@ export async function submitApplication(formData: FormData) {
     return { error: "Failed to submit application. Please try again." };
   }
 
-  // Upload the CV and attach it to the saved application. A failure here does
-  // not lose the application; the user is told the CV part failed.
-  let cvUploadFailed = false;
-  if (hasCv) {
-    try {
-      const chapterName = (chapter.name as string).replace(/[^a-zA-Z0-9 ]/g, "");
-      const fileName = `${lastName}_${firstName}_CV.pdf`;
-      const result = await uploadFile(
-        cvFile!,
-        fileName,
-        "application/pdf",
-        ["CVs", chapterName]
-      );
-      await adminClient
-        .from("applications")
-        .update({ cv_url: result.fileId })
-        .eq("id", inserted.id);
-    } catch (err) {
-      console.error("CV upload error:", err);
-      cvUploadFailed = true;
-    }
-  }
+  const { cvUploadFailed } = cvFile
+    ? await attachCv(adminClient, {
+        applicationId: inserted.id as string,
+        cvFile,
+        chapterName: chapter.name,
+        firstName,
+        lastName,
+      })
+    : { cvUploadFailed: false };
 
   logEvent({
-    // Public form: the applicant has no account yet, so there is no
-    // authenticated actor. The applicant's email is captured in the delta.
     action: "application.submitted",
     entityType: "application",
-    entityId: chapterId,
-    actorType: "system",
-    delta: { created: { email, chapter_id: chapterId } },
+    entityId: inserted.id as string,
+    actorId: userId,
+    actorType: "participant",
+    delta: { created: { email, chapter_id: chapter.id } },
   });
 
-  // Send confirmation email after the response; a floating promise would be
-  // dropped when the serverless instance freezes.
+  // Sent only now that the application exists. Deferred: a floating promise
+  // would be dropped when the serverless instance freezes.
   const dateStr = formatDateRange(chapter.date, chapter.date_end);
   sendEmailAfterResponse(`application confirmation to ${email}`, async () => {
     const html = await renderApplicationReceivedEmail({
       firstName,
-      chapterName: chapter.name as string,
+      chapterName: chapter.name,
       chapterCity: `${chapter.city}, ${chapter.country}`,
       chapterDate: dateStr,
     });
@@ -222,7 +220,322 @@ export async function submitApplication(formData: FormData) {
     });
   });
 
-  return { success: true, cvUploadFailed };
+  return { cvUploadFailed };
+}
+
+export async function startApplication(formData: FormData): Promise<ApplyResult> {
+  const chapterId = formData.get("chapterId") as string;
+  const firstName = (formData.get("firstName") as string)?.trim();
+  const lastName = (formData.get("lastName") as string)?.trim();
+  const password = (formData.get("password") as string) ?? "";
+  const passwordConfirm = (formData.get("passwordConfirm") as string) ?? "";
+  const turnstileToken = formData.get("cf-turnstile-response") as string;
+
+  // A signed-in applicant always applies as their own account: the session is
+  // the proof of the email, so the form's email field is ignored for them. The
+  // address comes from the AUTH record (verified at sign-up), never from the
+  // profile row, whose email is a copy.
+  const session = await getSession();
+  const sessionEmail = (session?.user?.email ?? "").trim().toLowerCase();
+  const email = session
+    ? sessionEmail
+    : ((formData.get("email") as string) ?? "").trim().toLowerCase();
+
+  if (!chapterId || !firstName || !lastName || !email) {
+    return { error: "First name, last name, and email are required." };
+  }
+
+  const turnstileValid = await verifyTurnstileToken(turnstileToken);
+  if (!turnstileValid) {
+    return { error: "Bot verification failed. Please try again." };
+  }
+
+  const h = await headers();
+  const ip = h.get("x-forwarded-for")?.split(",")[0] ?? "unknown";
+  const rl = await checkRateLimit(applicationLimiter, ip, "application");
+  if (rl.limited) return { error: rl.error! };
+
+  const adminClient = createAdminClient();
+
+  const chapter = await loadOpenChapter(adminClient, chapterId);
+  if (!chapter) {
+    return { error: "Applications are not currently open for this match." };
+  }
+
+  const valid = await validateApplicationForm(adminClient, formData, chapter, email);
+  if ("error" in valid) return valid;
+
+  if (session) {
+    const saved = await saveApplication(adminClient, {
+      formData,
+      chapter,
+      email,
+      firstName,
+      lastName,
+      userId: session.user.id,
+      cvFile: valid.cvFile,
+    });
+    if ("error" in saved) return saved;
+    return { success: true, cvUploadFailed: saved.cvUploadFailed, signedIn: true };
+  }
+
+  // Not signed in. An address that already has an account needs no password:
+  // the code proves the email, and the application joins that account. A new
+  // address sets the password of the account the code step will create.
+  const { data: existingProfile } = await adminClient
+    .from("profiles")
+    .select("id")
+    .eq("email", email)
+    .maybeSingle();
+
+  if (!existingProfile) {
+    if (password.length < 8) {
+      return { error: "Password must be at least 8 characters." };
+    }
+    if (password !== passwordConfirm) {
+      return { error: "Passwords do not match." };
+    }
+  }
+
+  const code = generateVerificationCode();
+  const { data: verification, error: insertError } = await adminClient
+    .from("verification_codes")
+    .insert({
+      email,
+      code,
+      type: "application_registration",
+      metadata: {
+        chapterId: chapter.id,
+        email,
+        // Never plaintext, and only when an account is to be created.
+        password: existingProfile ? null : encryptPassword(password),
+      },
+      expires_at: new Date(Date.now() + APPLICATION_CODE_TTL_MS).toISOString(),
+    })
+    .select("id")
+    .single();
+
+  if (insertError || !verification) {
+    console.error("Application verification insert error:", insertError);
+    return { error: "Failed to start verification. Please try again." };
+  }
+
+  // Awaited, like every verification code: the applicant is waiting for it.
+  const html = await renderVerificationCodeEmail({
+    name: firstName,
+    code,
+    type: "application_registration",
+    chapterName: chapter.name,
+  });
+  try {
+    await sendEmail({ to: email, subject: "Your EHL verification code", html });
+  } catch {
+    await adminClient.from("verification_codes").delete().eq("id", verification.id);
+    return { error: "Failed to send verification email. Please try again in a moment." };
+  }
+
+  return { verificationId: verification.id as string, email };
+}
+
+export async function confirmApplication(formData: FormData): Promise<ApplyResult> {
+  const verificationId = (formData.get("verificationId") as string) ?? "";
+  const code = ((formData.get("code") as string) ?? "").trim();
+  const firstName = (formData.get("firstName") as string)?.trim();
+  const lastName = (formData.get("lastName") as string)?.trim();
+
+  if (!verificationId || !code) {
+    return { error: "Please enter the code from your email." };
+  }
+  if (!firstName || !lastName) {
+    return { error: "First name, last name, and email are required." };
+  }
+
+  const adminClient = createAdminClient();
+
+  const { data: record } = await adminClient
+    .from("verification_codes")
+    .select("*")
+    .eq("id", verificationId)
+    .eq("type", "application_registration")
+    .is("verified_at", null)
+    .maybeSingle();
+
+  if (!record) {
+    return { error: "This code is no longer valid. Please submit the form again." };
+  }
+  if (new Date(record.expires_at as string) < new Date()) {
+    return { error: "Your code expired. Please submit the form again." };
+  }
+  const attempts = (record.attempts as number) ?? 0;
+  if (attempts >= APPLICATION_CODE_MAX_ATTEMPTS) {
+    return { error: "Too many failed attempts. Please submit the form again." };
+  }
+
+  const meta = record.metadata as {
+    chapterId: string;
+    email: string;
+    password: string | null;
+  };
+  const email = (record.email as string).trim().toLowerCase();
+
+  // Re-validate the resubmitted form BEFORE spending an attempt or claiming the
+  // code, so a fixable mistake (a missing field, a closed chapter) costs nothing.
+  const chapter = await loadOpenChapter(adminClient, meta.chapterId);
+  if (!chapter) {
+    return { error: "Applications are not currently open for this match." };
+  }
+  const valid = await validateApplicationForm(adminClient, formData, chapter, email);
+  if ("error" in valid) return valid;
+
+  // Spend an attempt ATOMICALLY before comparing: the update only matches while
+  // `attempts` still holds the value read above, so of several concurrent
+  // guesses exactly one gets to compare per attempt. A plain read-then-write
+  // would let a burst of parallel guesses all compare against a single count.
+  const { data: spent } = await adminClient
+    .from("verification_codes")
+    .update({ attempts: attempts + 1 })
+    .eq("id", verificationId)
+    .eq("attempts", attempts)
+    .is("verified_at", null)
+    .select("id")
+    .maybeSingle();
+  if (!spent) {
+    return { error: "Please try again." };
+  }
+
+  if (record.code !== code) {
+    const remaining = APPLICATION_CODE_MAX_ATTEMPTS - (attempts + 1);
+    return {
+      error:
+        remaining > 0
+          ? `Incorrect code. ${remaining} attempt${remaining === 1 ? "" : "s"} remaining.`
+          : "Incorrect code. Please submit the form again.",
+    };
+  }
+
+  // Atomically claim the code: of two concurrent confirms (double click, two
+  // tabs) only one proceeds.
+  const { data: claimed } = await adminClient
+    .from("verification_codes")
+    .update({ verified_at: new Date().toISOString() })
+    .eq("id", verificationId)
+    .is("verified_at", null)
+    .select("id")
+    .maybeSingle();
+  if (!claimed) {
+    return { error: "This code was already used. Please log in to see your application." };
+  }
+  // Hand the code back if anything below fails, so the applicant can retry with
+  // the same code instead of starting over.
+  const releaseClaim = () =>
+    adminClient
+      .from("verification_codes")
+      .update({ verified_at: null })
+      .eq("id", verificationId);
+
+  let userId: string;
+  let createdAccount = false;
+  let saved: { error: string } | { cvUploadFailed: boolean };
+  try {
+    // Resolve the account. The profile is looked up again rather than trusting
+    // step one: the applicant may have registered in another tab since.
+    const { data: existingProfile } = await adminClient
+      .from("profiles")
+      .select("id")
+      .eq("email", email)
+      .maybeSingle();
+
+    if (existingProfile) {
+      // The code proves the ADDRESS; attach to a profile only when its auth
+      // record (the login identity) holds that same address.
+      const { data: authUser } = await adminClient.auth.admin.getUserById(
+        existingProfile.id as string
+      );
+      if ((authUser?.user?.email ?? "").trim().toLowerCase() !== email) {
+        await releaseClaim();
+        console.error("Application: profile email does not match its auth user", {
+          profileId: existingProfile.id,
+        });
+        return {
+          error: "We could not match this email to an account. Please contact us.",
+        };
+      }
+      userId = existingProfile.id as string;
+    } else if (meta.password) {
+      const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+        email,
+        password: decryptPassword(meta.password),
+        email_confirm: true,
+        user_metadata: { name: `${firstName} ${lastName}` },
+      });
+      if (authError || !authData.user) {
+        await releaseClaim();
+        console.error("Application account creation error:", authError);
+        return { error: "We could not create your account. Please try again." };
+      }
+      userId = authData.user.id;
+      createdAccount = true;
+      // The 00055 trigger creates the profile; this sets the name and role the
+      // way every registration path does.
+      await adminClient.from("profiles").upsert({
+        id: userId,
+        email,
+        name: `${firstName} ${lastName}`,
+        role: "participant",
+      });
+      logEvent({
+        action: "registration.application_completed",
+        entityType: "profile",
+        entityId: userId,
+        actorId: userId,
+        actorType: "participant",
+        delta: { created: { email, chapter_id: chapter.id } },
+      });
+    } else {
+      // Step one saw an account for this email, and it is gone now.
+      await releaseClaim();
+      return { error: "Please submit the form again." };
+    }
+
+    saved = await saveApplication(adminClient, {
+      formData,
+      chapter,
+      email,
+      firstName,
+      lastName,
+      userId,
+      cvFile: valid.cvFile,
+    });
+  } catch (err) {
+    // Nothing was saved: hand the code back. A new account stays, and the retry
+    // finds it by email.
+    console.error("Application confirm failed:", err);
+    await releaseClaim();
+    return { error: "Failed to submit application. Please try again." };
+  }
+  if ("error" in saved) {
+    // A new account stays (the next attempt finds it by email); the code is
+    // handed back so that attempt does not need a new one.
+    await releaseClaim();
+    return saved;
+  }
+
+  // Consumed: delete it so the encrypted password is not retained.
+  await adminClient.from("verification_codes").delete().eq("id", verificationId);
+
+  // Sign a NEW account in, so the applicant lands logged in. An existing
+  // account proved its email but not its password, so it is not signed in.
+  let signedIn = false;
+  if (createdAccount && meta.password) {
+    const supabase = await createClient();
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email,
+      password: decryptPassword(meta.password),
+    });
+    signedIn = !signInError;
+  }
+
+  return { success: true, cvUploadFailed: saved.cvUploadFailed, signedIn };
 }
 
 // ─── Check if email is linked to an existing account ─────────

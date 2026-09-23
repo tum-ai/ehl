@@ -655,9 +655,11 @@ export async function submitApplicationViaUI(
   page: Page,
   opts: { slug: string; email: string; firstName: string; lastName: string; withCv?: boolean }
 ): Promise<void> {
+  const since = new Date().toISOString();
   await page.goto(`/apply/${opts.slug}`);
   await page.locator('input[name="email"]').fill(opts.email);
   await page.locator('input[name="email"]').blur();
+  await fillApplyPasswordFields(page);
 
   await fillApplicationFields(page, {
     firstName: opts.firstName,
@@ -666,7 +668,32 @@ export async function submitApplicationViaUI(
   });
 
   await page.getByRole("button", { name: /submit application/i }).click();
+  await confirmApplyCodeViaMail(page, opts.email, since);
   await expect(page.getByText(/application submitted/i)).toBeVisible({ timeout: 20000 });
+}
+
+/**
+ * The apply form creates the applicant's account, so a NEW address sets a
+ * password (and its confirmation) next to the email.
+ */
+export async function fillApplyPasswordFields(page: Page): Promise<void> {
+  await page.locator('input[name="password"]').fill(SIM_PASSWORD);
+  await page.locator('input[name="passwordConfirm"]').fill(SIM_PASSWORD);
+}
+
+/**
+ * The apply form's second step: read the code from the real email (Mailpit)
+ * and confirm. `sinceISO` must predate the submit click.
+ */
+export async function confirmApplyCodeViaMail(
+  page: Page,
+  email: string,
+  sinceISO: string
+): Promise<void> {
+  await expect(page.getByText("Confirm your email")).toBeVisible({ timeout: 20000 });
+  const mail = await waitForEmail(email, { sinceISO, subjectIncludes: "verification code" });
+  await page.getByLabel("Verification code").fill(extractVerificationCode(mail));
+  await page.getByRole("button", { name: /confirm & submit application/i }).click();
 }
 
 /**
