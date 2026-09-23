@@ -1,0 +1,47 @@
+the current walk-in-regestration has a crucial flaw: people with an already existing account, need to log-in with that mail an
+
+---
+
+/plan the current walk-in-regestration has a crucial flaw: people with an already existing account, need to log-in with that mail at the top and they get redirected to log-in page then to home. so the walk in code needs to be scanned again or they need to navigate back in the browser. there needs to be a clearer-walk in regestration, that does not conflict with people that already have an account and it should be clear for them to log-in first. or the just say that they have the account already with this mail, then they fill out form get redirected to log-in, then it says youre in (or something like that). so plan different ways to make it more intuitive, better account handling and not conflicting wiht already existing account or not. propose how to handle it, with utilising already existing logic.
+
+---
+
+i dont like the check after typing the mail. thats a whole data base read from that form thats extra
+
+---
+
+<task-notification>
+<task-id>bshtbmbs5</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/29ecffd1-d5df-4157-b753-12bf579383f4/tasks/bshtbmbs5.output</output-file>
+<status>completed</status>
+<summary>Background command "Start worktree dev server on port 3002" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bo1ro395o</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/29ecffd1-d5df-4157-b753-12bf579383f4/tasks/bo1ro395o.output</output-file>
+<status>failed</status>
+<summary>Background command "Run Mailpit SMTP sink" failed with exit code 144</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bcz2rdqtn</task-id>
+<tool-use-id>toolu_01GGDa6gDjryE1E3c2iBYGvU</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/29ecffd1-d5df-4157-b753-12bf579383f4/tasks/bcz2rdqtn.output</output-file>
+<status>completed</status>
+<summary>Background command "Start dev server with sim env" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+first check that your worktree and everything is not confilicting with ongoing work on the frontedn (feat/dashboard-submission-access, in the isolated checkout at /private/tmp/ehl-dashboard-submission-access) and the draft pr that will be merged shortly
+
+---
+
+check pr 53, is it still old or can i merge into main + apply the migration
