@@ -172,7 +172,11 @@ export function toSubmission(row: Record<string, unknown>): Submission {
     submittedAt: row.submitted_at as string,
     updatedAt: row.updated_at as string,
     isLocked: row.is_locked as boolean,
-    forkUrl: (row.fork_url as string) ?? null,
+    forkUrl: row.fork_url && row.snapshot_sha ? `${row.fork_url}/tree/${row.snapshot_sha}` : (row.fork_url as string) ?? null,
+    snapshotError: (row.snapshot_error as string) ?? null,
+    snapshotSha: (row.snapshot_sha as string) ?? null,
+    submissionRevision: (row.submission_revision as number) ?? 0,
+    repoSnapshots: (row.repo_snapshots as Submission["repoSnapshots"]) ?? {},
   };
 }
 

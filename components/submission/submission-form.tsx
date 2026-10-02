@@ -13,8 +13,7 @@ interface SubmissionFormProps {
   existing: Submission | null;
   isLocked: boolean;
   deadline?: string | null;
-  // When true, repo fields must carry an Entire session record to submit. We
-  // surface this as a live warning during verify; the hard gate is server-side.
+  // When true, the server requires verified Entire evidence before saving.
   entireRequired?: boolean;
 }
 
@@ -41,9 +40,6 @@ export function SubmissionForm({
   );
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  // Shown ALONGSIDE success, never instead of it: the submission is saved even
-  // when the repo archive copy could not be made.
-  const [warning, setWarning] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState<Record<string, boolean>>({});
   const [fileNames, setFileNames] = useState<Record<string, string>>({});
@@ -142,23 +138,13 @@ export function SubmissionForm({
     setError(null);
     setSuccess(false);
 
-    // Check repo fields: must be verified before submit
-    const repoFields = submissionFields.filter((f) => f.type === "repo");
-    for (const rf of repoFields) {
-      const url = fields[rf.key];
-      if (!url && !rf.required) continue;
-      if (!url && rf.required) {
-        setError(`"${rf.label}" is required.`);
-        return;
-      }
-      const status = repoStatus[rf.key];
-      if (status?.valid === false) {
-        setError(`Please fix the repository issue for "${rf.label}" before submitting.`);
-        return;
-      }
-      if (!status?.valid) {
-        setError(`Please verify "${rf.label}" before submitting (click the Verify button).`);
-        return;
+    // A GitHub response is never a prerequisite for saving. Validate the URL
+    // locally; the copy worker checks repository access and required evidence.
+    for (const field of submissionFields) {
+      const value = fields[field.key]?.trim();
+      if (field.required && !value) { setError(`"${field.label}" is required.`); return; }
+      if (field.type === "repo" && value && !/^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(value)) {
+        setError(`"${field.label}" must be a GitHub repository URL.`); return;
       }
     }
 
@@ -177,15 +163,19 @@ export function SubmissionForm({
     formData.set("fields", JSON.stringify(fields));
     formData.set("techStack", JSON.stringify(techStack));
 
-    const result = await submitProject(formData);
+    try {
+      const result = await submitProject(formData);
 
-    if (result && "error" in result) {
-      setError(result.error ?? "Something went wrong. Please try again.");
-    } else {
-      setSuccess(true);
-      setWarning(result && "warning" in result ? (result.warning ?? null) : null);
+      if (result && "error" in result) {
+        setError(result.error ?? "Something went wrong. Please try again.");
+      } else {
+        setSuccess(true);
+      }
+    } catch {
+      setError("Confirmation was interrupted. Refresh to check whether your submission was saved.");
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   if (isLocked) {
@@ -339,6 +329,7 @@ export function SubmissionForm({
                   </div>
                 )}
 
+                <p className="mt-1 text-xs text-text-muted">Use Verify to check early. Repository access and required Entire history are checked again when you submit, before anything is saved.</p>
                 {/* Instructions based on access mode */}
                 <p className="mt-1 text-xs text-text-muted">
                   {fieldConfig.repoAccess === "invite_required"
@@ -442,12 +433,17 @@ export function SubmissionForm({
         </div>
 
         {error && <p className="text-sm text-error">{error}</p>}
+        {submissionFields.some(field => field.type === "repo") && (
+          <p className="text-sm text-text-secondary">
+            Each save records your current code version. After pushing more code,
+            click Update Submission before the deadline to include it.
+          </p>
+        )}
         {success && (
           <p className="text-sm text-success">
             Submission saved successfully! You can edit it until the deadline.
           </p>
         )}
-        {success && warning && <p className="text-sm text-gold">{warning}</p>}
 
         <Button type="submit" disabled={saving || Object.values(uploading).some(Boolean)}>
           {saving

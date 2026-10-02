@@ -165,6 +165,10 @@ export interface Submission {
   updatedAt: string;
   isLocked: boolean;
   forkUrl: string | null;
+  snapshotError?: string | null;
+  snapshotSha?: string | null;
+  submissionRevision?: number;
+  repoSnapshots?: Record<string, import("./submission-snapshots/types").RepositorySelection>;
 }
 
 export interface CodeReview {

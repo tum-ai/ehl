@@ -4,14 +4,14 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getCheckinStatusForUsers } from "@/lib/queries/checkin";
-import { parseGitHubRepo, snapshotRepo, fetchCheckpointBranchIntoFork } from "@/lib/github";
-import { checkCheckpointBranch, entireGateErrorMessage } from "@/lib/entire";
-import type { SubmissionFieldConfig } from "@/lib/types";
 import { logEvent } from "@/lib/event-log";
 import { MIN_CHALLENGE_ROSTER, MAX_TEAM_SIZE } from "@/lib/config/limits";
-import { lockSubmissionsCore, makeSnapshotName, retrySnapshotsCore } from "@/lib/submissions-lock";
-import { SNAPSHOT_WARNING, type SnapshotRetryResult } from "@/lib/snapshot-status";
+import { lockSubmissionsCore, retrySnapshotsCore } from "@/lib/submissions-lock";
+import { type SnapshotRetryResult } from "@/lib/snapshot-status";
 import { BLOCK_ACTION, type BlockReason } from "@/lib/submission-blocks";
+import { prepareSubmissionRepositories, SubmissionVerificationError } from "@/lib/submission-snapshots/prepare";
+import type { SubmissionReceipt, SubmissionRequirements } from "@/lib/submission-snapshots/types";
+import { apiLimiter, checkRateLimit } from "@/lib/ratelimit";
 
 export async function registerForChallenge(
   chapterId: string,
@@ -159,9 +159,6 @@ export async function registerForChallenge(
 }
 
 /**
- * Generate a slug-safe repo name for a snapshot.
- */
-/**
  * Record a submission attempt that was refused, then return the participant's
  * error unchanged.
  *
@@ -190,17 +187,21 @@ export async function submitProject(formData: FormData) {
   const challengeId = formData.get("challengeId") as string;
   const teamId = formData.get("teamId") as string;
   const projectName = formData.get("projectName") as string;
-  const shortDescription = (formData.get("shortDescription") as string) || null;
+  const description = formData.get("shortDescription");
+  const shortDescription = typeof description === "string" ? description || null : null;
   const fieldsJson = formData.get("fields") as string;
   const techStackJson = formData.get("techStack") as string;
 
-  if (!challengeId || !teamId || !projectName) {
+  if (typeof challengeId !== "string" || typeof teamId !== "string" || typeof projectName !== "string" || !challengeId || !teamId || !projectName) {
     return { error: "Challenge, team, and project name are required." };
+  }
+  if ((description !== null && typeof description !== "string") || projectName.trim().length > 200 || (shortDescription?.length ?? 0) > 300) {
+    return { error: "Invalid project details." };
   }
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return { error: "Not authenticated." };
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  if (authError || !user) return { error: "Not authenticated." };
 
   let fields: Record<string, string> = {};
   let techStack: string[] = [];
@@ -212,256 +213,51 @@ export async function submitProject(formData: FormData) {
     return { error: "Invalid data format." };
   }
 
-  // adminClient is intentional: RLS "President manage submissions" only allows the
-  // president, but any team member can submit. Manual auth checks enforce access.
+  if (!fields || typeof fields !== "object" || Array.isArray(fields) ||
+      !Object.values(fields).every(v => typeof v === "string" && v.length <= 10000) ||
+      !Array.isArray(techStack) || techStack.length > 30 ||
+      !techStack.every(v => typeof v === "string" && v.length <= 100)) {
+    return { error: "Invalid submission fields or technology stack." };
+  }
+  const context = { userId: user.id, challengeId, teamId };
+  const refused = (error: { details?: string; message: string }) => {
+    const reasons: BlockReason[] = ["not_team_member", "not_checked_in", "not_registered", "submissions_locked", "deadline_passed"];
+    return reasons.includes(error.details as BlockReason)
+      ? blockSubmission(error.details as BlockReason, error.message, context)
+      : { error: error.message };
+  };
+  // Intentional, narrowly scoped service access, matching the existing Submit
+  // model: participants cannot call either RPC. Identity comes only from the
+  // verified session above, never form data. SQL checks membership, check-in,
+  // registration and deadline again in the atomic save under the chapter lock.
   const adminClient = createAdminClient();
-
-  // Verify user belongs to this team
-  const { data: membership } = await adminClient
-    .from("team_members")
-    .select("team_id")
-    .eq("team_id", teamId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!membership) {
-    return blockSubmission("not_team_member", "You are not a member of this team.", {
-      userId: user.id,
-      challengeId,
-      teamId,
-    });
+  const { data, error: eligibilityError } = await adminClient.rpc("submission_requirements", { p_user: user.id, p_challenge: challengeId, p_team: teamId });
+  if (eligibilityError) return refused(eligibilityError);
+  if (!data || !Array.isArray(data.submission_fields)) return { error: "Cannot read submission requirements." };
+  const requirements = data as SubmissionRequirements;
+  for (const field of requirements.submission_fields) {
+    if (field.type === "repo" && fields[field.key]) fields[field.key] = fields[field.key].trim();
   }
-
-  // Verify submitter is checked in for this chapter
-  const { data: submitterProfile } = await adminClient
-    .from("profiles")
-    .select("email")
-    .eq("id", user.id)
-    .single();
-
-  if (submitterProfile) {
-    const { data: challengeForCheckin } = await adminClient
-      .from("challenges")
-      .select("chapter_id")
-      .eq("id", challengeId)
-      .single();
-
-    if (challengeForCheckin) {
-      const { data: checkinApp } = await adminClient
-        .from("applications")
-        .select("status")
-        .eq("chapter_id", challengeForCheckin.chapter_id as string)
-        .eq("email", submitterProfile.email as string)
-        .single();
-
-      if (!checkinApp || checkinApp.status !== "checked_in") {
-        return blockSubmission(
-          "not_checked_in",
-          "You must be checked in to submit a project.",
-          { userId: user.id, challengeId, teamId }
-        );
-      }
-    }
-  }
-
-  // Verify team is registered for this challenge
-  const { data: registration } = await adminClient
-    .from("challenge_registrations")
-    .select("id")
-    .eq("challenge_id", challengeId)
-    .eq("team_id", teamId)
-    .single();
-
-  if (!registration) {
-    return blockSubmission(
-      "not_registered",
-      "Your team is not registered for this challenge.",
-      { userId: user.id, challengeId, teamId }
-    );
-  }
-
-  // Check if submission is locked (flag set by cron)
-  const { data: existing } = await adminClient
-    .from("submissions")
-    .select("is_locked")
-    .eq("challenge_id", challengeId)
-    .eq("team_id", teamId)
-    .single();
-
-  if (existing?.is_locked) {
-    return blockSubmission(
-      "submissions_locked",
-      "Submissions are locked. The deadline has passed.",
-      { userId: user.id, challengeId, teamId }
-    );
-  }
-
-  // Also check the actual deadline (cron may not have run yet)
-  const { data: challengeRow } = await adminClient
-    .from("challenges")
-    .select("chapter_id")
-    .eq("id", challengeId)
-    .single();
-
-  if (challengeRow) {
-    const { data: chapter } = await adminClient
-      .from("chapters")
-      .select("submission_deadline")
-      .eq("id", challengeRow.chapter_id)
-      .single();
-
-    if (chapter?.submission_deadline && new Date(chapter.submission_deadline) <= new Date()) {
-      return blockSubmission(
-        "deadline_passed",
-        "The submission deadline has passed.",
-        { userId: user.id, challengeId, teamId }
-      );
-    }
-  }
-
-  // Entire session-history hard gate. When the challenge requires it, every repo
-  // field must carry an Entire session record (the legacy branch or a
-  // ref-based checkpoint with at least one captured prompt). The check is intentionally SOFT/tolerant
-  // of imperfect checkpoints across agents and Entire versions: see lib/entire.ts.
-  // Blocks the submission BEFORE persisting so a missing record never half-saves.
-  {
-    const { data: entireChallenge } = await adminClient
-      .from("challenges")
-      .select("entire_required, submission_fields")
-      .eq("id", challengeId)
-      .single();
-
-    if (entireChallenge?.entire_required) {
-      const repoFields = (
-        (entireChallenge.submission_fields as SubmissionFieldConfig[]) ?? []
-      ).filter((f) => f.type === "repo");
-
-      for (const rf of repoFields) {
-        const repoUrl = fields[rf.key];
-        if (!repoUrl) continue; // required-ness of the field itself is handled elsewhere
-        const parsed = parseGitHubRepo(repoUrl);
-        if (!parsed) continue; // malformed URL handled by repo verification
-
-        const check = await checkCheckpointBranch(parsed.owner, parsed.repo);
-        if (!check.satisfiesGate) {
-          // Which of the three it is decides who can act: only the last one is
-          // ours, and several of those at once is an incident, not a queue of
-          // teams to talk to.
-          const reason: BlockReason = check.checkUnavailable
-            ? "entire_check_unavailable"
-            : check.repoUnreadable
-              ? "entire_repo_unreadable"
-              : "entire_missing";
-          return blockSubmission(reason, entireGateErrorMessage(check), {
-            userId: user.id,
-            challengeId,
-            teamId,
-          });
-        }
-      }
-    }
-  }
-
-  const { error } = await adminClient.from("submissions").upsert(
-    {
-      challenge_id: challengeId,
-      team_id: teamId,
-      project_name: projectName,
-      short_description: shortDescription,
-      fields,
-      tech_stack: techStack,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "challenge_id,team_id" }
-  );
-
-  if (error) return { error: error.message };
-
-  logEvent({
-    action: "submission.created",
-    entityType: "submission",
-    entityId: challengeId,
-    actorId: user.id,
-    actorType: "participant",
-    delta: { created: { project_name: projectName } },
-  });
-
-  // Snapshot any repo fields (early copy, will be replaced at deadline).
-  // Best-effort: see the else branch below for why this never blocks.
-  let snapshotWarning: string | null = null;
-
+  const limit = await checkRateLimit(apiLimiter, `submission:${user.id}`);
+  if (limit.limited) return { error: limit.error };
+  let receipt: SubmissionReceipt;
   try {
-    const { data: challenge } = await adminClient
-      .from("challenges")
-      .select("submission_fields, chapter_id")
-      .eq("id", challengeId)
-      .single();
-
-    if (challenge?.submission_fields) {
-      const submissionFields = challenge.submission_fields as SubmissionFieldConfig[];
-      const repoFields = submissionFields.filter((f) => f.type === "repo");
-
-      if (repoFields.length > 0) {
-        // Get team + chapter info for naming
-        const [teamResult, chapterResult] = await Promise.all([
-          adminClient.from("teams").select("name").eq("id", teamId).single(),
-          adminClient.from("chapters").select("slug").eq("id", challenge.chapter_id).single(),
-        ]);
-        const team = teamResult.data;
-        const chapterData = chapterResult.data;
-
-        for (const rf of repoFields) {
-          const repoUrl = fields[rf.key];
-          if (!repoUrl) continue;
-
-          const parsed = parseGitHubRepo(repoUrl);
-          if (!parsed) continue;
-
-          const snapshotName = makeSnapshotName(
-            team?.name || teamId,
-            chapterData?.slug || challenge.chapter_id
-          );
-
-          const result = await snapshotRepo(
-            parsed.owner,
-            parsed.repo,
-            snapshotName,
-            `EHL submission snapshot: ${team?.name || teamId}`
-          );
-
-          if ("snapshotUrl" in result) {
-            await adminClient
-              .from("submissions")
-              .update({ fork_url: result.snapshotUrl })
-              .eq("challenge_id", challengeId)
-              .eq("team_id", teamId);
-
-            // Copy the Entire session-history branch into the private fork so the
-            // record is captured under EHL control (best-effort, never blocks).
-            await fetchCheckpointBranchIntoFork(parsed.owner, parsed.repo, snapshotName).catch(
-              (e) => console.error("Checkpoint branch capture failed:", e)
-            );
-          } else {
-            // NEVER fail the submission here. The row above is already committed,
-            // and lib/submissions-lock.ts re-snapshots every repo at the deadline.
-            // A transient GitHub failure (secondary rate limit during the deadline
-            // rush, an expired bot token) must not tell a team their submission
-            // failed when it did not: they retry, which spends more of the same
-            // rate limit. Admins find the gap via fork_url IS NULL and retry it.
-            console.error("Snapshot error:", result.error);
-            snapshotWarning = SNAPSHOT_WARNING;
-          }
-        }
-      }
-    }
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error("Auto-snapshot failed:", msg);
-    snapshotWarning = SNAPSHOT_WARNING;
+    const repo_snapshots = await prepareSubmissionRepositories(fields, requirements);
+    receipt = { user_id: user.id, challenge_id: challengeId, team_id: teamId,
+      project_name: projectName, short_description: shortDescription, fields, tech_stack: techStack,
+      requirements, repo_snapshots };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Repository verification could not finish. Please retry.";
+    return blockSubmission(error instanceof SubmissionVerificationError ? error.reason : "entire_check_unavailable", message, context);
   }
-
+  const { error } = await adminClient.rpc("receive_submission", { p_submission: receipt });
+  if (error) {
+    return refused(error);
+  }
+  logEvent({ action: "submission.created", entityType: "submission", entityId: challengeId,
+    actorId: user.id, actorType: "participant", delta: { created: { project_name: projectName } } });
   revalidatePath("/dashboard");
-  return snapshotWarning ? { success: true, warning: snapshotWarning } : { success: true };
+  return { success: true };
 }
 
 export async function lockSubmissions(challengeId: string) {
