@@ -1,0 +1,5 @@
+/update-config
+
+---
+
+Did our last changes regarding the change of the application logic, where people now need an account for applications, have an effect on the application itself, the account, and how people stop an application or anything? Please look into real data.
