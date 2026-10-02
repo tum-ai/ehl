@@ -1,0 +1,82 @@
+push and update
+
+---
+
+summarize simply what codex found + why is there a whole new migration now?
+
+---
+
+just to verify, its not conflicting with any other functionality right? like users cant chane there own mail and so? + safe to run migration on prod now?
+
+---
+
+so both migrations were tested on test before?
+
+---
+
+Yes, run it, and also update the PR description to not sound like a complete security error we had before. Also, when you run the test and everything is correct, tell me to verify, and we will apply it together after tests on prod. Then I will merge the code.
+
+---
+
+ok apply
+
+---
+
+the confirm steps is only for new accounts, right?
+
+---
+
+is this how the pr 53 wanted it from the very beginning?
+
+---
+
+I kind of don't get what we achieved with this PR and the commits, because I tried currently, with the state on prod, to apply with an existing account. First of all, you get an overview login, or just apply with a new mail. When I type in a new mail, it says to me, "Oh, you have an account," and the UI changes. What does the PR introduce? The current stance on prod is already kind of forcing a user to create a new account or log in with an existing one if the mail already exists when applying.
+
+---
+
+If I apply with one mail that didn't have an account, create the account with the new logic, right? Then, if I try to apply again, I can continue without logging in. What happens?
+
+---
+
+ok final confirmation? safe to merge now into main?
+
+---
+
+Is staging up to date?
+
+---
+
+its merged into main, just update staging to main
+
+---
+
+I sent out all the invites for the top 15 teams. I remember everyone being invited. Now there are some people who didn't get the invite in the UI. Does it mean the team added them afterwards? If so, which people were added to the team after the invites were sent to other members? I remember it being like three people.
+
+---
+
+who else got invited only after the invites?
+
+---
+
+Regarding the three from Herdr, Asquante, and Coda Cabana, were they ever part of the team before, or are they completely new?
+
+---
+
+Harissa also had chamine, did he join also later?
+
+---
+
+amine i mean
+
+---
+
+I want to invite only those two persons. Can you send out RSVPs only to them? Nobody else.Ahlem Trabelsi ahlemtrabelsi087@gmail.com
+Amine Cheikhrouhou amine.cheikhrouhou54@gmail.com
+
+---
+
+yes the finale invite, send it
+
+---
+
+send out the finalist rsvp to  mikhail konov from underdeterministic tornado (only him rn!)
