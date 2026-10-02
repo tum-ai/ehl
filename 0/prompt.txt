@@ -1,0 +1,261 @@
+durint the last hackathons we had encountered the problem that the token limit was reached and some teams couldnt upload. what was it exactly? simple language + where can i access it to see the problem
+
+---
+
+but why did it infere with the code review aswell?
+
+---
+
+analyze why we have so many failed there, fetch the real data
+
+---
+
+Okay, now don't only approximate, but really look into how many submissions are possible with the token we currently have. What kind of token is that? If one team submits one time and there is one fork per team, how many teams can we do in what space of time? Research the GitHub token for that, the exact rate limits, and, based on the history, say if and what kind of limit we were hitting, because I want a real, backed, deep dive and analysis of that.
+
+---
+
+You said Munich didn't have any problems. That's not true. I had submitted two teams manually, the same as Zurich. Now, looking at point 4 of your capacity table, I understand that copying the refs is eating up a lot of things. I thought we were just cloning the repository with all the branches. Why do we copy them, and why does it take up so much of the limit?
+
+---
+
+i like option 4. but does that guarantee that for example 100 teams can submit all at once?
+
+---
+
+ok write up first a deep summary and handover as an md for my next agent. call it github-ratelimit-handoff.md and store it locally at the root for the time being. be very specific with exact data that you found and the possible actions + the real data supporting it.
+
+---
+
+what do you think of these proposals: Ahlem Trabelsi ahlemtrabelsi087@gmail.com
+Not invited
+Amine Cheikhrouhou amine.cheikhrouhou54@gmail.com
+
+---
+
+what do you think of these proposals: 
+
+<pasted_content id="2d3e">
+My top three solutions, ranked
+
+1. Accept submissions immediately and process GitHub work through a durable queue.
+
+Save the submission, its server receipt time and its processing job atomically. Return a receipt immediately. During a GitHub outage, classify remote verification as pending rather than rejecting an otherwise valid submission. Authentication, membership, required fields and deadline checks still apply.
+
+A worker then verifies access, captures code and prepares jury access through resumable steps. It must respect retry headers, distinguish permanent permission failures from transient failures, and record diagnostic response details. Closing submissions and advancing the event must not wait for GitHub.
+
+Use explicit states for verification, snapshot completeness and jury access. A nullable fork URL cannot represent all three.
+
+Why first: This directly prevents GitHub failures from turning into lost submission opportunities.
+
+Tradeoff: Receipt is provisional until remote requirements are verified. The interface and event rules must make that distinction clear.
+
+2. Replace thousands of individual REST operations with bulk capture and reuse.
+
+Fetch repository contents once for review, using a commit specific archive or Git checkout. Transfer Entire refs in batches through Git, including legacy checkpoint branches. Reuse the captured material for subsequent review attempts.
+
+Where REST copying remains, use the SHA already returned by reference discovery and skip unchanged destination refs. Make checkpoint collection an explicit requirement rather than automatically doing it for every challenge. Archive API (https://docs.github.com/en/rest/repos/contents#download-a-repository-archive-tar).
+
+Why second: A queue alone makes excessive work orderly; it does not make that work affordable within the judging window.
+
+Tradeoff: Bulk processing needs limits for repository size and transfer duration. Git operations also need pacing. A normal source archive does not contain all Git history or custom Entire refs.
+
+3. Establish repository access early and provide an independent deadline fallback.
+
+Verify private repository access and prepare jury permissions during the event, rather than doing everything at the deadline. Fix invitation pagination.
+
+Define exactly which code version is submitted. Record an immutable commit identifier and preserve that version; do not later synchronize whatever happens to be on the default branch. If GitHub is unavailable, provide an authenticated code archive upload with a server receipt timestamp, including a checkpoint bundle where required.
+
+Why third: A queue preserves the submission request, but cannot retrieve code while GitHub is unavailable. An independently received artifact also preserves what was submitted on time.
+
+Tradeoff: This adds participant workflow and artifact handling. Without it, the event must explicitly accept delayed verification and the remaining uncertainty about deadline contents.
+
+I recommend implementing solutions 1 and 2 together, with solution 3 as the outage contingency. The strongest objection is implementation scope, but merely increasing quota leaves verification failures, timeouts and stale snapshots unresolved. A second PAT belonging to the same user also shares that user’s quota; it is not independent capacity. GitHub authentication limits (https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api).
+
+Before declaring readiness, test 150 submissions with repeated updates, GitHub throttling, an outage, worker termination and more than 100 pending invitations. The acceptance criteria should include durable receipts, resumable processing and exact captured commit versions, not just successful HTTP responses.
+</pasted_content id="2d3e">
+
+---
+
+ok there are changes locally on the current branch. review them and summarize what they addres. test
+
+---
+
+<task-notification>
+<task-id>bst6ije7m</task-id>
+<tool-use-id>toolu_018Cquwdby3AHFEtu4FVMXd1</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bst6ije7m.output</output-file>
+<status>completed</status>
+<summary>Background command "Start dev server on local stack" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+review the branch now, there have been changes. what and how
+
+---
+
+<task-notification>
+<task-id>bvph33jad</task-id>
+<tool-use-id>toolu_01TYPuYJXHqpSsgWQiPqRuqd</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bvph33jad.output</output-file>
+<status>completed</status>
+<summary>Background command "Start guarded dev server on local stack" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+explain simply what i need to configure in github
+
+---
+
+i really dont understand what was before (like ehl-gg, the org) and how its now
+
+---
+
+so read handover.md and the changes are now on the separate branch feat/submission-reliability. i want you to first double check every thing. sum simply what was fixed and introduced on this branch, then look if its safe to commit + what i need to do manually in github or so.
+
+---
+
+<task-notification>
+<task-id>bnk7is571</task-id>
+<tool-use-id>toolu_01BkSmC5VGwHWFpGVYhGSLLu</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bnk7is571.output</output-file>
+<status>completed</status>
+<summary>Background command "Start guarded dev server on local stack" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+and now?
+
+---
+
+<task-notification>
+<task-id>bo3hbglj1</task-id>
+<tool-use-id>toolu_01Eo2PLGHE5kk5Q7CFGTJnSY</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bo3hbglj1.output</output-file>
+<status>completed</status>
+<summary>Background command "Run E2E lifecycle suite then stop server" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bxpf1yc19</task-id>
+<tool-use-id>toolu_01LfjVZrC13AoSUR793VwuCi</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bxpf1yc19.output</output-file>
+<status>completed</status>
+<summary>Background command "Start guarded dev server for E2E" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bdg8lzxi5</task-id>
+<tool-use-id>toolu_01GTy48zYkZJXp9foyzZ4pzo</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bdg8lzxi5.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for E2E run to finish" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+so what is on the branch and how does it address our problem? is it complete or still buggy since there have been some useless features that needed to be scraped
+
+---
+
+<task-notification>
+<task-id>b3cj0z2ey</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/b3cj0z2ey.output</output-file>
+<status>completed</status>
+<summary>Background command "Restart guarded dev server" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+verify if everything is ready to push as is + what the branch generally introduces that improves the situation in comparison to the zurich hotfix
+
+---
+
+<task-notification>
+<task-id>bwneekji9</task-id>
+<tool-use-id>toolu_01GA7sxw9K7CSdodu1Rdwxy4</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bwneekji9.output</output-file>
+<status>completed</status>
+<summary>Background command "Run warm E2E suite in background with signing secret" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bzwffurgk</task-id>
+<tool-use-id>toolu_011LD86rMi7zh45Lkr1ayAWu</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bzwffurgk.output</output-file>
+<status>completed</status>
+<summary>Background command "Run E2E cleanup then lifecycle excluding live-GitHub test" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bveat010h</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bveat010h.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for cleanup plus E2E rerun result" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>boyysljr8</task-id>
+<tool-use-id>toolu_01XggryboAbAipw74RyzTuXU</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/boyysljr8.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for lifecycle E2E rerun to finish" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+what of this has no real gain? in my pov: diagnosis is really important, the copied only when nedded thing, the deadline and submit. but what about that one download per commit? what does this achieve + what does it do?
+
+---
+
+the token is only one token and its from ehl-gg. what happens to the verify button on the ui of users on the submission dashboard?
+
+---
+
+You made it sound like people can submit without working the entire check. Is it possible or not? Submission should block, just like verify should say it's not verified if there is missing entire evidence. Or if it's private and cannot be copied because ehl-gg is not invited, for example
+
+---
+
+Why did we change it so that submit runs verify again? Why not keep it the same, so that people have to press verify before submitting?
+
+---
+
+Okay, what about this token? Why did it move to Supabase? I don't get it. Is that even necessary? Can we go back on that change to how it was before?
+
+---
+
+Inspect the repository now and verify if that changed or not, and if it changed correctly, and if it's now how I wanted it and safe to commit.
+
+---
+
+<task-notification>
+<task-id>baesorx90</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/baesorx90.output</output-file>
+<status>completed</status>
+<summary>Background command "Run E2E lifecycle suite with warm guarded server" completed (exit code 0)</summary>
+</task-notification>
+
+---
+
+<task-notification>
+<task-id>bjit6363a</task-id>
+<tool-use-id>REDACTED</tool-use-id>
+<output-file>/private/tmp/claude-501/-Users-mykhayloserdyuk-TUMai-ehl/1cdf47df-ab8b-4aea-a124-178337ce5c20/tasks/bjit6363a.output</output-file>
+<status>completed</status>
+<summary>Background command "Wait for E2E result" completed (exit code 0)</summary>
+</task-notification>
