@@ -3,21 +3,21 @@
   "checkpoint_id": "01M3YZEF82GD2AAXRK7CSNPAET",
   "session_id": "1cdf47df-ab8b-4aea-a124-178337ce5c20",
   "strategy": "manual-commit",
-  "created_at": "2026-10-02T18:53:58.668859Z",
+  "created_at": "2026-10-02T18:59:13.437577Z",
   "branch": "fix/submission-snapshot-queue",
   "checkpoints_count": 21,
   "save_step_count": 1,
   "files_touched": [],
   "agent": "Claude Code",
   "model": "claude-opus-5-5",
-  "turn_id": "bc2593a88ba6",
+  "turn_id": "f60d92d2d9c4",
   "compact_transcript_start": 0,
   "token_usage": {
-    "input_tokens": 532,
-    "cache_creation_tokens": 2802288,
-    "cache_read_tokens": 87096109,
-    "output_tokens": 249662,
-    "api_call_count": 264
+    "input_tokens": 558,
+    "cache_creation_tokens": 2816626,
+    "cache_read_tokens": 94746616,
+    "output_tokens": 260291,
+    "api_call_count": 277
   },
   "session_metrics": {
     "turn_count": 21
