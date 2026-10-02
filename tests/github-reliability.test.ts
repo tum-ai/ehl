@@ -10,6 +10,7 @@ import {
   snapshotRepo,
   fetchCheckpointBranchIntoFork,
 } from "@/lib/github";
+import { ingestRepo } from "@/lib/code-review/ingest";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -65,5 +66,34 @@ describe("GitHub reliability regressions", () => {
     expect(
       calls.filter((url) => url.includes("/git/ref/entire/checkpoints/aa")),
     ).toEqual([]);
+  });
+
+  it("fills the remaining review budget instead of downloading and discarding the tail", async () => {
+    const downloaded: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url.includes("/git/trees/"))
+          return Response.json({
+            tree: [1, 2, 3].map((n) => ({
+              path: `${n}.ts`,
+              type: "blob",
+              size: 10,
+            })),
+          });
+        if (url.includes("/contents/")) {
+          downloaded.push(url);
+          return Response.json({
+            encoding: "base64",
+            content: Buffer.from("1234567890").toString("base64"),
+          });
+        }
+        return Response.json({ default_branch: "main" });
+      }),
+    );
+    const result = await ingestRepo("https://github.com/owner/repo", 3);
+    expect(downloaded).toHaveLength(2);
+    expect(result.files.map((f) => f.content).join("")).toHaveLength(12);
+    expect(result.metadata.sampled).toBe(true);
   });
 });

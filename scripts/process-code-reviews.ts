@@ -13,8 +13,9 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { toChallenge } from "../lib/queries";
+import { toChallenge, toSubmission } from "../lib/queries";
 import { runCodeReviewPipeline } from "../lib/code-review/pipeline";
+import { selectSubmissionRepository } from "../lib/submission-snapshots/selection";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -105,24 +106,11 @@ async function main() {
 
       const challenge = toChallenge(challengeRow as Record<string, unknown>);
 
-      // Determine repo URL (prefer fork)
-      const fields = (submission.fields as Record<string, string>) ?? {};
-      // Check common keys case-insensitively
-      const lowerFields = Object.fromEntries(
-        Object.entries(fields).map(([k, v]) => [k.toLowerCase(), v])
-      );
-      const originalRepoUrl =
-        lowerFields.repo ||
-        lowerFields.github ||
-        lowerFields.repository ||
-        Object.values(fields).find(
-          (v: string) => typeof v === "string" && v.includes("github.com")
-        );
-      const repoUrl = (submission.fork_url as string) || originalRepoUrl;
-
-      if (!repoUrl) {
-        throw new Error("No GitHub repository URL found");
+      const selected = selectSubmissionRepository(toSubmission(submission), challenge.submissionFields);
+      if (!selected) {
+        throw new Error("Accepted repository version is unavailable");
       }
+      const { repoUrl, commitSha, checkpointRefs } = selected;
 
       // Update repo URL on the review record
       await adminClient
@@ -133,6 +121,8 @@ async function main() {
       // Run the multi-agent pipeline with progress tracking
       const result = await runCodeReviewPipeline({
         repoUrl,
+        commitSha,
+        checkpointRefs,
         challenge,
         briefText: null, // Brief PDF download requires Google Drive credentials not available in CI
         onProgress: async (step: string) => {

@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSession } from "@/lib/actions/auth";
-import { toChallenge } from "@/lib/queries";
+import { toChallenge, toSubmission } from "@/lib/queries";
 import { runCodeReviewPipeline } from "@/lib/code-review/pipeline";
 import { downloadFile } from "@/lib/gdrive";
+import { selectSubmissionRepository } from "@/lib/submission-snapshots/selection";
 
 export async function POST(request: Request) {
   const session = await getSession();
@@ -44,27 +46,21 @@ export async function POST(request: Request) {
 
   const challenge = toChallenge(challengeRow as Record<string, unknown>);
 
-  // Prefer fork URL (EHL's frozen copy), fall back to original repo
-  const fields = submission.fields as Record<string, string>;
-  const originalRepoUrl =
-    fields.repo ||
-    fields.github ||
-    fields.repository ||
-    Object.values(fields).find(
-      (v: string) => typeof v === "string" && v.includes("github.com")
-    );
-  const repoUrl = (submission.fork_url as string) || originalRepoUrl;
-
-  if (!repoUrl) {
+  const mappedSubmission = toSubmission(submission);
+  const selected = selectSubmissionRepository(mappedSubmission, challenge.submissionFields);
+  if (!selected) {
     return NextResponse.json(
-      { error: "No GitHub repository URL found" },
-      { status: 400 }
+      { error: mappedSubmission.submissionRevision ? "The accepted repository version is unavailable." : "No GitHub repository URL found" },
+      { status: mappedSubmission.submissionRevision ? 409 : 400 }
     );
   }
+  const { repoUrl, commitSha, checkpointRefs } = selected;
 
-  // Mark as processing
-  await adminClient.from("code_reviews").upsert(
+  // Keep this attempt's row identity: a new receipt deletes stale reviews, so a
+  // late completion must never update a replacement row by submission_id.
+  const { data: review, error: startError } = await adminClient.from("code_reviews").upsert(
     {
+      id: randomUUID(),
       submission_id: submissionId,
       repo_url: repoUrl,
       status: "processing",
@@ -76,7 +72,19 @@ export async function POST(request: Request) {
       cost_usd: null,
     },
     { onConflict: "submission_id" }
-  );
+  ).select("id").single();
+  if (startError || !review) {
+    return NextResponse.json({ error: "Could not start the code review." }, { status: 500 });
+  }
+
+  // Covers a receipt arriving between the initial read and this attempt's
+  // creation. Changes after this check delete the row we retained above.
+  const { data: current, error: currentError } = await adminClient.from("submissions")
+    .select("submission_revision").eq("id", submissionId).single();
+  if (currentError || !current || (current.submission_revision ?? 0) !== (mappedSubmission.submissionRevision ?? 0)) {
+    await adminClient.from("code_reviews").update({ status: "failed", progress: "Submission changed. Retry the review." }).eq("id", review.id);
+    return NextResponse.json({ error: "Submission changed. Please retry the review." }, { status: 409 });
+  }
 
   try {
     // Fetch brief PDF content if available
@@ -95,12 +103,14 @@ export async function POST(request: Request) {
     // Run multi-agent pipeline
     const result = await runCodeReviewPipeline({
       repoUrl,
+      commitSha,
+      checkpointRefs,
       challenge,
       briefText,
     });
 
     // Store completed review
-    await adminClient
+    const { data: completed, error: completionError } = await adminClient
       .from("code_reviews")
       .update({
         review_content: result.reviewContent,
@@ -112,7 +122,11 @@ export async function POST(request: Request) {
         review_version: 2,
         generated_at: new Date().toISOString(),
       })
-      .eq("submission_id", submissionId);
+      .eq("id", review.id).select("id").maybeSingle();
+    if (completionError) throw completionError;
+    if (!completed) {
+      return NextResponse.json({ error: "Submission or review changed. Please refresh." }, { status: 409 });
+    }
 
     return NextResponse.json({
       success: true,
@@ -124,7 +138,7 @@ export async function POST(request: Request) {
     await adminClient
       .from("code_reviews")
       .update({ status: "failed" })
-      .eq("submission_id", submissionId);
+      .eq("id", review.id);
 
     return NextResponse.json({ error: "Code review failed. Please try again." }, { status: 500 });
   }

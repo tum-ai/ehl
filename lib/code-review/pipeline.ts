@@ -13,6 +13,7 @@ import { ingestRepo } from "./ingest";
 import { ingestSessionHistory } from "@/lib/entire";
 import { parseGitHubRepo } from "@/lib/github";
 import type { SessionHistoryAnalysis } from "@/lib/types";
+import type { CheckpointRef } from "@/lib/submission-snapshots/types";
 import {
   buildTechDescriptionPrompt,
   buildCodeQualityPrompt,
@@ -100,6 +101,8 @@ export interface PipelineResult {
 
 export async function runCodeReviewPipeline(params: {
   repoUrl: string;
+  commitSha?: string;
+  checkpointRefs?: CheckpointRef[];
   challenge: Challenge;
   briefText: string | null;
   onProgress?: (step: string) => void | Promise<void>;
@@ -114,7 +117,7 @@ export async function runCodeReviewPipeline(params: {
   // Stage 1: Ingest
   await progress("Cloning repository...");
   const ingestStart = Date.now();
-  const { files, metadata } = await ingestRepo(params.repoUrl, config.token_budget);
+  const { files, metadata } = await ingestRepo(params.repoUrl, config.token_budget, params.commitSha);
   stages.ingest = {
     status: "completed",
     duration_ms: Date.now() - ingestStart,
@@ -200,7 +203,10 @@ export async function runCodeReviewPipeline(params: {
     try {
       const parsedRepo = parseGitHubRepo(params.repoUrl);
       const session = parsedRepo
-        ? await ingestSessionHistory(parsedRepo.owner, parsedRepo.repo)
+        ? await ingestSessionHistory(parsedRepo.owner, parsedRepo.repo, {
+          checkpointRefs: params.checkpointRefs,
+          commitSha: params.commitSha,
+        })
         : null;
       if (!session || (session.promptSamples.length === 0 && session.checkpointCount === 0)) {
         sessionHistory = {
