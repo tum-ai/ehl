@@ -20,6 +20,8 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminCli
 vi.mock("@/lib/submissions-lock", () => ({ lockSubmissionsCore: mocks.lockSubmissionsCore }));
 vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
 
+vi.mock("@/lib/submission-snapshots/dispatch", () => ({ dispatchPendingSnapshots: vi.fn() }));
+
 import { GET } from "@/app/api/cron/deadline-check/route";
 
 const SECRET = "test-cron-secret";

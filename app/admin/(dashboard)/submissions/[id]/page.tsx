@@ -15,6 +15,7 @@ import { extractDriveFileId, getDriveEmbedUrl } from "@/lib/drive-embed";
 import { ensureFileLinkReadable } from "@/lib/gdrive";
 import { SnapshotRetry } from "@/components/admin/snapshot-retry";
 import { snapshotState } from "@/lib/snapshot-status";
+import { selectSubmissionRepository } from "@/lib/submission-snapshots/selection";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -47,7 +48,12 @@ export default async function AdminSubmissionDetailPage({ params }: PageProps) {
     const value = submission.fields[fieldConfig.key];
     if (!value) continue;
     const isRepo = fieldConfig.type === "repo";
-    const displayUrl = isRepo && submission.forkUrl ? submission.forkUrl : value;
+    const repository = isRepo ? selectSubmissionRepository(submission, challenge.submissionFields, fieldConfig.key) : null;
+    const displayUrl = isRepo ? repository?.href : value;
+    if (!displayUrl) {
+      textFields.push({ label: fieldConfig.label, value: "Accepted repository version unavailable." });
+      continue;
+    }
 
     if (fieldConfig.type === "file") {
       const embedUrl = getDriveEmbedUrl(displayUrl);
@@ -78,8 +84,9 @@ export default async function AdminSubmissionDetailPage({ params }: PageProps) {
     })
   );
 
+  const primaryRepository = selectSubmissionRepository(submission, challenge.submissionFields);
   const snapshot = snapshotState({
-    forkUrl: submission.forkUrl,
+    forkUrl: primaryRepository && !primaryRepository.missingFork ? primaryRepository.href : null,
     fields: submission.fields,
   });
 
@@ -103,9 +110,8 @@ export default async function AdminSubmissionDetailPage({ params }: PageProps) {
         )}
       </Card>
 
-      {/* Snapshot status. A missing fork is shown here because the links below
-          silently fall back to the team's ORIGINAL repo URL, which a juror
-          cannot open when that repo is private. */}
+      {/* New receipts keep their accepted version even while copying is pending.
+          A private source can remain unreadable to jury until its copy is ready. */}
       {snapshot !== "not_applicable" && (
         <Card className="mt-4">
           <p className="text-xs font-bold uppercase tracking-wider ad-text-muted">
@@ -114,9 +120,9 @@ export default async function AdminSubmissionDetailPage({ params }: PageProps) {
           {snapshot === "snapshotted" ? (
             <p className="mt-1 text-sm ad-text">
               Archived in the EHL snapshot org.{" "}
-              {submission.forkUrl && (
+              {primaryRepository && !primaryRepository.missingFork && (
                 <a
-                  href={submission.forkUrl}
+                  href={primaryRepository.href}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="ad-text-link hover:underline"
@@ -128,14 +134,14 @@ export default async function AdminSubmissionDetailPage({ params }: PageProps) {
           ) : (
             <>
               <p className="mt-1 text-sm font-medium text-amber-700">
-                Not snapshotted. The jury sees the team&apos;s own repository URL, which
-                they cannot open if it is private. Retry once any GitHub rate limit has
-                cleared or the bot token has been rotated.
+                Repository copy pending. Copies retry automatically after a GitHub rate limit.
+                If an access or configuration error remains, fix it and use Retry snapshot.
               </p>
-              <div className="mt-3">
-                <SnapshotRetry submissionId={submission.id} />
-              </div>
             </>
+          )}
+          {submission.snapshotError && <p className="mt-2 text-sm text-amber-700">{submission.snapshotError}</p>}
+          {(snapshot !== "snapshotted" || submission.snapshotError) && (
+            <div className="mt-3"><SnapshotRetry submissionId={submission.id} /></div>
           )}
         </Card>
       )}

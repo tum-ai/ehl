@@ -13,6 +13,7 @@ import {
   getCodeReviewForSubmissionAuthenticated,
 } from "@/lib/queries";
 import { ReportCard } from "@/components/code-review/report-card";
+import { selectSubmissionRepository } from "@/lib/submission-snapshots/selection";
 
 interface PageProps {
   params: Promise<{ "chapter-slug": string }>;
@@ -198,11 +199,12 @@ export default async function JuryChapterPage({ params, searchParams }: PageProp
                       if (!value) return null;
 
                       const isRepo = fieldConfig.type === "repo";
-                      const displayUrl = isRepo && sub.forkUrl ? sub.forkUrl : value;
+                      const repository = isRepo ? selectSubmissionRepository(sub, challenge.submissionFields, fieldConfig.key) : null;
+                      const displayUrl = isRepo ? repository?.href : value;
                       // No EHL fork: this link points at the team's OWN repo,
                       // which is unreadable for a juror when it is private. Say
                       // so instead of handing over a link that 404s.
-                      const missingFork = isRepo && !sub.forkUrl;
+                      const missingFork = isRepo && repository?.missingFork;
 
                       return (
                         <div key={fieldConfig.key} className="flex items-center justify-between text-sm">
@@ -214,7 +216,7 @@ export default async function JuryChapterPage({ params, searchParams }: PageProp
                               </span>
                             )}
                           </span>
-                          {displayUrl.startsWith("http") ? (
+                          {displayUrl?.startsWith("http") ? (
                             <a
                               href={displayUrl}
                               target="_blank"
@@ -224,7 +226,7 @@ export default async function JuryChapterPage({ params, searchParams }: PageProp
                               {fieldConfig.type === "file" ? "View File" : fieldConfig.type === "repo" ? "View Repo" : "Open"}
                             </a>
                           ) : (
-                            <span className="text-text-secondary">{displayUrl}</span>
+                            <span className="text-text-secondary">{displayUrl ?? "Accepted repository version unavailable."}</span>
                           )}
                         </div>
                       );
