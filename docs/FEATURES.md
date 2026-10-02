@@ -348,9 +348,21 @@ Available to participants who are checked in at an event.
 
 ### Submissions (`/matches/<slug>#submission`)
 - Upload project files (stored in Google Drive, organized by Chapter/Team)
-- Link GitHub repository (automatically forked for jury review). A GitHub failure at
-  this step never fails the submission: the project is saved and the participant sees a
-  notice that the archive copy will be retried
+- Link a GitHub repository. Submit checks eligibility, reads the current code commit,
+  and checks required Entire evidence on the source repository before saving.
+  The Verify button is optional feedback; skipping it cannot bypass Submit's checks.
+- The server sends verified versions to a service-only database save, which
+  checks eligibility and the deadline and records the submission and copy job together. The existing cron dispatches due jobs only;
+  repositories are not observed periodically. GitHub rate limits delay copying
+  without losing an accepted submission. Admins use the existing retry control.
+- Each successful Submit or Update records the exact code and Entire versions.
+  After pushing changes, teams must click Update Submission before the deadline.
+  Deadline closure and later retries preserve the last accepted versions; a late
+  push is never included automatically. Jury links and reviews use those versions.
+  Keep the source accessible until copying finishes.
+- Required verification is strict: missing Entire evidence, an unreadable repository
+  or an unavailable GitHub check blocks saving with a specific error. Reducing
+  background requests lowers quota pressure but cannot guarantee quota is available.
 - Add tech stack tags
 - Submission deadline countdown timer
 - Submissions lock automatically when deadline passes (via cron or admin action)
@@ -449,11 +461,11 @@ Automated code quality assessment using multiple LLM agents.
 ### Entire Session History (per challenge, optional)
 [Entire](https://entire.io) is a client-side CLI that captures AI coding-agent sessions on the legacy `entire/checkpoints/v1` branch or on per-checkpoint refs under `refs/entire/checkpoints/<shard>/<id>`. When a challenge has "Require Entire Session History" enabled:
 
-- **Hard gate (at submission):** the repo must contain a recognized Entire branch or checkpoint ref with at least one captured prompt. If missing, submission is blocked with a clear, actionable error. The presence check is intentionally soft: it tolerates imperfect checkpoints across different agents (Claude Code, Codex, Cursor, Gemini, ...) and Entire versions, accepting any positive signal (prompt file, session metadata, or transcript).
+- **Required evidence:** Submit checks the recorded checkpoint objects for a captured prompt, session metadata or transcript before saving. Missing or unverifiable evidence prevents submission. The worker copies the accepted objects without applying a second, different gate. The check remains tolerant of agent and Entire version differences.
 - **Three distinct failure messages.** GitHub returns the same 404 for "this repo has no checkpoint data" and "you may not read this repo", so on failure the gate probes the repository itself before deciding what to say: *we could not read your repository* (private without `ehl-gg` access, renamed, or an expired platform token), *no recognized checkpoint branch or ref*, or *checkpoint data present but no captured prompts*. Only the second and third are the team's to fix; conflating them sends teams to redo work they already did correctly.
 - **Capture:** the checkpoint branch or refs are copied into the private EHL fork (not the public path), so transcripts stay under EHL control.
 - **Advisory bonus:** a session-history agent scores process quality (ownership language, technical specificity, iteration/verification, edge-case awareness) plus completeness/tamper-plausibility (including whether checkpoint commits are signed). This is highlighted in the jury report. It is informational only and never feeds the placement/leaderboard score.
-- **Off switch:** the whole behavior is per-challenge, like code review. Roles affected: participants (must enable Entire to submit), jury (see the bonus), admins (toggle it).
+- **Off switch:** the requirement remains per challenge, like code review. Roles affected: participants (must provide Entire evidence when required), jury (see the bonus), admins (configure the requirement and resolve copy errors).
 
 ### Execution
 - Triggered manually by admin or automatically after submission deadline
@@ -629,9 +641,9 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
   talking to them
 - **Snapshot retry**: when any fork is missing, a banner counts them and offers a
   per-match "Retry N in <match>" button; the submission detail page has a per-team
-  "Retry snapshot" button. Both re-run the fork and report the live GitHub error on
-  failure (rate limit, expired token, revoked access), so an operator knows whether to
-  wait, rotate the bot token, or chase the team. Idempotent: safe to press repeatedly
+  "Retry snapshot" button. Both queue background work and report how many jobs were
+  queued. The detail page shows the worker's latest error. Retrying preserves an
+  already resolved commit and completed work; a live copy cannot be interrupted.
 
 ### Score Management (`/admin/chapters/<id>/scores`)
 - View aggregated jury rankings per challenge

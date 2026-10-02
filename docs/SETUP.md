@@ -55,7 +55,7 @@ for f in supabase/migrations/*.sql; do
 done
 ```
 
-Migration files currently run through 00063. They must run in numerical order.
+There are 70 migration files through 00072. They must run in numerical order.
 
 ### 2.3 Configure Auth Settings
 
@@ -265,6 +265,52 @@ a typical event window; increase the `matrix.worker` list in
 `.github/workflows/process-code-reviews.yml` if you need more throughput (GitHub
 standard runners allow up to ~20 concurrent jobs).
 
+**Submission copy worker (`process-submission-snapshots`).** All submissions use
+one verified receipt path. Migrations 00071 and 00072 queue repository copies on
+save; the final lock retains the accepted versions and queues final jury/review work. The existing `/api/cron/deadline-check` checks for due
+jobs, skips an active worker, and sends `process-submission-snapshots` to Actions.
+There is no additional cron schedule, chapter toggle or recurring repo observation.
+Before the first saved job, worker dispatch makes no GitHub calls. Submit still
+reads source versions and checks required Entire evidence before saving.
+
+The workflow uses the existing `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` and
+`GH_PAT` secrets. `GH_PAT` must belong to the bot invited to private participant
+repositories. Credentials follow the existing settings lookup with environment
+fallback; storing a token in the database is not required. For a custom snapshot
+organization, set the existing `github_org` app setting or the optional
+`GITHUB_ORG` Actions variable. The workflow's `SNAPSHOT_WORKER_ENV` selects an independent database
+identity check before any job runs.
+
+Keep repository field keys, types and order unchanged after submissions begin;
+changing that configuration can hide a saved repository or change which one is
+reviewed as primary. It cannot select newer commits.
+
+Apply migrations 00071 and 00072 before deploying the matching code. Submit uses
+the existing server service key for its restricted save RPC; no additional receipt
+secret or settings provisioning is required.
+
+The worker exits after draining due work or after 20 minutes. Jobs have renewable
+leases, so a terminated worker can resume safely. GitHub quota errors honor reset
+and retry headers without consuming the five transient failure attempts. Permanent
+access/configuration errors stay visible on the existing submission detail page.
+The shared budget table contains quota timestamps and account IDs, never tokens.
+Its pacing covers snapshot REST calls; existing verification and review clients
+are not routed through that limiter. Keep capacity headroom for those clients.
+
+Completed final copies queue the existing AI review pipeline. Reviews download a
+single archive for the copied SHA. Bare Git copies full ancestry and required
+Entire refs; no submitted code is checked out or executed. The SHA is resolved
+at successful Submit/Update, before the database deadline. Required Entire objects
+are also frozen then. The worker never chooses a newer source commit.
+
+For a real GitHub rehearsal, the separate snapshot test workflow needs
+`TEST_SUPABASE_URL`, `TEST_SUPABASE_SERVICE_ROLE_KEY`, `TEST_GH_PAT`, and the
+`TEST_GITHUB_ORG` variable. Test workers require explicit credentials and an
+organization; they never fall back to database settings or production defaults.
+Local lifecycle tests use simulated GitHub responses and need none of these
+secrets. Validate private repo access and a real Git transfer in the test org
+before using the worker at an event. See [TESTING.md](TESTING.md#submission-queue-tests).
+
 ### 6.5 Entire Session History (optional, per challenge)
 
 For challenges that require AI session history, participants install [Entire](https://entire.io) and capture their coding session:
@@ -368,9 +414,10 @@ Complete list of every environment variable. Set all "Required" vars before firs
 
 | Variable | Source | Description |
 |----------|--------|-------------|
-| `GITHUB_TOKEN` | GitHub bot PAT | For repo forks and jury invites |
+| `GITHUB_TOKEN` | GitHub bot PAT | Source verification; same bot identity as the copy worker |
 | `GITHUB_REPO` | You | Main repo (`owner/repo` format) |
 | `GITHUB_ORG` | You | Snapshot fork org name |
+| `SNAPSHOT_WORKER_ENV` | Snapshot Actions workflow | `production` or `test`; database identity guard, not a web-app setting |
 
 ### Google Drive
 
@@ -428,6 +475,7 @@ All query limits have sensible defaults. Override via env vars if you need highe
 | `LIMIT_MEDIA` | 400 | Max media items |
 | `LIMIT_SHOWCASE_CV_ZIP` | 100 | Max CVs in one showcase bulk-download ZIP (413 above; 2 Drive calls/CV against the route's 300s budget) |
 | `LIMIT_SHOWCASE_PHOTO_ZIP` | 150 | Max photos in one showcase bulk-download ZIP (413 above; larger albums are auto-split into sequential ZIPs client-side) |
+| `LIMIT_ENTIRE_CHECKPOINT_REFS` | 2000 | Max Entire refs verified at Submit; exceeding it blocks explicitly, never silently truncates |
 | `LIMIT_SUBMISSIONS_PER_CHALLENGE` | 200 | Max submissions per challenge |
 | `LIMIT_CODE_REVIEWS_PER_CHALLENGE` | 200 | Max code reviews per challenge |
 | `LIMIT_CHAPTER_UNLOCKS` | 500 | Max chapter unlocks |

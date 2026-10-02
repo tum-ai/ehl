@@ -64,7 +64,7 @@ RLS is enabled on **every table** in the database. This is the primary data acce
 - **Participant requests** use the authenticated Supabase client (`createClient()` from `lib/supabase/server.ts`), which respects RLS policies
 - **Admin operations** use `createAdminClient()` which bypasses RLS with the service role key
 - **Read-only query modules** (`lib/queries/`) may use `createAdminClient()` for server-side data fetching when RLS would be too restrictive (e.g. public team pages reading member names). These are safe because they are server-only, read-only, and select only non-sensitive fields.
-- **Rule**: Never use `createAdminClient()` for write operations in participant-facing code paths
+- **Rule**: Participant writes use authenticated clients. Submit is the narrow exception described below: a verified server session plus service-only receipt RPCs with explicit database authorization checks.
 - **Profiles table**: RLS restricts reads to authenticated users only (`auth.uid() is not null`, migration 00028). Anonymous API access (anon key without session) cannot read profiles. Fine-grained authorization (admin, jury, team membership) is enforced at the application level.
 - **Upcoming-event team discovery**: applications remain private. The authenticated-only `get_upcoming_event_recruiting()` database function returns public chapter fields and public team IDs only. It never returns application rows, applicant identities, or statuses. Eligibility requires the team's president to have an active application linked to that same team for the current or next event. Anonymous execution is revoked (migration 00063).
 - **Chapter communications**: the `chapters` table is publicly readable (`status != 'draft'`). RLS gates rows, not columns, so the admin/participant-only per-chapter communications text (acceptance email subject/message, event info) is NOT stored on `chapters`. It lives in a separate admin-only table `chapter_communications` (no public read policy, migration 00052). Event info reaches participants only through the gated `getChapterEventInfo()` server action, which returns it solely to applicants of that chapter with status `accepted`/`checked_in`.
@@ -149,11 +149,49 @@ Every server action follows this pattern:
 - Redirect targets from user input (must start with `/` and not `//`)
 - **Entire session-history content** (prompts/transcripts on the legacy `entire/checkpoints/v1` branch or on `refs/entire/checkpoints/*`). Prompt text is fully participant-controlled and a prompt-injection vector into the code-review pipeline. The session-history reviewer wraps prompts as untrusted `<session-prompt>` data and instructs the model to evaluate, never obey, any embedded instructions (mirroring the existing code-context hardening).
 
+### Submission receipts and background copies
+
+Submit verifies the session with `auth.getUser()`, reads the source commit and,
+when required, checks Entire against an immutable checkpoint manifest. The server
+then calls `receive_submission` with its existing service client. The actor ID
+comes only from that verified session, never form data. Both the preflight
+`submission_requirements` RPC and save RPC are executable only by `service_role`;
+anonymous and authenticated clients cannot call them, even with a genuine payload.
+Direct participant table writes remain blocked.
+
+The save RPC repeats team membership, check-in, challenge registration, required
+fields, status and deadline checks for that actor. It compares the challenge
+requirements and submission revision with the preflight result, and holds the
+same chapter lock as deadline closure. The submission and copy job are saved
+atomically; a stale save cannot replace a newer version. GitHub verification stays
+in the trusted server, rather than SQL. This design depends on the server passing
+the authenticated actor correctly and introduces no receipt signing secret.
+
+`submission_snapshot_jobs` and `github_request_budgets` are service-role only.
+Only guarded admin actions, the authenticated cron and Actions worker can use the
+worker RPCs. Each result requires the current revision and an unexpired lease;
+resubmitting invalidates older work. GitHub credentials remain in the existing
+environment/settings lookup. The new budget table stores no credentials.
+
+Bare Git never checks out participant code or runs hooks. Tokens are passed using
+askpass environment variables, not command arguments. Transfers and API calls have
+timeouts. Review archives enforce compressed/expanded size, file-count and path
+limits; redirects are restricted to GitHub's archive host without forwarding the
+API authorization header. Persisted Git failures omit raw stderr and REST errors
+redact credentials and URLs. Individual read-only jury invitations are unchanged.
+
+The recorded SHA and checkpoint manifest identify the versions accepted before the
+deadline. Locking never changes them. Workers cannot discover replacement versions;
+missing accepted objects produce an error. Revision-specific Git refs protect newer
+copies from old workers that finish a push after losing their lease. Reviews read
+only accepted code and checkpoint objects, never mutable branches for new receipts.
+Source pushes without a successful Update are not accepted submissions.
+
 ### Entire session history (external data path)
 When a challenge requires Entire ([entire.io](https://entire.io)), the code-review pipeline reads the legacy `entire/checkpoints/v1` branch or the per-checkpoint refs under `refs/entire/checkpoints/*`. Key properties and decisions:
 
 - **Capture into the private fork only.** The checkpoint branch or refs are copied into the private EHL snapshot org (`lib/github.ts: fetchCheckpointBranchIntoFork`), not left on any public path. This matters because Entire stores **code-file snapshots as raw blobs without redaction**, and secret redaction for prompts/transcripts is best-effort only. Keeping the data in the private fork limits exposure of participant prompts and any secrets Entire failed to redact.
-- **The presence gate is not anti-cheat.** Entire capture is client-side and bypassable (`--no-verify`, working outside the repo, deleting the branch before push). The hard gate only proves a session record *exists*; it cannot prove it is complete or untampered. The session-history bonus is therefore advisory and cross-checked against the code, never a standalone integrity verdict (matches SOTA: low-weight, triangulated signal).
+- **The presence check is not anti-cheat.** Entire capture is client-side and bypassable (`--no-verify`, working outside the repo, deleting the branch before push). The worker check only proves a session record *exists*; it cannot prove it is complete or untampered. The session-history bonus is advisory and cross-checked against the code, never a standalone integrity verdict.
 - **Soft, version/agent-tolerant parsing.** `lib/entire.ts` never hard-parses agent-specific transcript formats and never fails the gate on a malformed file; it accepts any positive signal. This avoids penalizing teams for tool choice or Entire-version quirks.
 - **Signing as a trust booster.** If checkpoint commits are GPG/SSH-signed (GitHub-verified), this raises the completeness/plausibility assessment. Absence of a signature is not penalized.
 
