@@ -1,0 +1,44 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01M3YZ7BTR20XJQED0Q5Z8GZBA",
+  "session_id": "1cdf47df-ab8b-4aea-a124-178337ce5c20",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-02T18:50:05.692057Z",
+  "branch": "fix/submission-snapshot-queue",
+  "checkpoints_count": 21,
+  "save_step_count": 1,
+  "files_touched": [
+    "components/submission/submission-form.tsx",
+    "lib/actions/submissions.ts",
+    "lib/config/limits.ts",
+    "lib/queries/mappers.ts",
+    "lib/types.ts",
+    "tests/submit-snapshot-nonblocking.test.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "bc2593a88ba6",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 504,
+    "cache_creation_tokens": 2788993,
+    "cache_read_tokens": 79040969,
+    "output_tokens": 241048,
+    "api_call_count": 250
+  },
+  "session_metrics": {
+    "turn_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-02T18:50:05.497958Z",
+    "agent_lines": 233,
+    "agent_removed": 556,
+    "human_added": 303,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 536,
+    "total_lines_changed": 1092,
+    "agent_percentage": 72.25274725274726,
+    "metric_version": 2
+  }
+}
