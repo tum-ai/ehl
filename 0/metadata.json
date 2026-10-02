@@ -1,0 +1,45 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01M3YZDCD2TRZYP0FBGWRSCJM0",
+  "session_id": "1cdf47df-ab8b-4aea-a124-178337ce5c20",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-02T18:53:22.979916Z",
+  "branch": "fix/submission-snapshot-queue",
+  "checkpoints_count": 21,
+  "save_step_count": 1,
+  "files_touched": [
+    ".env.local.example",
+    "CLAUDE.md",
+    "RULES.md",
+    "docs/FEATURES.md",
+    "docs/SECURITY.md",
+    "docs/SETUP.md",
+    "docs/TESTING.md"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "bc2593a88ba6",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 526,
+    "cache_creation_tokens": 2800114,
+    "cache_read_tokens": 85354657,
+    "output_tokens": 248410,
+    "api_call_count": 261
+  },
+  "session_metrics": {
+    "turn_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-02T18:53:22.785127Z",
+    "agent_lines": 176,
+    "agent_removed": 21,
+    "human_added": 0,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 176,
+    "total_lines_changed": 197,
+    "agent_percentage": 100,
+    "metric_version": 2
+  }
+}
