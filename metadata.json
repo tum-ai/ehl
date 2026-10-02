@@ -3,7 +3,7 @@
   "checkpoint_id": "01M3YZ41TKTR78KWJSDP8D30H7",
   "strategy": "manual-commit",
   "branch": "fix/submission-snapshot-queue",
-  "checkpoints_count": 29,
+  "checkpoints_count": 30,
   "files_touched": [
     "scripts/migration-checks.ts"
   ],
@@ -21,13 +21,20 @@
       "compact_transcript": "/1/transcript.jsonl",
       "content_hash": "/1/content_hash.txt",
       "prompt": "/1/prompt.txt"
+    },
+    {
+      "metadata": "/2/metadata.json",
+      "transcript": "/2/full.jsonl",
+      "compact_transcript": "/2/transcript.jsonl",
+      "content_hash": "/2/content_hash.txt",
+      "prompt": "/2/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 934,
-    "cache_creation_tokens": 4365786,
-    "cache_read_tokens": 128057686,
-    "output_tokens": 412184,
-    "api_call_count": 464
+    "input_tokens": 1096,
+    "cache_creation_tokens": 4998238,
+    "cache_read_tokens": 139269498,
+    "output_tokens": 460549,
+    "api_call_count": 545
   }
 }
