@@ -1,0 +1,43 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01M3YZBJ1GP8M5XJTYFP7HNZ3F",
+  "session_id": "1cdf47df-ab8b-4aea-a124-178337ce5c20",
+  "strategy": "manual-commit",
+  "created_at": "2026-10-02T18:52:23.180108Z",
+  "branch": "fix/submission-snapshot-queue",
+  "checkpoints_count": 21,
+  "save_step_count": 1,
+  "files_touched": [
+    ".github/workflows/test.yml",
+    "e2e/helpers/auth.ts",
+    "e2e/helpers/data-factory.ts",
+    "e2e/lifecycle/hackathon-lifecycle.spec.ts",
+    "e2e/setup/global-setup.ts"
+  ],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "bc2593a88ba6",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 518,
+    "cache_creation_tokens": 2796512,
+    "cache_read_tokens": 83044252,
+    "output_tokens": 246094,
+    "api_call_count": 257
+  },
+  "session_metrics": {
+    "turn_count": 21
+  },
+  "initial_attribution": {
+    "calculated_at": "2026-10-02T18:52:22.987633Z",
+    "agent_lines": 425,
+    "agent_removed": 1,
+    "human_added": 28,
+    "human_modified": 0,
+    "human_removed": 0,
+    "total_committed": 453,
+    "total_lines_changed": 454,
+    "agent_percentage": 93.83259911894272,
+    "metric_version": 2
+  }
+}
