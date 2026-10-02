@@ -210,3 +210,7 @@ export const SEED = {
     },
   },
 } as const;
+
+export function snapshotSimulationAccount(runId: string, index: number) {
+  return { email: `e2e-capture-${runId}-${index}@test-ehl.com`, name: `E2E Capture Participant ${index}` };
+}

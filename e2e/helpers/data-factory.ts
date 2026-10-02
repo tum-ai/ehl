@@ -1,3 +1,4 @@
+import type { SubmissionReceipt } from "../../lib/submission-snapshots/types";
 /**
  * E2E test data factory.
  * Creates test entities via Supabase admin API.
@@ -675,4 +676,95 @@ export async function getTeamByName(name: string) {
     .eq("name", name)
     .single();
   return data;
+}
+
+/** Dedicated fixtures for submission snapshot tests. No GitHub requests. */
+export async function createSnapshotFixture(runId: string, teamCount = 1) {
+  const { randomUUID } = await import('node:crypto');
+  const { E2E_ACCOUNTS } = await import('./auth');
+  const admin = getAdminClient();
+  const president = await getProfileByEmail(E2E_ACCOUNTS.president.email);
+  if (!president) throw new Error('Lifecycle participant setup missing');
+  const chapter = await createChapter({ name: `E2E Capture ${runId}`, city: 'Test', country: 'Germany', description: 'Snapshot queue fixture', date: '2026-10-01', dateEnd: '2026-10-01' });
+  const enabled = await admin.from('chapters').update({ submission_deadline: new Date(Date.now()+3600_000).toISOString() }).eq('id',chapter.id);
+  if (enabled.error) throw new Error(enabled.error.message);
+  const challengeId = await createChallenge({ chapterId: chapter.id, title: 'E2E Capture Challenge', submissionFields: [{ key: 'repo', label: 'GitHub Repository', type: 'repo', required: true }] });
+  const teams = Array.from({ length: teamCount }, (_, i) => ({ id: randomUUID(), name: `E2E Capture ${runId} ${i}`, slug: `e2e-capture-${runId}-${i}`, president_user_id: president.id }));
+  const inserted = await admin.from('teams').insert(teams);
+  if (inserted.error) throw new Error(inserted.error.message);
+  const memberships = await admin.from('team_members').upsert(teams.map(t => ({ team_id: t.id, user_id: president.id, role: 'president' })), { onConflict: 'team_id,user_id' });
+  if (memberships.error) throw new Error(memberships.error.message);
+  const registrations = await admin.from('challenge_registrations').insert(teams.map(t => ({ chapter_id: chapter.id, challenge_id: challengeId, team_id: t.id, roster: [president.id] })));
+  if (registrations.error) throw new Error(registrations.error.message);
+  await createApplication({ chapterId: chapter.id, email: E2E_ACCOUNTS.president.email, firstName: 'E2E', lastName: 'Capture', status: 'checked_in', existingTeamId: teams[0].id });
+  await setChapterStatus(chapter.id, 'submissions_open');
+  return { chapter, challengeId, teamIds: teams.map(t=>t.id) };
+}
+export async function removeSnapshotFixture(fixture: { chapter: { id: string; slug: string }; challengeId: string; teamIds: string[] }) {
+  const admin = getAdminClient();
+  const { data: submissions } = await admin.from('submissions').select('id').eq('challenge_id',fixture.challengeId);
+  if (submissions?.length) await admin.from('code_reviews').delete().in('submission_id',submissions.map(s => s.id));
+  for (const table of ['submissions','challenge_registrations']) {
+    const result = await admin.from(table).delete().eq('challenge_id',fixture.challengeId);
+    if (result.error) throw new Error(result.error.message);
+  }
+  const result = await admin.from('chapters').delete().eq('id', fixture.chapter.id);
+  if (result.error) throw new Error(result.error.message);
+  await admin.from('team_members').delete().in('team_id',fixture.teamIds);
+  const removed = await admin.from('teams').delete().in('id',fixture.teamIds);
+  if (removed.error) throw new Error(removed.error.message);
+}
+export async function snapshotParticipantClient(email: string) {
+  const { createClient } = await import('@supabase/supabase-js');
+  const { TEST_PASSWORD } = await import('./auth');
+  const client = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!,process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,{ auth: { persistSession: false, autoRefreshToken: false } });
+  const { error } = await client.auth.signInWithPassword({ email, password: TEST_PASSWORD });
+  if (error) throw new Error('Could not authenticate test participant');
+  return client;
+}
+
+/** Uses the normal E2E fixtures, with a different captain for each UI submission. */
+export async function createSnapshotSimulationFixture(runId: string, count: number) {
+  const { E2E_ACCOUNTS, snapshotSimulationAccount } = await import('./auth');
+  const fixture = await createSnapshotFixture(runId);
+  const participants = [E2E_ACCOUNTS.president.email as string];
+  const userIds: string[] = [];
+  const teamIds: string[] = [...fixture.teamIds];
+  for (let i = 1; i < count; i++) {
+    const account = snapshotSimulationAccount(runId, i);
+    const userId = await createParticipant(account);
+    userIds.push(userId);
+    const teamId = await createTeam({ name: `E2E Capture ${runId} Team ${i}`, presidentUserId: userId });
+    teamIds.push(teamId);
+    await createApplication({ chapterId: fixture.chapter.id, email: account.email, firstName: 'E2E', lastName: `Capture ${i}`, status: 'checked_in', existingTeamId: teamId });
+    await registerForChallenge({ chapterId: fixture.chapter.id, challengeId: fixture.challengeId, teamId, roster: [userId] });
+    participants.push(account.email);
+  }
+  const disabled = await getAdminClient().from('challenges').update({ code_review_enabled: false, invite_jury_to_forks: false }).eq('id', fixture.challengeId);
+  if (disabled.error) throw new Error(disabled.error.message);
+  return { ...fixture, teamIds, participants, userIds };
+}
+
+/** Trusted server fixture for DB boundary tests; GitHub verification is tested separately. */
+export async function prepareSnapshotReceipt(client: SupabaseClient, payload: {
+  p_challenge: string; p_team: string; p_name: string; p_description: string;
+  p_fields: Record<string,string>; p_stack: string[];
+}, snapshots?: Record<string, import('../../lib/submission-snapshots/types').RepositorySelection>) {
+  const { data: { user } } = await client.auth.getUser();
+  if (!user) throw new Error('Test participant not signed in');
+  const { data: requirements, error } = await getAdminClient().rpc('submission_requirements', {p_user:user.id,p_challenge:payload.p_challenge,p_team:payload.p_team});
+  if (error) return {error,receipt:null};
+  const repo_snapshots: Record<string, import('../../lib/submission-snapshots/types').RepositorySelection> = snapshots ?? {};
+  if (!snapshots) for (const field of requirements.submission_fields) {
+    if(field.type!=='repo'||!payload.p_fields[field.key])continue;
+    repo_snapshots[field.key]={repo_url:payload.p_fields[field.key],repository_id:1,frozen_sha:'a'.repeat(40),entire_required:requirements.entire_required,
+      checkpoint_manifest:requirements.entire_required?[{ref:'refs/entire/checkpoints/ab/123',sha:'b'.repeat(40)}]:[]};
+  }
+  const receipt: SubmissionReceipt={user_id:user.id,challenge_id:payload.p_challenge,team_id:payload.p_team,project_name:payload.p_name,
+    short_description:payload.p_description,fields:payload.p_fields,tech_stack:payload.p_stack,requirements,repo_snapshots};
+  return {error:null,receipt};
+}
+export async function submitSnapshotReceipt(client: SupabaseClient, payload: Parameters<typeof prepareSnapshotReceipt>[1]) {
+  const prepared=await prepareSnapshotReceipt(client,payload);
+  return prepared.error?{data:null,error:prepared.error}:getAdminClient().rpc('receive_submission',{p_submission:prepared.receipt!});
 }

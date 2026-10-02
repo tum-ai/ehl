@@ -13,7 +13,7 @@
  *
  * Run: pnpm test:e2e:lifecycle
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import {
   loginAsAdmin,
   loginAsParticipant,
@@ -39,10 +39,14 @@ import {
   getProfileByEmail,
   getTeamByName,
   getWalkInToken,
+  createSnapshotFixture, removeSnapshotFixture, snapshotParticipantClient, createSnapshotSimulationFixture,
+  prepareSnapshotReceipt, submitSnapshotReceipt,
 } from "../helpers/data-factory";
 import { getAdminClient } from "../fixtures/supabase-admin";
 import { resolve } from "path";
 // Relative, not "@/": tsconfig excludes e2e from the path-alias project.
+import { SnapshotWorker } from "../../lib/submission-snapshots/worker";
+import { randomUUID } from "node:crypto";
 import { CV_MAX_BYTES, CV_MAX_LABEL } from "../../lib/config/upload-limits";
 
 // Password for the accounts the apply form creates (apply-creates-account).
@@ -2570,4 +2574,327 @@ test.describe.serial("Dashboard submission navigation", () => {
     await expect(current.getByRole("link", { name: "Edit submission", exact: true })).toHaveCount(0);
     await expect(current.getByRole("link", { name: "Open hackathon", exact: true })).toHaveAttribute("href", `/matches/${navigationChapter.slug}`);
   });
+});
+
+// Single-flow regression coverage replaces the removed opt-in capture tests.
+test.describe('Submission snapshot queue', () => {
+  test('receipt and job are atomic; access, required fields and worker ownership remain enforced', async () => {
+    const fixture = await createSnapshotFixture(`${RUN_ID}-receipt`);
+    const db = getAdminClient();
+    const participant = await snapshotParticipantClient(E2E_ACCOUNTS.president.email);
+    const outsider = await snapshotParticipantClient(E2E_ACCOUNTS.solo.email);
+    const payload = { p_challenge: fixture.challengeId, p_team: fixture.teamIds[0], p_name: 'E2E Receipt', p_description: '', p_fields: { repo: 'https://github.com/example/project' }, p_stack: ['TypeScript'] };
+    try {
+      expect((await submitSnapshotReceipt(outsider,payload)).error).not.toBeNull();
+      expect((await submitSnapshotReceipt(participant,{ ...payload,p_fields:{} })).error).not.toBeNull();
+      expect((await db.from('submissions').select('id').eq('challenge_id',fixture.challengeId)).data).toEqual([]);
+      const received = await submitSnapshotReceipt(participant,payload);
+      expect(received.error).toBeNull();
+      const row = await db.from('submissions').select('*').eq('id',received.data).single();
+      expect(row.data.project_name).toBe('E2E Receipt'); expect(row.data.fork_url).toBeNull();
+      const job = await db.from('submission_snapshot_jobs').select('*').eq('submission_id',received.data).single();
+      expect(job.data.status).toBe('queued');
+      expect((await participant.rpc('claim_submission_snapshot',{p_lease:randomUUID()})).error).not.toBeNull();
+      expect((await outsider.from('submission_snapshot_jobs').select('*')).error).not.toBeNull();
+      expect((await participant.from('submissions').update({project_name:'Bypass'}).eq('id',received.data)).error).not.toBeNull();
+      const oldLease = randomUUID();
+      // Make this test's job the next one, without modifying other test fixtures.
+      expect((await db.from('submission_snapshot_jobs').update({next_attempt_at:'2000-01-01T00:00:00Z'}).eq('submission_id',received.data)).error).toBeNull();
+      const claimed = await db.rpc('claim_submission_snapshot',{p_lease:oldLease});
+      expect(claimed.data[0].submission_id).toBe(received.data);
+      expect((await db.from('submission_snapshot_jobs').update({lease_until:'2000-01-01T00:00:00Z'}).eq('submission_id',received.data)).error).toBeNull();
+      const lease = randomUUID();
+      const reclaimed = await db.rpc('claim_submission_snapshot',{p_lease:lease});
+      expect(reclaimed.data[0].submission_id).toBe(received.data);
+      const stale = await db.rpc('update_submission_snapshot',{p_id:received.data,p_revision:1,p_lease:oldLease,p_status:'done',p_step:{},p_fork:'https://github.com/example/copy',p_sha:'a'.repeat(40)});
+      expect(stale.data).toBe(false);
+      expect((await submitSnapshotReceipt(participant,{...payload,p_name:'E2E Edited'})).error).toBeNull();
+      const obsolete = await db.rpc('update_submission_snapshot',{p_id:received.data,p_revision:1,p_lease:lease,p_status:'done',p_step:{},p_fork:'https://github.com/example/copy',p_sha:'a'.repeat(40)});
+      expect(obsolete.data).toBe(false);
+      expect((await db.from('submission_snapshot_jobs').select('revision,status').eq('submission_id',received.data).single()).data).toEqual({revision:2,status:'queued'});
+    } finally { await removeSnapshotFixture(fixture); }
+  });
+
+  test('150 verified receipts lock without selecting new repository versions', async () => {
+    test.setTimeout(180000);
+    const fixture = await createSnapshotFixture(`${RUN_ID}-capacity`,150);
+    const participant = await snapshotParticipantClient(E2E_ACCOUNTS.president.email);
+    const db = getAdminClient();
+    try {
+      for (const team of fixture.teamIds) {
+        expect((await submitSnapshotReceipt(participant,{p_challenge:fixture.challengeId,p_team:team,p_name:'E2E Capacity',p_description:'',p_fields:{repo:'https://github.com/example/project'},p_stack:[]})).error).toBeNull();
+      }
+      const rows = await db.from('submissions').select('id').eq('challenge_id',fixture.challengeId);
+      expect(rows.data).toHaveLength(150);
+      expect((await db.rpc('lock_submission_receipts',{p_challenge:fixture.challengeId})).error).toBeNull();
+      const locked = await db.from('submissions').select('is_locked,fork_url').eq('challenge_id',fixture.challengeId);
+      expect(locked.data!.every(row=>row.is_locked && row.fork_url===null)).toBe(true);
+      const jobs = await db.from('submission_snapshot_jobs').select('status,revision').in('submission_id',rows.data!.map(r=>r.id));
+      expect(jobs.data).toHaveLength(150);
+      expect(jobs.data!.every(job=>job.status==='queued' && job.revision===1)).toBe(true);
+      expect((await submitSnapshotReceipt(participant,{p_challenge:fixture.challengeId,p_team:fixture.teamIds[0],p_name:'Late',p_description:'',p_fields:{repo:'https://github.com/example/project'},p_stack:[]})).error).not.toBeNull();
+    } finally { await removeSnapshotFixture(fixture); }
+  });
+
+  test('preserves submission without a configured deadline and refuses a passed deadline', async () => {
+    const fixture = await createSnapshotFixture(`${RUN_ID}-deadline`);
+    const db = getAdminClient();
+    const participant = await snapshotParticipantClient(E2E_ACCOUNTS.president.email);
+    const payload = { p_challenge: fixture.challengeId, p_team: fixture.teamIds[0], p_name: 'E2E Deadline', p_description: '', p_fields: { repo: 'https://github.com/example/project' }, p_stack: [] };
+    try {
+      expect((await db.from('chapters').update({ submission_deadline: null }).eq('id',fixture.chapter.id)).error).toBeNull();
+      expect((await submitSnapshotReceipt(participant,payload)).error).toBeNull();
+      expect((await db.from('chapters').update({ submission_deadline: '2000-01-01T00:00:00Z' }).eq('id',fixture.chapter.id)).error).toBeNull();
+      expect((await submitSnapshotReceipt(participant,{...payload,p_name:'Late edit'})).error?.details).toBe('deadline_passed');
+      const rows = await db.from('submissions').select('project_name').eq('challenge_id',fixture.challengeId);
+      expect(rows.data).toEqual([{ project_name: 'E2E Deadline' }]);
+    } finally { await removeSnapshotFixture(fixture); }
+  });
+
+  test('only the service role can save verified submissions, while participants cannot bypass checks', async () => {
+    const fixture=await createSnapshotFixture(`${RUN_ID}-service-save`);
+    const db=getAdminClient();
+    const participant=await snapshotParticipantClient(E2E_ACCOUNTS.president.email);
+    const outsider=await snapshotParticipantClient(E2E_ACCOUNTS.solo.email);
+    const payload={p_challenge:fixture.challengeId,p_team:fixture.teamIds[0],p_name:'E2E Verified',p_description:'',p_fields:{repo:'https://github.com/example/project'},p_stack:[]};
+    try {
+      const {receipt,error}=await prepareSnapshotReceipt(participant,payload);
+      expect(error).toBeNull();
+      const args={p_submission:receipt!};
+      expect((await participant.rpc('receive_submission',args)).error?.code).toBe('42501');
+      expect((await outsider.rpc('receive_submission',args)).error?.code).toBe('42501');
+      expect((await participant.rpc('submission_requirements',{p_user:receipt!.user_id,p_challenge:fixture.challengeId,p_team:fixture.teamIds[0]})).error?.code).toBe('42501');
+      const otherUser=(await outsider.auth.getUser()).data.user!;
+      expect((await db.rpc('receive_submission',{p_submission:{...receipt,user_id:otherUser.id}})).error?.details).toBe('not_team_member');
+      expect((await db.rpc('receive_submission',{p_submission:{...receipt,user_id:null}})).error?.message).toBe('Not authenticated.');
+      await outsider.auth.signOut({scope:'local'});
+      expect((await outsider.rpc('receive_submission',args)).error?.code).toBe('42501');
+      expect((await participant.rpc('receive_submission',payload)).error).not.toBeNull();
+      expect((await participant.rpc('receive_submission',{p_receipt:JSON.stringify(receipt),p_signature:'0'.repeat(64)})).error).not.toBeNull();
+      expect((await participant.from('submissions').insert({challenge_id:fixture.challengeId,team_id:fixture.teamIds[0],project_name:'Bypass'})).error).not.toBeNull();
+      const settings=await participant.from('app_settings').select('value').eq('key','github_org');
+      expect(settings.data).toBeNull(); expect(settings.error?.code).toBe('42501');
+      expect((await db.from('submissions').select('id').eq('challenge_id',fixture.challengeId)).data).toEqual([]);
+      expect((await db.rpc('receive_submission',args)).error).toBeNull();
+      expect((await db.rpc('receive_submission',args)).error?.message).toBe('Submission or challenge changed. Please submit again.');
+    } finally {await removeSnapshotFixture(fixture);}
+  });
+
+  test('Entire requirements and checkpoint evidence are bound to the receipt', async () => {
+    const fixture=await createSnapshotFixture(`${RUN_ID}-entire-proof`);
+    const db=getAdminClient();
+    const participant=await snapshotParticipantClient(E2E_ACCOUNTS.president.email);
+    const payload={p_challenge:fixture.challengeId,p_team:fixture.teamIds[0],p_name:'E2E Entire',p_description:'',p_fields:{repo:'https://github.com/example/project'},p_stack:[]};
+    try {
+      const old=await prepareSnapshotReceipt(participant,payload);
+      expect((await db.from('challenges').update({entire_required:true}).eq('id',fixture.challengeId)).error).toBeNull();
+      expect((await db.rpc('receive_submission',{p_submission:old.receipt!})).error?.message).toBe('Submission or challenge changed. Please submit again.');
+      const verified=await prepareSnapshotReceipt(participant,payload);
+      const receipt=structuredClone(verified.receipt!);
+      receipt.repo_snapshots.repo.checkpoint_manifest=[];
+      expect((await db.rpc('receive_submission',{p_submission:receipt})).error?.details).toBe('entire_missing');
+      expect((await db.from('submissions').select('id').eq('challenge_id',fixture.challengeId)).data).toEqual([]);
+      const accepted=await db.rpc('receive_submission',{p_submission:verified.receipt!});
+      expect(accepted.error).toBeNull();
+      const row=await db.from('submissions').select('repo_snapshots').eq('id',accepted.data).single();
+      expect(row.data.repo_snapshots.repo.checkpoint_manifest).toEqual([{ref:'refs/entire/checkpoints/ab/123',sha:'b'.repeat(40)}]);
+    } finally {await removeSnapshotFixture(fixture);}
+  });
+
+  test('last successful update stays final when verification finishes after the deadline', async () => {
+    const fixture=await createSnapshotFixture(`${RUN_ID}-final-version`);
+    const db=getAdminClient();
+    const participant=await snapshotParticipantClient(E2E_ACCOUNTS.president.email);
+    const payload={p_challenge:fixture.challengeId,p_team:fixture.teamIds[0],p_name:'E2E Final',p_description:'',p_fields:{repo:'https://github.com/example/project'},p_stack:[]};
+    try {
+      const saved=await submitSnapshotReceipt(participant,payload); expect(saved.error).toBeNull();
+      const update=await prepareSnapshotReceipt(participant,payload);
+      const receipt=structuredClone(update.receipt!); receipt.repo_snapshots.repo.frozen_sha='b'.repeat(40);
+      expect((await db.rpc('receive_submission',{p_submission:receipt})).error).toBeNull();
+      const late=await prepareSnapshotReceipt(participant,payload);
+      expect((await db.from('chapters').update({submission_deadline:'2000-01-01T00:00:00Z'}).eq('id',fixture.chapter.id)).error).toBeNull();
+      expect((await db.rpc('receive_submission',{p_submission:late.receipt!})).error?.details).toBe('deadline_passed');
+      expect((await db.rpc('lock_submission_receipts',{p_challenge:fixture.challengeId})).error).toBeNull();
+      const row=await db.from('submissions').select('repo_snapshots,submission_revision,is_locked').eq('id',saved.data).single();
+      expect(row.data.repo_snapshots.repo.frozen_sha).toBe('b'.repeat(40));
+      expect(row.data.submission_revision).toBe(2); expect(row.data.is_locked).toBe(true);
+      // Recovering a missing job must still use revision 2, not default to 1.
+      expect((await db.from('submission_snapshot_jobs').delete().eq('submission_id',saved.data)).error).toBeNull();
+      expect((await db.rpc('retry_submission_snapshot',{p_id:saved.data})).error).toBeNull();
+      expect((await db.from('submission_snapshot_jobs').select('revision').eq('submission_id',saved.data).single()).data).toEqual({revision:2});
+    } finally {await removeSnapshotFixture(fixture);}
+  });
+
+  test('deadline closure preserves completed code and Entire copies and refuses a different commit', async () => {
+    const fixture=await createSnapshotFixture(`${RUN_ID}-lock-version`);
+    const db=getAdminClient();
+    const participant=await snapshotParticipantClient(E2E_ACCOUNTS.president.email);
+    try {
+      expect((await db.from('challenges').update({entire_required:true}).eq('id',fixture.challengeId)).error).toBeNull();
+      const saved=await submitSnapshotReceipt(participant,{p_challenge:fixture.challengeId,p_team:fixture.teamIds[0],p_name:'E2E Copy',p_description:'',p_fields:{repo:'https://github.com/example/project'},p_stack:[]});
+      expect(saved.error).toBeNull();
+      const selection=(await db.from('submissions').select('repo_snapshots').eq('id',saved.data).single()).data.repo_snapshots.repo;
+      const step={repo:{...selection,fork_url:'https://github.com/e2e-snapshots/copy',revision:1,complete:true}};
+      expect((await db.from('submission_snapshot_jobs').update({next_attempt_at:'2000-01-01T00:00:00Z'}).eq('submission_id',saved.data)).error).toBeNull();
+      const lease=randomUUID(); const claim=await db.rpc('claim_submission_snapshot',{p_lease:lease});
+      expect(claim.data[0].submission_id).toBe(saved.data);
+      const args={p_id:saved.data,p_revision:1,p_lease:lease,p_status:'done',p_step:step,p_fork:step.repo.fork_url,p_sha:'a'.repeat(40)};
+      expect((await db.rpc('update_submission_snapshot',{...args,p_sha:'f'.repeat(40)})).error?.message).toBe('Copied commit differs from the accepted submission.');
+      expect((await db.rpc('update_submission_snapshot',args)).data).toBe(true);
+      expect((await db.rpc('lock_submission_receipts',{p_challenge:fixture.challengeId})).error).toBeNull();
+      const job=(await db.from('submission_snapshot_jobs').select('revision,step,status').eq('submission_id',saved.data).single()).data;
+      expect(job).toEqual({revision:1,step,status:'queued'});
+      const row=(await db.from('submissions').select('fork_url,snapshot_sha').eq('id',saved.data).single()).data;
+      expect(row).toEqual({fork_url:step.repo.fork_url,snapshot_sha:'a'.repeat(40)});
+      expect((await db.rpc('update_submission_snapshot',args)).data).toBe(false);
+    } finally {await removeSnapshotFixture(fixture);}
+  });
+
+
+  test('the service save repeats check-in and registration checks after GitHub verification', async () => {
+    const fixture=await createSnapshotFixture(`${RUN_ID}-service-eligibility`);
+    const db=getAdminClient();
+    const participant=await snapshotParticipantClient(E2E_ACCOUNTS.president.email);
+    try {
+      const prepared=await prepareSnapshotReceipt(participant,{p_challenge:fixture.challengeId,p_team:fixture.teamIds[0],p_name:'E2E Eligibility',p_description:'',p_fields:{repo:'https://github.com/example/project'},p_stack:[]});
+      expect(prepared.error).toBeNull();
+      const args={p_submission:prepared.receipt!};
+      expect((await db.from('applications').update({status:'accepted'}).eq('chapter_id',fixture.chapter.id).eq('email',E2E_ACCOUNTS.president.email)).error).toBeNull();
+      expect((await db.rpc('receive_submission',args)).error?.details).toBe('not_checked_in');
+      expect((await db.from('applications').update({status:'checked_in'}).eq('chapter_id',fixture.chapter.id).eq('email',E2E_ACCOUNTS.president.email)).error).toBeNull();
+      expect((await db.from('challenge_registrations').delete().eq('team_id',fixture.teamIds[0]).eq('challenge_id',fixture.challengeId)).error).toBeNull();
+      expect((await db.rpc('receive_submission',args)).error?.details).toBe('not_registered');
+      expect((await db.from('submissions').select('id').eq('challenge_id',fixture.challengeId)).data).toEqual([]);
+      await registerForChallenge({chapterId:fixture.chapter.id,challengeId:fixture.challengeId,teamId:fixture.teamIds[0],roster:[prepared.receipt!.user_id]});
+      expect((await db.rpc('receive_submission',args)).error).toBeNull();
+    } finally {await removeSnapshotFixture(fixture);}
+  });
+
+});
+
+test.describe('Submission walkthrough', () => {
+  test('verifies through the existing form, then waits for copy quota without losing submissions', async ({browser}) => {
+    test.setTimeout(900000);
+    const count=Number(process.env.SNAPSHOT_TEAMS ?? 3);
+    if (!Number.isInteger(count)||count<1||count>150) throw new Error('SNAPSHOT_TEAMS must be 1 to 150');
+    if (process.env.SUPABASE_TEST_MODE!=='true') throw new Error('Test database required');
+    const fixture=await createSnapshotSimulationFixture(`${RUN_ID}-walkthrough`,count);
+    const db=getAdminClient();
+    const originalFetch=globalThis.fetch;
+    const identity=-Date.now();
+    let limited=true;
+    const forks=new Map<string,string>();
+    const copies=new Map<string,string>();
+    const pages: Page[]=[];
+    // Other lifecycle fixtures also create jobs. Hold and restore only their
+    // status so this worker cannot consume their work during the walkthrough.
+    const held=await db.from('submission_snapshot_jobs').select('submission_id,status').in('status',['queued','running']);
+    expect(held.error).toBeNull();
+    globalThis.fetch=async(input,init)=>{
+      const url=new URL(input instanceof Request?input.url:String(input));
+      if(url.origin!=='https://api.github.com') return originalFetch(input,init);
+      if(url.pathname==='/user') return Response.json({id:identity});
+      if(limited) return Response.json({message:'API rate limit exceeded'},{status:403,headers:{'retry-after':'120','x-ratelimit-remaining':'0'}});
+      const source=url.pathname.match(/^\/repos\/e2e-source\/(project-(\d+))$/);
+      if(source) return Response.json({id:Number(source[2]),private:false,default_branch:'main'});
+      if(url.pathname.endsWith('/git/ref/heads/main')) return Response.json({object:{sha:'a'.repeat(40)}});
+      if(url.pathname.endsWith('/forks')) {
+        const body=JSON.parse(String(init?.body));
+        const path=`/repos/e2e-snapshots/${body.name}`;
+        forks.set(path,url.pathname.split('/').slice(2,4).join('/'));
+        return Response.json({html_url:`https://github.com/e2e-snapshots/${body.name}`},{status:202});
+      }
+      if(forks.has(url.pathname)) return Response.json({html_url:`https://github.com${url.pathname.slice(6)}`,parent:{id:Number(forks.get(url.pathname)!.split('-').pop()),full_name:forks.get(url.pathname)}});
+      if(url.pathname.includes('/git/ref/heads/ehl-final/')) {
+        const base=url.pathname.split('/git/ref/')[0];
+        return Response.json({object:{sha:copies.get(base)}});
+      }
+      if(url.pathname.startsWith('/repos/e2e-snapshots/')) return new Response(null,{status:404});
+      throw new Error(`Unexpected simulated GitHub request: ${url.pathname}`);
+    };
+    const worker=new SnapshotWorker(db,`test-${RUN_ID}`,'e2e-snapshots',async(copy,heartbeat)=>{
+      await heartbeat(); copies.set(`/repos/${new URL(copy.fork_url).pathname.slice(1)}`,copy.frozen_sha);
+    });
+    try {
+      for(const job of held.data ?? []) expect((await db.from('submission_snapshot_jobs').update({status:'done'}).eq('submission_id',job.submission_id)).error).toBeNull();
+      for(let i=0;i<count;i++) {
+        const page=await browser.newPage(); pages.push(page);
+        await loginAsParticipant(page,fixture.participants[i]);
+        await page.goto(`/matches/${fixture.chapter.slug}`);
+        await page.getByPlaceholder('Your project name').fill(`E2E Queued Project ${i+1}`);
+        await page.getByPlaceholder('https://github.com/owner/repo').fill(`https://github.com/e2e-source/project-${i+1}`);
+        await page.getByRole('button',{name:'Submit Project',exact:true}).click();
+        await expect(page.getByText('Submission saved successfully! You can edit it until the deadline.',{exact:true})).toBeVisible();
+      }
+      const page=pages[pages.length-1];
+      const receipts=await db.from('submissions').select('id').eq('challenge_id',fixture.challengeId);
+      expect(receipts.data).toHaveLength(count);
+      const ids=receipts.data!.map(r=>r.id);
+      const foreign=await db.from('submission_snapshot_jobs').select('submission_id',{head:true,count:'exact'}).in('status',['queued','running']).not('submission_id','in',`(${ids.join(',')})`);
+      expect(foreign.count,'Run without another pending snapshot fixture').toBe(0);
+      for(let i=0;i<count;i++) await worker.runOne();
+      const paused=await db.from('submission_snapshot_jobs').select('status,failures,last_error').in('submission_id',ids);
+      expect(paused.data!.every(job=>job.status==='queued'&&job.failures===0)).toBe(true);
+      expect(paused.data!.every(job=>/rate limit/i.test(job.last_error))).toBe(true);
+      if(process.env.SNAPSHOT_INSPECT==='true') await page.pause();
+      // Expire the simulated quota pause, not a real provider's limits.
+      limited=false;
+      expect((await db.from('github_request_budgets').update({pause_until:null,remaining:5000,reset_at:null,next_request_at:null,next_write_at:null}).eq('identity',`user:${identity}`)).error).toBeNull();
+      expect((await db.rpc('lock_submission_receipts',{p_challenge:fixture.challengeId})).error).toBeNull();
+      await expect.poll(async()=>{
+        for(let i=0;i<count;i++) if(!await worker.runOne()) break;
+        const result=await db.from('submission_snapshot_jobs').select('status').in('submission_id',ids);
+        return result.data!.filter(job=>job.status==='done').length;
+      },{timeout:600000,intervals:[1000,3000]}).toBe(count);
+      const completed=await db.from('submissions').select('fork_url,snapshot_sha,is_locked').in('id',ids);
+      expect(completed.data!.every(row=>row.fork_url&&row.snapshot_sha==='a'.repeat(40)&&row.is_locked)).toBe(true);
+      await page.reload(); await expect(page.getByText('Submissions Locked',{exact:true})).toBeVisible();
+      const adminContext=await browser.newContext();
+      try {
+        const adminPage=await adminContext.newPage(); await loginAsAdmin(adminPage);
+        await adminPage.goto(`/admin/submissions/${ids[0]}`);
+        await expect(adminPage.getByRole('link',{name:'Open fork'})).toBeVisible();
+        if(process.env.SNAPSHOT_INSPECT==='true') await page.pause();
+      } finally {await adminContext.close();}
+    } finally {
+      globalThis.fetch=originalFetch;
+      for(const page of pages) await page.close();
+      for(const job of held.data ?? []) expect((await db.from('submission_snapshot_jobs').update({status:job.status}).eq('submission_id',job.submission_id)).error).toBeNull();
+      await removeSnapshotFixture(fixture);
+      for(const id of fixture.userIds) await db.auth.admin.deleteUser(id);
+      await db.from('github_request_budgets').delete().eq('identity',`user:${identity}`);
+    }
+  });
+
+  test('the real Submit action blocks missing Entire and quota failures before accepting verified code', async ({page}) => {
+    const fixture=await createSnapshotSimulationFixture(`${RUN_ID}-entire-ui`,1);
+    const db=getAdminClient();
+    try {
+      expect((await db.from('challenges').update({entire_required:true}).eq('id',fixture.challengeId)).error).toBeNull();
+      await loginAsParticipant(page,fixture.participants[0]);
+      await page.goto(`/matches/${fixture.chapter.slug}`);
+      await page.getByPlaceholder('Your project name').fill('E2E Entire Required');
+      await expect(page.getByText('Use Verify to check early. Repository access and required Entire history are checked again when you submit, before anything is saved.',{exact:true})).toBeVisible();
+      const repo=page.getByPlaceholder('https://github.com/owner/repo');
+      await repo.fill('https://github.com/e2e-source/entire-missing');
+      await page.getByRole('button',{name:'Submit Project',exact:true}).click();
+      await expect(page.getByText(/This challenge requires an Entire session record, but/)).toBeVisible();
+      expect((await db.from('submissions').select('id').eq('challenge_id',fixture.challengeId)).data).toEqual([]);
+      await repo.fill('https://github.com/e2e-source/entire-limited');
+      await page.getByRole('button',{name:'Submit Project',exact:true}).click();
+      await expect(page.getByText('GitHub verification is temporarily unavailable or rate limited. Please retry before the deadline.',{exact:true})).toBeVisible();
+      expect((await db.from('submissions').select('id').eq('challenge_id',fixture.challengeId)).data).toEqual([]);
+      await repo.fill('https://github.com/e2e-source/entire-valid');
+      await page.getByRole('button',{name:'Submit Project',exact:true}).click();
+      await expect(page.getByText('Submission saved successfully! You can edit it until the deadline.',{exact:true})).toBeVisible();
+      const saved=await db.from('submissions').select('repo_snapshots').eq('challenge_id',fixture.challengeId).single();
+      expect(saved.data.repo_snapshots.repo.frozen_sha).toBe('a'.repeat(40));
+      expect(saved.data.repo_snapshots.repo.checkpoint_manifest).toEqual([{ref:'refs/entire/checkpoints/ab/123',sha:'b'.repeat(40)}]);
+      await expect(page.getByText(/Each save records your current code version/)).toBeVisible();
+    } finally {
+      await removeSnapshotFixture(fixture);
+      for(const id of fixture.userIds) await db.auth.admin.deleteUser(id);
+    }
+  });
+
 });
