@@ -1,5 +1,5 @@
 import { getSettingValue, SETTING_KEYS } from "@/lib/settings";
-import { listEntireCheckpointRefs } from "@/lib/entire";
+import { listEntireCheckpointEntries } from "@/lib/entire";
 
 const EHL_GITHUB_USERNAME = "ehl-gg";
 
@@ -34,6 +34,20 @@ export function parseGitHubRepo(input: string): { owner: string; repo: string } 
   return null;
 }
 
+/** Same settings/env fallback in the app and the snapshot worker. */
+export async function getGitHubConfiguration() {
+  // A test Actions run must explicitly name its bot and destination. Never use
+  // the normal deployment's defaults or copied database settings for a rehearsal.
+  if (process.env.SNAPSHOT_WORKER_ENV === "test") {
+    const token = process.env.GITHUB_TOKEN;
+    const org = process.env.GITHUB_ORG;
+    if (!token || !org) throw new Error("Test snapshots require explicit GITHUB_TOKEN and GITHUB_ORG");
+    return { token, org };
+  }
+  const [token, org] = await Promise.all([getGitHubToken(), getOrg()]);
+  return { token, org };
+}
+
 export function getEhlUsername(): string {
   return EHL_GITHUB_USERNAME;
 }
@@ -59,9 +73,10 @@ async function getHeaders(): Promise<Record<string, string>> {
  */
 export async function acceptPendingInvite(
   owner: string,
-  repo: string
+  repo: string,
+  suppliedToken?: string | null
 ): Promise<boolean> {
-  const token = await getGitHubToken();
+  const token = suppliedToken === undefined ? await getGitHubToken() : suppliedToken;
   if (!token) return false;
 
   const headers = {
@@ -69,28 +84,24 @@ export async function acceptPendingInvite(
     Authorization: `token ${token}`,
   };
 
-  // List all pending invitations for the authenticated user (ehl-gg)
-  const res = await fetch("https://api.github.com/user/repository_invitations?per_page=100", {
-    headers,
-  });
-  if (!res.ok) return false;
-
-  const invitations = await res.json();
-  const fullName = `${owner}/${repo}`.toLowerCase();
-  const invite = invitations.find(
-    (inv: { repository: { full_name: string } }) =>
-      inv.repository.full_name.toLowerCase() === fullName
-  );
-
-  if (!invite) return false;
-
-  // Accept the invitation
-  const acceptRes = await fetch(
-    `https://api.github.com/user/repository_invitations/${invite.id}`,
-    { method: "PATCH", headers }
-  );
-
-  return acceptRes.status === 204;
+  let next: string | null = "https://api.github.com/user/repository_invitations?per_page=100";
+  const seen = new Set<string>();
+  while (next && !seen.has(next)) {
+    const url = new URL(next);
+    if (url.origin !== "https://api.github.com" || url.pathname !== "/user/repository_invitations") return false;
+    seen.add(next);
+    const res: Response = await fetch(next, { headers });
+    if (!res.ok) return false;
+    const invitations = await res.json();
+    if (!Array.isArray(invitations)) return false;
+    const invite = invitations.find(inv => inv.repository?.full_name?.toLowerCase() === `${owner}/${repo}`.toLowerCase());
+    if (invite) {
+      const accepted = await fetch(`https://api.github.com/user/repository_invitations/${invite.id}`, { method: "PATCH", headers });
+      return accepted.status === 204;
+    }
+    next = res.headers.get("link")?.match(/<([^>]+)>; rel="next"/)?.[1] ?? null;
+  }
+  return false;
 }
 
 // ─── Snapshot: fork repo into EHL org ─────────────────────────
@@ -126,11 +137,12 @@ export async function snapshotRepo(
       const repoData = await existingRes.json();
       const defaultBranch = repoData.default_branch || "main";
 
-      await fetch(`https://api.github.com/repos/${forkFullName}/merge-upstream`, {
+      const syncRes = await fetch(`https://api.github.com/repos/${forkFullName}/merge-upstream`, {
         method: "POST",
         headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ branch: defaultBranch }),
-      }).catch((err) => console.error(`Failed to merge upstream for ${forkFullName}:`, err));
+      });
+      if (!syncRes.ok) return { error: `Could not synchronize repository (${syncRes.status}).` };
 
       return { snapshotUrl: `https://github.com/${forkFullName}` };
     }
@@ -216,25 +228,27 @@ export async function fetchCheckpointBranchIntoFork(
   // dynamic refs/entire/checkpoints/<shard>/<id> refs first, legacy branch and
   // v1.1 mirror as fallback. All matching refs are copied, not just the first.
   const candidates = [
-    ...(await listEntireCheckpointRefs(owner, repo, headers)).map((ref) => ({
+    ...(await listEntireCheckpointEntries(owner, repo, headers)).map(({ ref, sha }) => ({
       srcRef: ref.slice("refs/".length),
       dstRef: ref,
+      sha,
     })),
     { srcRef: "heads/entire/checkpoints/v1", dstRef: "refs/heads/entire/checkpoints/v1" },
     { srcRef: "entire/checkpoints/v1.1", dstRef: "refs/entire/checkpoints/v1.1" },
   ];
 
+  const destination = new Map((await listEntireCheckpointEntries(org, snapshotName, headers)).map(item => [item.ref, item.sha]));
   let copiedRef: string | null = null;
-  for (const { srcRef, dstRef } of candidates) {
+  for (const { srcRef, dstRef, sha: listedSha } of candidates as Array<{ srcRef: string; dstRef: string; sha?: string }>) {
     try {
-      const srcRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/git/ref/${srcRef}`,
-        { headers }
-      );
-      if (!srcRes.ok) continue; // ref not on source: try next candidate
-      const srcData = (await srcRes.json()) as { object?: { sha?: string } };
-      const sha = srcData.object?.sha;
+      let sha = listedSha;
+      if (!sha) {
+        const srcRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/ref/${srcRef}`, { headers });
+        if (!srcRes.ok) continue;
+        sha = (await srcRes.json()).object?.sha;
+      }
       if (!sha) continue;
+      if (destination.get(dstRef) === sha) { copiedRef = dstRef; continue; }
 
       // Try to create the ref in the fork. If it already exists, update it.
       const createRes = await fetch(

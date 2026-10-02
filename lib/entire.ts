@@ -44,11 +44,26 @@ export const ENTIRE_CANDIDATE_REFS = [
   "entire/checkpoints", // defensive: older/short form
 ];
 export const ENTIRE_REF_PREFIX = "refs/entire/checkpoints/";
+const DYNAMIC_CHECKPOINT_REF = /^refs\/entire\/checkpoints\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+$/;
+
+/** Ref names accepted by the original presence check and snapshot copying. */
+export function isEntireCheckpointRef(ref: string): boolean {
+  return DYNAMIC_CHECKPOINT_REF.test(ref) ||
+    ENTIRE_CANDIDATE_REFS.includes(ref) ||
+    ref === "refs/heads/entire/checkpoints/v1" ||
+    ref === "refs/heads/entire/checkpoints";
+}
+
+/** Immutable checkpoint selection recorded with a submission. */
+export interface CheckpointRef { ref: string; sha: string }
 
 // Upper bound on how many per-checkpoint refs we enumerate. Each ref costs
 // extra GitHub calls downstream (tree read at submit time, copy into the
 // snapshot fork at lock time), and both run inside a request/function budget.
 export const MAX_ENTIRE_CHECKPOINT_REFS = 100;
+// One shared deadline covers discovery, trees and blobs, rather than restarting
+// a timeout for each request. Submission checks must leave time to save the row.
+const ENTIRE_READ_TIMEOUT_MS = 20_000;
 
 /**
  * Return checkpoint refs written by Entire's ref based backend.
@@ -58,45 +73,41 @@ export const MAX_ENTIRE_CHECKPOINT_REFS = 100;
  * two level checkpoint shape so unrelated refs in the namespace cannot be
  * mistaken for checkpoint data.
  */
-export async function listEntireCheckpointRefs(
-  owner: string,
-  repo: string,
-  headers: Record<string, string>
-): Promise<string[]> {
-  const refs = new Set<string>();
-  const pageSize = 100;
+export interface EntireCheckpointRef { ref: string; sha?: string }
 
-  try {
-    for (let page = 1; page <= 10; page++) {
-      if (refs.size >= MAX_ENTIRE_CHECKPOINT_REFS) break;
-      const res = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/git/matching-refs/entire/checkpoints?per_page=${pageSize}&page=${page}`,
-        { headers }
-      );
-      if (!res.ok) break;
+/** GitHub matching-refs is not paginated. Keep the cap explicit to callers. */
+export async function listEntireCheckpointEntries(
+  owner: string, repo: string, headers: Record<string, string>
+): Promise<EntireCheckpointRef[]> {
+  return (await fetchCheckpointEntries(owner, repo, headers, AbortSignal.timeout(ENTIRE_READ_TIMEOUT_MS)))
+    .slice(0, MAX_ENTIRE_CHECKPOINT_REFS);
+}
 
-      const data = (await res.json().catch(() => null)) as
-        | Array<{ ref?: unknown }>
-        | null;
-      if (!Array.isArray(data)) break;
-
-      for (const item of data) {
-        const ref = typeof item.ref === "string" ? item.ref : null;
-        if (!ref?.startsWith(ENTIRE_REF_PREFIX)) continue;
-        const parts = ref.slice(ENTIRE_REF_PREFIX.length).split("/");
-        if (parts.length === 2 && parts.every((part) => part.length > 0)) {
-          refs.add(ref);
-          if (refs.size >= MAX_ENTIRE_CHECKPOINT_REFS) break;
-        }
-      }
-
-      if (data.length < pageSize) break;
-    }
-  } catch {
-    return [...refs];
+async function fetchCheckpointEntries(
+  owner: string, repo: string, headers: Record<string, string>, signal: AbortSignal
+): Promise<EntireCheckpointRef[]> {
+  const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/git/matching-refs/entire/checkpoints`, { headers, signal });
+  // A missing namespace can be genuine absence. The caller probes repository
+  // access before reporting it; quota/auth/network errors must never become [].
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`Checkpoint enumeration failed (HTTP ${res.status}).`);
+  const data: unknown = await res.json();
+  if (!Array.isArray(data)) throw new Error("Invalid checkpoint enumeration response.");
+  const unique = new Map<string, EntireCheckpointRef>();
+  for (const item of data) {
+    const ref = item?.ref;
+    if (typeof ref !== "string" || !ref.startsWith(ENTIRE_REF_PREFIX)) continue;
+    const parts = ref.slice(ENTIRE_REF_PREFIX.length).split("/");
+    if (parts.length !== 2 || !isEntireCheckpointRef(ref)) continue;
+    unique.set(ref, { ref, sha: typeof item.object?.sha === "string" ? item.object.sha : undefined });
   }
+  return [...unique.values()];
+}
 
-  return [...refs];
+export async function listEntireCheckpointRefs(
+  owner: string, repo: string, headers: Record<string, string>
+): Promise<string[]> {
+  return (await listEntireCheckpointEntries(owner, repo, headers)).map(item => item.ref);
 }
 
 // Canonical separator used in prompt.txt when multiple prompts are stored in one
@@ -252,20 +263,7 @@ export function extractCheckpointTrailer(commitMessage: string): string | null {
 // ─── Network: soft presence check against a repo ──────────────────────────────
 
 type TreeItem = { path: string; type: string };
-
-/**
- * Can we read this repository at all?
- *
- * Only called on the failure path, when no checkpoint tree was found, so it
- * costs one extra GitHub call precisely when we are about to block a team and
- * need to tell them the right thing. A 401/403/404 on the repo endpoint means
- * the repo is private without ehl-gg access, renamed/deleted, or our token is
- * expired: in every one of those cases the absence of Entire data is something
- * we never actually observed.
- *
- * Any other outcome (2xx, rate limit, network error) is treated as readable, so
- * a transient blip can never invent a "your repo is private" accusation.
- */
+type CheckpointTree = { ref: string; readRef: string; items: TreeItem[] };
 /**
  * Ask GitHub whether the repo is readable, and — when it is not — whose problem
  * that is.
@@ -280,17 +278,15 @@ type TreeItem = { path: string; type: string };
 async function probeRepoAccess(
   owner: string,
   repo: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  signal: AbortSignal
 ): Promise<{ readable: boolean; status: number | null; ourSide: boolean }> {
   try {
-    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers });
-    if (res.status === 401 || res.status === 403) {
-      return { readable: false, status: res.status, ourSide: true };
-    }
+    const res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, { headers, signal });
     if (res.status === 404) {
       return { readable: false, status: res.status, ourSide: false };
     }
-    if (res.status >= 500) {
+    if (!res.ok) {
       return { readable: false, status: res.status, ourSide: true };
     }
     return { readable: true, status: res.status, ourSide: false };
@@ -303,42 +299,54 @@ async function probeRepoAccess(
 }
 
 /**
- * Resolve which candidate ref actually exists on the repo and return its
- * recursive tree. Returns null if no Entire branch/ref is present.
+ * Read candidate trees until the caller has enough evidence. With a recorded
+ * manifest, every request uses its SHA and live discovery is forbidden, even
+ * for an empty manifest. Failure to read a recorded object is not absence.
  *
  * Order: the per-checkpoint refs written by Entire's current git-refs backend
  * come FIRST, because that is what a freshly installed CLI produces today. The
  * legacy v1 branch and the v1.1 mirror are the fallback for older records.
  */
-async function fetchCheckpointTree(
+async function* fetchCheckpointTrees(
   owner: string,
   repo: string,
-  headers: Record<string, string>
-): Promise<{ ref: string; items: TreeItem[] } | null> {
-  const checkpointRefs = await listEntireCheckpointRefs(owner, repo, headers);
-
-  for (const ref of [...checkpointRefs, ...ENTIRE_CANDIDATE_REFS]) {
-    // git/trees accepts a branch name or a full ref. Use the recursive tree so
-    // we see every file at once (checkpoint data is small: metadata +
-    // transcripts only).
+  headers: Record<string, string>,
+  signal: AbortSignal,
+  checkpointRefs?: CheckpointRef[]
+): AsyncGenerator<CheckpointTree> {
+  const recorded = checkpointRefs !== undefined;
+  if (checkpointRefs?.some(({ ref, sha }) => !isEntireCheckpointRef(ref) || !/^[a-f0-9]{40}$/.test(sha))) {
+    throw new Error("Invalid recorded checkpoint selection.");
+  }
+  const discovered = recorded ? [] : await fetchCheckpointEntries(owner, repo, headers, signal);
+  const candidates = recorded
+    ? checkpointRefs.map(({ ref, sha }) => ({ ref, readRef: sha }))
+    : [...discovered.slice(0, MAX_ENTIRE_CHECKPOINT_REFS).map(({ ref }) => ({ ref, readRef: ref })),
+      ...ENTIRE_CANDIDATE_REFS.map(ref => ({ ref, readRef: ref }))];
+  const cap = MAX_ENTIRE_CHECKPOINT_REFS + ENTIRE_CANDIDATE_REFS.length;
+  for (const { ref, readRef } of candidates.slice(0, cap)) {
     const res = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/git/trees/${encodeURIComponent(
-        ref
+        readRef
       )}?recursive=1`,
-      { headers }
+      { headers, signal }
     );
-    if (res.status === 404) continue; // ref doesn't exist; try next candidate
-    if (!res.ok) continue; // transient/other error: don't claim absence, keep trying
+    if (res.status === 404 && !recorded) continue;
+    if (!res.ok) throw new Error(`Checkpoint tree could not be read (HTTP ${res.status}).`);
     const data = (await res.json().catch(() => null)) as {
       tree?: TreeItem[];
       truncated?: boolean;
     } | null;
-    if (data?.tree && data.tree.length > 0) {
-      return { ref, items: data.tree };
+    if (!data || !Array.isArray(data.tree) || data.tree.some(item =>
+      !item || typeof item.path !== "string" || typeof item.type !== "string")) {
+      throw new Error("Invalid checkpoint tree response.");
     }
+    if (data.truncated) throw new Error("Checkpoint tree response was truncated.");
+    yield { ref, readRef, items: data.tree };
   }
-
-  return null;
+  if (candidates.length > cap || discovered.length > MAX_ENTIRE_CHECKPOINT_REFS) {
+    throw new Error("Checkpoint scan limit reached before evidence could be confirmed.");
+  }
 }
 
 async function fetchBlobText(
@@ -346,16 +354,17 @@ async function fetchBlobText(
   repo: string,
   ref: string,
   path: string,
-  headers: Record<string, string>
+  headers: Record<string, string>,
+  signal: AbortSignal
 ): Promise<string | null> {
   const res = await fetch(
     `https://api.github.com/repos/${owner}/${repo}/contents/${path
       .split("/")
       .map(encodeURIComponent)
       .join("/")}?ref=${encodeURIComponent(ref)}`,
-    { headers }
+    { headers, signal }
   );
-  if (!res.ok) return null;
+  if (!res.ok) throw new Error(`Checkpoint file could not be read (HTTP ${res.status}).`);
   const data = (await res.json().catch(() => null)) as {
     content?: string;
     encoding?: string;
@@ -384,7 +393,7 @@ async function fetchBlobText(
 export async function checkCheckpointBranch(
   owner: string,
   repo: string,
-  opts: { maxPromptFiles?: number } = {}
+  opts: { maxPromptFiles?: number; token?: string | null; checkpointRefs?: CheckpointRef[] } = {}
 ): Promise<CheckpointBranchCheck> {
   const notes: string[] = [];
   const empty: CheckpointBranchCheck = {
@@ -398,26 +407,35 @@ export async function checkCheckpointBranch(
     notes,
   };
 
-  const token = await getGitHubToken();
+  // An explicitly supplied token (including null) must not trigger the settings
+  // helper, which uses a privileged client and is unsuitable for this path.
+  if (opts.checkpointRefs?.length === 0) return empty;
+  const token = opts.token !== undefined ? opts.token : await getGitHubToken();
   const headers = getHeaders(token);
+  const signal = AbortSignal.timeout(ENTIRE_READ_TIMEOUT_MS);
 
-  let tree: { ref: string; items: TreeItem[] } | null;
+  let lastCheck: CheckpointBranchCheck | null = null;
   try {
-    tree = await fetchCheckpointTree(owner, repo, headers);
+    for await (const tree of fetchCheckpointTrees(owner, repo, headers, signal, opts.checkpointRefs)) {
+      lastCheck = await checkCheckpointTree(
+        owner, repo, tree, headers, signal, opts.maxPromptFiles, notes, opts.checkpointRefs !== undefined
+      );
+      if (lastCheck.satisfiesGate || lastCheck.checkUnavailable) return lastCheck;
+    }
   } catch (e) {
     notes.push(
       `Could not query the Entire branch (${e instanceof Error ? e.message : "network error"}).`
     );
     // Our request failed. Absence of a record was never established, so this
     // must not be reported as the team having no Entire record.
-    return { ...empty, checkUnavailable: true };
+    return { ...(lastCheck ?? empty), checkUnavailable: true };
   }
 
-  if (!tree) {
+  if (!lastCheck) {
     // Absence of checkpoint data and inability to read the repo look identical
     // from the tree endpoint (both 404). Ask the repo endpoint which one it is
     // before we tell the team what to fix.
-    const access = await probeRepoAccess(owner, repo, headers);
+    const access = await probeRepoAccess(owner, repo, headers, signal);
     if (!access.readable) {
       notes.push(
         `Repository ${owner}/${repo} is not readable (HTTP ${access.status ?? "no response"}); ` +
@@ -431,34 +449,59 @@ export async function checkCheckpointBranch(
     notes.push("No recognized Entire checkpoint branch or ref found.");
     return empty;
   }
+  return lastCheck;
+}
 
+/** Apply the same tolerant evidence rules to live or recorded checkpoint data. */
+async function checkCheckpointTree(
+  owner: string, repo: string, tree: CheckpointTree, headers: Record<string, string>,
+  signal: AbortSignal, maxFiles: number | undefined, notes: string[], stopWhenConfirmed: boolean
+): Promise<CheckpointBranchCheck> {
   const paths = tree.items.filter((t) => t.type === "blob").map((t) => t.path);
   const checkpointCount = Math.max(
     countCheckpointDirs(paths),
-    tree.ref.startsWith(ENTIRE_REF_PREFIX) ? 1 : 0
+    paths.length > 0 && DYNAMIC_CHECKPOINT_REF.test(tree.ref) ? 1 : 0
   );
 
   // Step 3a: prompt.txt blobs (cap reads to stay cheap; this is a submit-time check).
-  const maxPromptFiles = opts.maxPromptFiles ?? 10;
+  const maxPromptFiles = Math.min(10, Math.max(0, maxFiles ?? 10));
   const promptFiles = paths.filter(isPromptFilePath).slice(0, maxPromptFiles);
   let promptCount = 0;
+  let readFailed = false;
+  const read = async (path: string) => {
+    try {
+      return await fetchBlobText(owner, repo, tree.readRef, path, headers, signal);
+    } catch {
+      readFailed = true;
+      notes.push("A checkpoint file could not be read; no absence inferred from that failure.");
+      return null;
+    }
+  };
   for (const p of promptFiles) {
-    const content = await fetchBlobText(owner, repo, tree.ref, p, headers);
+    const content = await read(p);
     if (content == null) {
       notes.push(`Prompt file ${p} present but unreadable; skipped.`);
+      if (readFailed) break;
       continue;
     }
     promptCount += countPromptsInPromptTxt(content);
+    // Submit needs a yes/no answer, not an exhaustive prompt count. Keep the
+    // existing live check's counting semantics for its other callers.
+    if (stopWhenConfirmed && promptCount > 0) break;
   }
 
   // Step 3b: metadata fallback when no prompt.txt yielded anything.
-  if (promptCount === 0) {
+  if (promptCount === 0 && !readFailed) {
     const metaFiles = paths.filter((p) => /(^|\/)metadata\.json$/.test(p)).slice(0, maxPromptFiles);
     for (const p of metaFiles) {
-      const content = await fetchBlobText(owner, repo, tree.ref, p, headers);
-      if (content == null) continue;
+      const content = await read(p);
+      if (content == null) {
+        if (readFailed) break;
+        continue;
+      }
       try {
         promptCount += promptCountFromMetadata(JSON.parse(content));
+        if (stopWhenConfirmed && promptCount > 0) break;
       } catch {
         // malformed metadata: ignore, keep trying others
       }
@@ -490,7 +533,9 @@ export async function checkCheckpointBranch(
     checkpointCount,
     resolvedRef: tree.ref,
     repoUnreadable: false,
-    checkUnavailable: false,
+    // A successful structural signal is sufficient under the original rules.
+    // Without one, an unreadable blob cannot establish that evidence is absent.
+    checkUnavailable: promptCount === 0 && readFailed,
     satisfiesGate: branchExists && promptCount >= 1,
     notes,
   };
@@ -509,8 +554,8 @@ export interface SessionHistoryIngest {
   agentsDetected: string[];
   // Files reported as touched across checkpoints (bounded).
   filesTouched: string[];
-  // Whether the checkpoint commits are cryptographically signed (verified=true
-  // on the latest checkpoint commits). A trust booster, never a hard gate.
+  // Whether the selected commit has a GitHub verified signature. A trust
+  // booster, never a hard gate or proof of complete session coverage.
   signed: boolean;
   notes: string[];
 }
@@ -525,35 +570,48 @@ export interface SessionHistoryIngest {
 export async function ingestSessionHistory(
   owner: string,
   repo: string,
-  opts: { maxPrompts?: number; maxPromptChars?: number } = {}
+  opts: { maxPrompts?: number; maxPromptChars?: number; checkpointRefs?: CheckpointRef[]; commitSha?: string } = {}
 ): Promise<SessionHistoryIngest | null> {
   const maxPrompts = opts.maxPrompts ?? 40;
   const maxPromptChars = opts.maxPromptChars ?? 4000;
   const notes: string[] = [];
 
+  if (opts.checkpointRefs?.length === 0) return null;
   const token = await getGitHubToken();
   const headers = getHeaders(token);
+  const signal = AbortSignal.timeout(ENTIRE_READ_TIMEOUT_MS);
 
-  let tree: { ref: string; items: TreeItem[] } | null;
+  let tree: CheckpointTree | null = null;
   try {
-    tree = await fetchCheckpointTree(owner, repo, headers);
+    for await (const candidate of fetchCheckpointTrees(owner, repo, headers, signal, opts.checkpointRefs)) {
+      if (candidate.items.length > 0) { tree = candidate; break; }
+    }
   } catch {
     return null;
   }
   if (!tree) return null;
+  const readRef = tree.readRef;
 
   const paths = tree.items.filter((t) => t.type === "blob").map((t) => t.path);
   const checkpointCount = Math.max(
     countCheckpointDirs(paths),
-    tree.ref.startsWith(ENTIRE_REF_PREFIX) ? 1 : 0
+    paths.length > 0 && DYNAMIC_CHECKPOINT_REF.test(tree.ref) ? 1 : 0
   );
 
   // Collect prompt samples.
   const promptSamples: string[] = [];
   let promptCount = 0;
-  for (const p of paths.filter(isPromptFilePath)) {
+  const read = async (path: string) => {
+    try {
+      return await fetchBlobText(owner, repo, readRef, path, headers, signal);
+    } catch {
+      notes.push("A recorded session file could not be read.");
+      return null;
+    }
+  };
+  for (const p of paths.filter(isPromptFilePath).slice(0, maxPrompts)) {
     if (promptSamples.length >= maxPrompts) break;
-    const content = await fetchBlobText(owner, repo, tree.ref, p, headers);
+    const content = await read(p);
     if (content == null) continue;
     for (const prompt of content.split(PROMPT_SEPARATOR)) {
       const trimmed = prompt.trim();
@@ -569,7 +627,7 @@ export async function ingestSessionHistory(
   const agents = new Set<string>();
   const files = new Set<string>();
   for (const p of paths.filter((x) => /(^|\/)metadata\.json$/.test(x)).slice(0, maxPrompts)) {
-    const content = await fetchBlobText(owner, repo, tree.ref, p, headers);
+    const content = await read(p);
     if (content == null) continue;
     try {
       const meta = JSON.parse(content) as Record<string, unknown>;
@@ -587,18 +645,17 @@ export async function ingestSessionHistory(
     }
   }
 
-  // Signing status: check the latest commit on the checkpoint branch for a
-  // verified signature. Best-effort; absence is not penalized here.
+  // When a submitted code commit is supplied, sample that exact commit. For
+  // checkpoint-only callers use the recorded checkpoint SHA, never its live ref.
+  // Signing remains advisory; absence is not penalized.
   let signed = false;
   try {
-    const refForCommit = tree.ref.startsWith("refs/")
-      ? tree.ref
-      : `heads/${tree.ref}`;
+    const refForCommit = opts.commitSha ?? tree.readRef;
     const commitsRes = await fetch(
       `https://api.github.com/repos/${owner}/${repo}/commits?sha=${encodeURIComponent(
         refForCommit.replace(/^heads\//, "")
       )}&per_page=1`,
-      { headers }
+      { headers, signal }
     );
     if (commitsRes.ok) {
       const arr = (await commitsRes.json()) as Array<{
