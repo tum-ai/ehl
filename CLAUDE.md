@@ -70,6 +70,7 @@ view, nor edit chapter settings, publish scores, or delete.
 - **Read queries**: `lib/queries/` (split by domain: chapters, teams, challenges, submissions, jury, profiles)
 - **Write actions**: `lib/actions/` (Next.js server actions with `"use server"`)
 - **API routes**: `app/api/` (for non-form operations: file uploads, cron, external integrations)
+- **Submission receipts**: Submit verifies source code and required Entire evidence; service-only `receive_submission` saves those versions and queues atomically; the existing deadline cron dispatches due copies to GitHub Actions. No second mode or recurring repository checks.
 - **Mappers**: `lib/queries/mappers.ts` converts DB rows to domain types from `lib/types.ts`
 - **Re-export index**: `lib/queries/index.ts` re-exports everything so `import { ... } from "@/lib/queries"` works
 - **Query limits**: `lib/config/limits.ts` centralizes all query limits with env var overrides
@@ -93,7 +94,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-70 sequential migrations in `supabase/migrations/`. Key tables:
+70 migration files (through 00072) in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055;
   `github_username`, migration 00066, is the bare GitHub handle used to add jury
@@ -108,6 +109,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
   applicant. They gate submission only, never existing rows, and never the
   walk-in form), `challenges`, `challenge_registrations`
 - `submissions`, `code_reviews`
+- `submission_snapshot_jobs`, `github_request_budgets` (service-role copy queue and quota state; no tokens)
 - `jury_assignments`, `jury_rankings`, `jury_feedback`
 - `applications` (`user_id`, migration 00069, links each application to its account.
   Applying now creates the account: the public form verifies the email with a code
@@ -220,7 +222,8 @@ lib/
   queries/              — DB queries split by domain (chapters, teams, challenges, submissions, jury, profiles, showcase, submission-blocks)
   emails/               — React Email templates (layout.tsx shared, individual templates, text-block.ts for safe plain-text rendering)
   certificates/         — PDF certificate template + design-guide (@react-pdf/renderer), layout.ts (fixed text positions), designs.ts (custom background loading)
-  code-review/          — AI review pipeline (ingest, openrouter, pipeline, prompts)
+  code-review/          — AI review pipeline (ingest, archives, openrouter, pipeline, prompts)
+  submission-snapshots/ — Queued repository copies, Git transfer and request pacing
   config/               — Centralized configuration (limits.ts with env var overrides)
   supabase/             — Client configs (client.ts, server.ts, admin.ts, middleware.ts)
   crypto.ts             — AES-256-GCM encryption for verification code passwords
@@ -237,11 +240,7 @@ lib/
                           each one is ("ours" vs "theirs"). A blocked attempt writes no
                           submissions row, so its event_log entry is the only trace it
                           happened; summarizeBlocks() rolls those into the live admin counter
-  snapshot-status.ts    — Derives repo-snapshot state from submissions.fork_url (the only
-                          durable record that a fork is owed, since neither the submit path
-                          nor the deadline lock fails a participant when GitHub refuses a
-                          fork). Backs the admin Snapshot column, the retry worklist and the
-                          participant-facing warning copy
+  snapshot-status.ts    — Existing admin snapshot labels and retry worklist
   drive-urls.ts         — Client-safe Google Drive photo URL builders (thumbnail, viewer)
   report-client-error.ts — Shared error-boundary reporter (redacts secret URL tokens before any sink)
   bulk-send.ts          — runBudgetedConcurrent(): scheduling for bulk transactional
@@ -308,7 +307,7 @@ This is an **open-source public repository**. Every commit, branch name, PR titl
 6. Org-specific context belongs in `.claude/CLAUDE.md` (gitignored) or the private `ehl-ops` repo, never in tracked files.
 
 ### Security (breaking these creates vulnerabilities)
-1. **Never use `createAdminClient()` in participant-facing paths.** Use the authenticated server client so RLS applies. This is the #1 most dangerous mistake.
+1. **Use the authenticated server client in participant-facing paths so RLS applies.** The narrow Submit exception uses `createAdminClient()` only after `auth.getUser()` succeeds, for service-only receipt RPCs that repeat membership, check-in, registration and deadline checks. The actor ID must come from that verified session, never form data.
 2. **Admin actions must call `requireAdminAction()` or `requireAdmin()`** before any DB operation. No exceptions.
 3. **Three auth flows are strictly separated.** Admin = Google OAuth. Jury = magic link. Participant = email + password. Never cross them.
 4. **Never commit secrets.** No API keys, tokens, passwords in code. All credentials go in env vars. Run `git diff --cached` before every commit.

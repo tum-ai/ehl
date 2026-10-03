@@ -1,3 +1,4 @@
+import { downloadCapturedArchive } from "./archive";
 import { getSettingValue, SETTING_KEYS } from "@/lib/settings";
 import { parseGitHubRepo } from "@/lib/github";
 import type { RepoMetadata } from "@/lib/types";
@@ -144,7 +145,8 @@ function isRelevantFile(path: string): boolean {
 
 export async function ingestRepo(
   repoUrl: string,
-  tokenBudget: number = 50000
+  tokenBudget: number = 50000,
+  commitSha?: string
 ): Promise<IngestedRepo> {
   const parsed = parseGitHubRepo(repoUrl);
   if (!parsed) throw new Error("Invalid GitHub URL");
@@ -153,27 +155,24 @@ export async function ingestRepo(
   const cleanRepo = repo.replace(/\.git$/, "");
   const headers = await getHeaders();
 
-  // Get repo info (default branch + metadata)
-  const repoRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
-  if (!repoRes.ok) throw new Error(`GitHub API error: ${repoRes.status}`);
-  const repoData = await repoRes.json();
-  const defaultBranch = repoData.default_branch || "main";
-
-  // Get tree recursively
-  const treeRes = await fetch(
-    `https://api.github.com/repos/${owner}/${cleanRepo}/git/trees/${defaultBranch}?recursive=1`,
-    { headers }
-  );
-  if (!treeRes.ok) throw new Error(`GitHub tree API error: ${treeRes.status}`);
-  const treeData = await treeRes.json();
-  const treeItems = (treeData.tree ?? []) as Array<{
-    path: string; type: string; size?: number; sha: string; mode?: string;
-  }>;
+  const captured = commitSha ? await downloadCapturedArchive({ request: path => fetch(new URL(path, "https://api.github.com"), { headers, redirect: "manual", signal: AbortSignal.timeout(15000) }) }, repoUrl, commitSha) : null;
+  let defaultBranch = commitSha || "main";
+  let treeItems: Array<{ path: string; type: string; size?: number }>;
+  if (captured) {
+    treeItems = [...captured].map(([path, content]) => ({ path, type: "blob", size: Buffer.byteLength(content) }));
+  } else {
+    const repoRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}`, { headers });
+    if (!repoRes.ok) throw new Error(`GitHub API error: ${repoRes.status}`);
+    defaultBranch = (await repoRes.json()).default_branch || "main";
+    const treeRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/git/trees/${defaultBranch}?recursive=1`, { headers });
+    if (!treeRes.ok) throw new Error(`GitHub tree API error: ${treeRes.status}`);
+    treeItems = (await treeRes.json()).tree ?? [];
+  }
 
   // Get commit count (from first page with per_page=1, read total from Link header)
   let commitCount = 0;
   try {
-    const commitsRes = await fetch(
+    const commitsRes = captured ? new Response(null, { status: 404 }) : await fetch(
       `https://api.github.com/repos/${owner}/${cleanRepo}/commits?per_page=1`,
       { headers }
     );
@@ -249,16 +248,15 @@ export async function ingestRepo(
     }
 
     try {
-      const contentRes = await fetch(
-        `https://api.github.com/repos/${owner}/${cleanRepo}/contents/${item.path}?ref=${defaultBranch}`,
-        { headers }
-      );
-      if (!contentRes.ok) continue;
-
-      const contentData = await contentRes.json();
-      if (contentData.encoding !== "base64") continue;
-
-      let decoded = Buffer.from(contentData.content, "base64").toString("utf-8");
+      let decoded: string;
+      if (captured) decoded = captured.get(item.path) ?? "";
+      else {
+        const contentRes = await fetch(`https://api.github.com/repos/${owner}/${cleanRepo}/contents/${item.path}?ref=${defaultBranch}`, { headers });
+        if (!contentRes.ok) continue;
+        const contentData = await contentRes.json();
+        if (contentData.encoding !== "base64") continue;
+        decoded = Buffer.from(contentData.content, "base64").toString("utf-8");
+      }
 
       // Truncate large files
       if (decoded.length > 8000) {
@@ -270,9 +268,7 @@ export async function ingestRepo(
 
       if (totalChars + decoded.length > charBudget) {
         sampled = true;
-        // Still include if it fits partially and is a priority file
-        const name = item.path.split("/").pop() ?? "";
-        if (!PRIORITY_FILES.has(name)) continue;
+        decoded = decoded.slice(0, charBudget - totalChars);
       }
 
       files.push({ path: item.path, content: decoded });

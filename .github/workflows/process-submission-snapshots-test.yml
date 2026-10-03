@@ -1,0 +1,31 @@
+name: Process submission snapshots-test
+on:
+  repository_dispatch:
+    types: [process-submission-snapshots-test]
+  workflow_dispatch: {}
+concurrency:
+  group: process-submission-snapshots-test
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  snapshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm tsx scripts/process-submission-snapshots.ts
+        env:
+          SNAPSHOT_WORKER_ENV: test
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.TEST_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TEST_SUPABASE_SERVICE_ROLE_KEY }}
+          GITHUB_TOKEN: ${{ secrets.TEST_GH_PAT }}
+          GITHUB_ORG: ${{ vars.TEST_GITHUB_ORG }}

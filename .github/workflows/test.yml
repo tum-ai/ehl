@@ -140,6 +140,7 @@ jobs:
         run: pnpm dev --port 3001 &
         env:
           NODE_ENV: development
+          NODE_OPTIONS: --require=./e2e/helpers/local-network-guard.cjs
           # Don't hit real SMTP from CI: tests that send email (verification
           # codes, broadcast) use a fake transport so they're fast and never
           # email real inboxes.
@@ -234,6 +235,7 @@ jobs:
         run: pnpm dev --port 3001 &
         env:
           NODE_ENV: development
+          NODE_OPTIONS: --require=./e2e/helpers/local-network-guard.cjs
           EMAIL_FAKE_TRANSPORT: "true"
 
       - name: Wait for server

@@ -1,3 +1,4 @@
+import { dispatchPendingSnapshots } from "@/lib/submission-snapshots/dispatch";
 import { NextResponse } from "next/server";
 import { timingSafeEqual } from "crypto";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -7,15 +8,14 @@ import { tryAcquireCronLock, releaseCronLock } from "@/lib/cron-lock";
 import { dispatchCodeReviewWorker } from "@/lib/code-review/dispatch";
 import { recordCodeReviewDispatch } from "@/lib/settings";
 
-// The cron runs every minute (vercel.json), but the submissions->pitching branch
-// forks GitHub repos and can run long. Give the function room and serialize runs
-// with a lock so a slow run never overlaps the next minute's invocation.
+// Reuse the existing minute cron for deadline closure and dispatch of due jobs.
+// Repository transfers run in Actions, never inside the deadline transaction.
 export const maxDuration = 300;
 
 const LOCK_KEY = "cron:deadline-check";
 // The lease MUST outlive the longest possible live run, otherwise it can expire
-// while the original invocation is still working (e.g. forking repos near the
-// maxDuration ceiling) and the next minute's run would reclaim it — defeating the
+// while the original invocation is still working and the next minute's run
+// would reclaim it, defeating the
 // serialization. So keep TTL well above maxDuration (300s) plus headroom for
 // cold-start and scheduler jitter. A clean run releases immediately via the
 // finally block; this TTL only governs how long a *crashed* run stays locked
@@ -144,48 +144,21 @@ async function runDeadlineCheck(): Promise<NextResponse> {
 
   for (const chapter of deadlineChapters ?? []) {
     // Get all challenges for this chapter
-    const { data: challenges } = await adminClient
+    const { data: challenges, error: challengesError } = await adminClient
       .from("challenges")
       .select("id, code_review_enabled")
       .eq("chapter_id", chapter.id);
 
+    if (challengesError) { transitions.push("Could not read challenges to lock"); continue; }
+    let lockFailed = false;
     for (const challenge of challenges ?? []) {
-      // lockSubmissionsCore handles forking+syncing+jury access (no session auth needed for cron)
-      await lockSubmissionsCore(challenge.id);
+      const result = await lockSubmissionsCore(challenge.id);
+      if (result?.error) { lockFailed = true; transitions.push(result.error); }
 
-      // Queue code reviews for challenges with review enabled
-      if (challenge.code_review_enabled) {
-        const { data: submissions } = await adminClient
-          .from("submissions")
-          .select("id, fields, fork_url")
-          .eq("challenge_id", challenge.id);
-
-        for (const sub of submissions ?? []) {
-          const fields = (sub.fields as Record<string, string>) ?? {};
-          const hasRepo =
-            sub.fork_url ||
-            Object.values(fields).some(
-              (v) => typeof v === "string" && v.includes("github.com")
-            );
-
-          if (hasRepo) {
-            await adminClient.from("code_reviews").upsert(
-              {
-                submission_id: sub.id,
-                status: "queued",
-                review_version: 2,
-                // Stamp queue time so the admin console's stuck-detection works
-                // for cron-queued reviews too (not just manually queued ones).
-                queued_at: new Date().toISOString(),
-              },
-              { onConflict: "submission_id", ignoreDuplicates: true }
-            );
-            reviewsQueued++;
-          }
-        }
-      }
+      // The copy worker queues the review after the final snapshot is ready.
     }
 
+    if (lockFailed) continue;
     // Advance status to pitching
     const { error: pitchErr } = await adminClient
       .from("chapters")
@@ -205,9 +178,14 @@ async function runDeadlineCheck(): Promise<NextResponse> {
     });
   }
 
+  try { await dispatchPendingSnapshots(adminClient); }
+  catch (error) { transitions.push(error instanceof Error ? error.message : "Snapshot dispatch deferred"); }
+  const { count: queuedReviews } = await adminClient.from("code_reviews").select("id", { count: "exact", head: true }).eq("status", "queued");
+  reviewsQueued = queuedReviews ?? 0;
+
   // Dispatch GitHub Actions workflow if reviews were queued. Surface the outcome
   // (success OR failure) in the transitions log instead of swallowing it.
-  if (reviewsQueued > 0) {
+  if (reviewsQueued > 0 && await tryAcquireCronLock("snapshot:reviews-dispatch", 300)) {
     const dispatchResult = await dispatchCodeReviewWorker();
     if (dispatchResult.ok) {
       transitions.push(`Dispatched code review processing (${reviewsQueued} queued)`);

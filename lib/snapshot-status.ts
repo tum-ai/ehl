@@ -1,16 +1,10 @@
 /**
  * Snapshot (repo fork) status for a submission.
  *
- * Every submission with a GitHub repo field is forked into the EHL snapshot org
- * so the jury reads a copy under EHL control. Two things can leave that fork
- * missing: a GitHub failure at submit time (secondary rate limit during the
- * deadline rush, an expired bot token, a team revoking access) or the same
- * failure again during the deadline lock.
- *
- * Neither path blocks the participant, by design, so `submissions.fork_url IS
- * NULL` is the ONLY durable record that a fork is owed. This module turns that
- * column into the status admins act on. Keep it dependency-free so it can be
- * used from server components, server actions and unit tests alike.
+ * The existing admin list derives its label from fork_url. Background work is
+ * tracked separately in submission_snapshot_jobs; snapshot_error explains the
+ * last failure on the submission detail page. No GitHub work runs during Submit.
+ * Keep this display helper dependency-free.
  */
 
 /** Shown to the team when their submission saved but the fork did not happen. */
@@ -63,4 +57,4 @@ export function snapshotStatusLabel(state: SnapshotState): string {
 /** Result of the admin snapshot retry. Explicit so callers can narrow on `error`. */
 export type SnapshotRetryResult =
   | { error: string }
-  | { success: true; attempted: number; succeeded: number; failures: string[] };
+  | { success: true; attempted: number; succeeded: number; queued: number; failures: string[] };

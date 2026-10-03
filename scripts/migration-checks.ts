@@ -495,6 +495,8 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
        where tgrelid = 'public.profiles'::regclass and tgname = 'profiles_prevent_email_change'
      ) as present`,
   },
+  { prefix: "00071", label: "submission_snapshot_queue", sql: "select to_regclass('public.submission_snapshot_jobs') is not null as present" },
+  { prefix: "00072", label: "verified_submission_versions", sql: "select to_regprocedure('public.receive_submission(jsonb)') is not null and exists(select 1 from information_schema.columns where table_schema='public' and table_name='submissions' and column_name='repo_snapshots') as present" },
 ];
 
 /**

@@ -614,3 +614,57 @@ test DB and can be wiped via `pnpm test:setup-db`.
   restriction can be lifted.
 - Admin Google OAuth is not configured on the test Supabase instance;
   test admin flows locally (`pnpm test:e2e`) or via role-seeded users.
+
+## Submission queue tests
+
+These additions use the existing Vitest runner, Playwright lifecycle file, local
+Supabase, auth helpers and data factory. No new database engine, dependency,
+Playwright project or demonstration app is needed. The former opt-in capture tests
+were replaced because that mode, its observations and approval screens were removed.
+The original lifecycle cases remain unchanged.
+
+The appended cases cover a service-only database receipt and atomic job creation,
+required fields, verified session identity, denied participant/anonymous RPC calls,
+repeated membership/check-in/registration checks, strict Entire checks,
+stale worker leases, resubmission, deadline/copy version preservation, 150
+sequential receipts, final locking, and the existing participant/admin UI. The
+walkthrough verifies synthetic source versions through the real Submit action,
+then simulates a GitHub 403 copy quota response and asserts that saved jobs wait
+without consuming failure attempts, then drains the queue and checks copied SHA
+links. It uses the real worker and database RPCs with simulated HTTP/Git boundaries.
+Separate unit cases transfer between local bare Git repositories with real Git;
+incompatible legacy branch names use separate fixtures, with the same assertions.
+Neither proves real GitHub permissions, Actions startup or GitHub's acceptance of
+the push; those need a separate test bot/org rehearsal before release.
+
+Use the local Supabase setup in section 3. Check that `.env.test` points at
+`http://127.0.0.1:54321`, has `SUPABASE_TEST_MODE=true`, and blanks all external
+GitHub, Drive, SMTP, AI and Redis credentials. For the local-only run, also set
+`NODE_OPTIONS=--require ./e2e/helpers/local-network-guard.cjs`. This opt-in guard
+serves only named synthetic e2e-source GitHub objects and blocks other external
+global fetch calls; it is not a general socket firewall. Do not
+load `.env.local` credentials or run a real Actions worker for this walkthrough.
+The walkthrough isolates participant browser sessions and temporarily holds other
+lifecycle jobs, restoring their status afterward. It adds no test runner or app.
+
+```bash
+pnpm typecheck
+pnpm test
+# Same Next build and memory limit; preserve the guard that pnpm build's NODE_OPTIONS replaces:
+pnpm exec dotenv -e .env.test -- node --require ./e2e/helpers/local-network-guard.cjs \
+  --max-old-space-size=4096 ./node_modules/next/dist/bin/next build --turbopack
+
+# Full lifecycle, excluding the existing case that explicitly contacts real GitHub:
+pnpm test:e2e:lifecycle --grep-invert '7.5 Entire gate'
+
+# Watch 50 distinct teams use the existing form, then inspect the saved/copy states:
+SNAPSHOT_TEAMS=50 SNAPSHOT_INSPECT=true pnpm test:e2e:lifecycle \
+  --grep 'Submission walkthrough' --headed
+```
+
+The walkthrough defaults to three teams in CI. `SNAPSHOT_TEAMS` accepts 1 to 150;
+`SNAPSHOT_INSPECT=true` pauses after quota exhaustion and again after copies finish.
+Use Playwright's Resume control to continue. While paused, inspect the existing
+participant page and `/admin/submissions` with the suite's normal login helpers.
+Its fixtures are removed afterward. The separate 150-receipt case is sequential,
+not a simultaneous deadline-load benchmark.

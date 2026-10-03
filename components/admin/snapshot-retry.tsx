@@ -6,11 +6,8 @@ import { Button } from "@/components/ui/button";
 import { retrySnapshots } from "@/lib/actions/submissions";
 
 /**
- * Admin control to re-run a missing repository snapshot.
- *
- * Surfaces the LIVE GitHub error on failure rather than a generic message: the
- * whole point of a retry is telling an operator whether to wait out a secondary
- * rate limit, rotate the bot token, or chase a team that revoked access.
+ * Requeue missing copies using the existing admin control. The worker records
+ * GitHub failures on the submission detail page; queueing is not copy success.
  */
 export function SnapshotRetry({
   submissionId,
@@ -43,12 +40,12 @@ export function SnapshotRetry({
     if (res.attempted === 0) {
       setResult("Nothing to retry: no submission is missing a snapshot.");
     } else if (res.failures.length === 0) {
-      setResult(`Snapshotted ${res.succeeded} of ${res.attempted}.`);
+      setResult(`Queued ${res.queued} of ${res.attempted} repository copies.`);
       router.refresh();
     } else {
       setFailed(true);
       setResult(
-        `Snapshotted ${res.succeeded} of ${res.attempted}. Still failing: ${res.failures.join("; ")}`
+        `Queued ${res.queued} of ${res.attempted} repository copies. Still failing: ${res.failures.join("; ")}`
       );
       router.refresh();
     }

@@ -19,6 +19,8 @@ function envInt(key: string, fallback: number): number {
 }
 
 export const QUERY_LIMITS = {
+  // Verification refuses excess refs explicitly instead of silently truncating.
+  entireCheckpointRefs: envInt("LIMIT_ENTIRE_CHECKPOINT_REFS", 2000),
   // Teams and their members back the admin Teams page, which is how an operator
   // finds a person on an event day. Truncation there is not a degraded view, it
   // is a person who appears not to exist, so these sit far above what a single

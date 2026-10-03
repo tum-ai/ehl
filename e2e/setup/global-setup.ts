@@ -32,6 +32,7 @@ import {
 } from "../helpers/auth";
 
 setup("cleanup stale E2E data", async () => {
+  if (process.env.SUPABASE_TEST_MODE !== "true") throw new Error("E2E setup requires SUPABASE_TEST_MODE=true");
   await cleanupE2EData();
 });
 

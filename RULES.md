@@ -44,7 +44,7 @@ After staging, review your changes against these four categories.
 ### 1. Security
 
 - [ ] **Auth guards**: Every server action and API route that mutates data checks authentication. Admin actions call `requireAdminAction()` or `requireAdmin()`. Participant actions verify the user owns the resource.
-- [ ] **No admin client in participant paths**: Never use `createAdminClient()` where a participant's request is being handled. Use the authenticated server client so RLS applies.
+- [ ] **Participant data access**: Use the authenticated server client so RLS applies. Submit has a narrow exception: verify the session with `auth.getUser()`, then invoke service-only receipt RPCs with that user ID. Those RPCs must repeat membership, check-in, registration and deadline checks. Never take the actor ID from form data.
 - [ ] **Input validation**: Validate all user input at the boundary. Check types, lengths, and allowed values. Don't trust `as` casts on user-provided data.
 - [ ] **File uploads**: Validate MIME types against a whitelist before storing. Never allow SVG in public buckets (XSS via embedded scripts). Current whitelist: PNG, JPEG, WebP, AVIF.
 - [ ] **No secrets in client code**: Environment variables without `NEXT_PUBLIC_` prefix must never appear in client components. Service role keys, SMTP credentials, and API keys are server-only.

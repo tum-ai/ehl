@@ -20,8 +20,11 @@ import {
   listEntireCheckpointRefs,
   ENTIRE_BRANCH,
   MAX_ENTIRE_CHECKPOINT_REFS,
+  isEntireCheckpointRef,
+  ingestSessionHistory,
 } from "@/lib/entire";
 import type { CheckpointBranchCheck } from "@/lib/types";
+import { getSettingValue } from "@/lib/settings";
 
 // ─── Pure helpers ─────────────────────────────────────────────
 
@@ -516,5 +519,262 @@ describe("entireGateErrorMessage: our failure vs theirs", () => {
     ]) {
       expect(entireGateErrorMessage(c)).not.toContain("—");
     }
+  });
+});
+
+describe("recorded Entire checkpoint evidence", () => {
+  const originalFetch = globalThis.fetch;
+  const sha = "a".repeat(40);
+  const codeSha = "b".repeat(40);
+  const checkpointRef = "refs/entire/checkpoints/AA/0123456789";
+  const checkpointRefs = [{ ref: checkpointRef, sha }];
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.clearAllMocks();
+  });
+
+  it.each([
+    checkpointRef,
+    "refs/heads/entire/checkpoints/v1",
+    "refs/entire/checkpoints/v1.1",
+    "refs/heads/entire/checkpoints",
+  ])("recognizes the supported checkpoint ref %s", (ref) => {
+    expect(isEntireCheckpointRef(ref)).toBe(true);
+  });
+
+  it.each([
+    "refs/heads/main",
+    "refs/entire/checkpoints/AA",
+    "refs/entire/checkpoints/AA/id/extra",
+    "refs/entire/checkpoints/../id",
+  ])("rejects unrelated or malformed ref %s", (ref) => {
+    expect(isEntireCheckpointRef(ref)).toBe(false);
+  });
+
+  it.each(["participant-token", null])("uses the explicit token %s without a privileged settings lookup", async (token) => {
+    vi.mocked(getSettingValue).mockClear();
+    globalThis.fetch = mockFetch((url) => {
+      if (url.includes(`/git/trees/${sha}?`)) {
+        return { json: { tree: [{ path: "0/prompt.txt", type: "blob" }] } };
+      }
+      if (url.includes(`/contents/0/prompt.txt?ref=${sha}`)) {
+        return { json: { encoding: "base64", content: b64("recorded prompt") } };
+      }
+      return { status: 404 };
+    });
+
+    const result = await checkCheckpointBranch("o", "r", { token, checkpointRefs });
+    expect(result.satisfiesGate).toBe(true);
+    expect(result.promptCount).toBe(1);
+    expect(result.resolvedRef).toBe(checkpointRef);
+    expect(getSettingValue).not.toHaveBeenCalled();
+    const calls = vi.mocked(fetch).mock.calls;
+    expect(calls.map(([url]) => String(url))).toEqual([
+      `https://api.github.com/repos/o/r/git/trees/${sha}?recursive=1`,
+      `https://api.github.com/repos/o/r/contents/0/prompt.txt?ref=${sha}`,
+    ]);
+    for (const [, init] of calls) {
+      expect(new Headers(init?.headers).get("Authorization")).toBe(token ? `token ${token}` : null);
+      expect(init?.signal).toBeInstanceOf(AbortSignal);
+    }
+  });
+
+  it("does not discover new checkpoint refs when the recorded manifest is empty", async () => {
+    globalThis.fetch = mockFetch(() => ({
+      json: { tree: [{ path: "0/full.jsonl", type: "blob" }] },
+    }));
+    const result = await checkCheckpointBranch("o", "r", { token: null, checkpointRefs: [] });
+    expect(result.satisfiesGate).toBe(false);
+    expect(result.checkUnavailable).toBe(false);
+    expect(result.branchExists).toBe(false);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("stops reading prompt files once the recorded submission has positive evidence", async () => {
+    globalThis.fetch = mockFetch((url) => url.includes("/git/trees/")
+      ? { json: { tree: [
+        { path: "0/prompt.txt", type: "blob" },
+        { path: "1/prompt.txt", type: "blob" },
+      ] } }
+      : { json: { encoding: "base64", content: b64("captured prompt") } });
+    const result = await checkCheckpointBranch("o", "r", { token: null, checkpointRefs });
+    expect(result.satisfiesGate).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      `https://api.github.com/repos/o/r/git/trees/${sha}?recursive=1`,
+      `https://api.github.com/repos/o/r/contents/0/prompt.txt?ref=${sha}`,
+    ]);
+  });
+
+  it("does not call a failed blob read missing evidence when there is no structural fallback", async () => {
+    globalThis.fetch = mockFetch((url) => url.includes("/git/trees/")
+      ? { json: { tree: [{ path: "0/prompt.txt", type: "blob" }] } }
+      : { status: 429 });
+    const result = await checkCheckpointBranch("o", "r", {
+      token: null, checkpointRefs: [{ ref: "refs/heads/entire/checkpoints/v1", sha }],
+    });
+    expect(result.satisfiesGate).toBe(false);
+    expect(result.checkUnavailable).toBe(true);
+    expect(result.repoUnreadable).toBe(false);
+  });
+
+  it("does not replace an unavailable recorded object with a newer live ref", async () => {
+    globalThis.fetch = mockFetch((url) => url.includes(`/git/trees/${sha}?`)
+      ? { status: 404 }
+      : { json: { tree: [{ path: "0/full.jsonl", type: "blob" }] } });
+    const result = await checkCheckpointBranch("o", "r", { token: null, checkpointRefs });
+    expect(result.satisfiesGate).toBe(false);
+    expect(result.checkUnavailable).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      `https://api.github.com/repos/o/r/git/trees/${sha}?recursive=1`,
+    ]);
+  });
+
+  it("retains the structural fallback on the recorded older short branch", async () => {
+    globalThis.fetch = mockFetch(() => ({
+      json: { tree: [{ path: "a3/b2c4d5e6f7/data.bin", type: "blob" }] },
+    }));
+    const result = await checkCheckpointBranch("o", "r", {
+      token: null, checkpointRefs: [{ ref: "refs/heads/entire/checkpoints", sha }],
+    });
+    expect(result.satisfiesGate).toBe(true);
+    expect(result.promptCount).toBe(1);
+    expect(result.checkpointCount).toBe(1);
+  });
+
+  it("does not accept an empty recorded checkpoint tree", async () => {
+    globalThis.fetch = mockFetch(() => ({ json: { tree: [] } }));
+    const result = await checkCheckpointBranch("o", "r", { token: null, checkpointRefs });
+    expect(result.satisfiesGate).toBe(false);
+    expect(result.promptCount).toBe(0);
+    expect(result.checkUnavailable).toBe(false);
+  });
+
+  it("does not treat the mirror branch name alone as a checkpoint", async () => {
+    globalThis.fetch = mockFetch(() => ({ json: { tree: [{ path: "README.md", type: "blob" }] } }));
+    const result = await checkCheckpointBranch("o", "r", {
+      token: null, checkpointRefs: [{ ref: "refs/entire/checkpoints/v1.1", sha }],
+    });
+    expect(result.satisfiesGate).toBe(false);
+    expect(result.promptCount).toBe(0);
+    expect(result.checkpointCount).toBe(0);
+  });
+
+  it("checks the next recorded ref when the first tree has no evidence", async () => {
+    globalThis.fetch = mockFetch((url) => url.includes(`/git/trees/${sha}?`)
+      ? { json: { tree: [] } }
+      : { json: { tree: [{ path: "0/full.jsonl", type: "blob" }] } });
+    const result = await checkCheckpointBranch("o", "r", {
+      token: null, checkpointRefs: [...checkpointRefs, { ref: "refs/entire/checkpoints/BB/id", sha: codeSha }],
+    });
+    expect(result.satisfiesGate).toBe(true);
+    expect(result.resolvedRef).toBe("refs/entire/checkpoints/BB/id");
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      `https://api.github.com/repos/o/r/git/trees/${sha}?recursive=1`,
+      `https://api.github.com/repos/o/r/git/trees/${codeSha}?recursive=1`,
+    ]);
+  });
+
+  it("reports an unfinished bounded scan as unavailable rather than missing evidence", async () => {
+    globalThis.fetch = mockFetch(() => ({ json: { tree: [] } }));
+    const result = await checkCheckpointBranch("o", "r", {
+      token: null,
+      checkpointRefs: Array.from({ length: 150 }, (_, i) => ({ ref: `refs/entire/checkpoints/AA/${i}`, sha })),
+    });
+    expect(result.satisfiesGate).toBe(false);
+    expect(result.checkUnavailable).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.length).toBe(103);
+  });
+
+  it("samples review history from the recorded objects and the submitted commit", async () => {
+    globalThis.fetch = mockFetch((url) => {
+      if (url.includes(`/git/trees/${sha}?`)) return { json: { tree: [
+        { path: "0/prompt.txt", type: "blob" },
+        { path: "0/metadata.json", type: "blob" },
+      ] } };
+      if (url.includes(`/contents/0/prompt.txt?ref=${sha}`)) {
+        return { json: { encoding: "base64", content: b64("on time prompt") } };
+      }
+      if (url.includes(`/contents/0/metadata.json?ref=${sha}`)) {
+        return { json: { encoding: "base64", content: b64(JSON.stringify({ agent: "Codex", files: ["app.ts"] })) } };
+      }
+      if (url.includes(`/commits?sha=${codeSha}&`)) {
+        return { json: [{ commit: { verification: { verified: true } } }] };
+      }
+      return { status: 404 };
+    });
+    const result = await ingestSessionHistory("o", "r", { checkpointRefs, commitSha: codeSha });
+    expect(result?.promptSamples).toEqual(["on time prompt"]);
+    expect(result?.agentsDetected).toEqual(["Codex"]);
+    expect(result?.filesTouched).toEqual(["app.ts"]);
+    expect(result?.signed).toBe(true);
+    expect(vi.mocked(fetch).mock.calls.map(([url]) => String(url))).toEqual([
+      `https://api.github.com/repos/o/r/git/trees/${sha}?recursive=1`,
+      `https://api.github.com/repos/o/r/contents/0/prompt.txt?ref=${sha}`,
+      `https://api.github.com/repos/o/r/contents/0/metadata.json?ref=${sha}`,
+      `https://api.github.com/repos/o/r/commits?sha=${codeSha}&per_page=1`,
+    ]);
+  });
+
+  it("does not discover review history outside an empty recorded manifest", async () => {
+    globalThis.fetch = mockFetch(() => ({ json: { tree: [{ path: "0/full.jsonl", type: "blob" }] } }));
+    expect(await ingestSessionHistory("o", "r", { checkpointRefs: [], commitSha: codeSha })).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("incomplete Entire checks", () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it.each([401, 403, 429, 500])("does not turn ref enumeration HTTP %i into missing Entire", async (status) => {
+    globalThis.fetch = mockFetch((url) => {
+      if (url.includes("/git/matching-refs/")) return { status };
+      if (/\/repos\/o\/r$/.test(url)) return { json: { private: false } };
+      return { status: 404 };
+    });
+    const result = await checkCheckpointBranch("o", "r");
+    expect(result.checkUnavailable).toBe(true);
+    expect(result.satisfiesGate).toBe(false);
+    expect(result.repoUnreadable).toBe(false);
+  });
+
+  it.each([403, 429, 500])("does not turn tree HTTP %i into missing Entire", async (status) => {
+    globalThis.fetch = mockFetch((url) => {
+      if (url.includes("/git/matching-refs/")) return { json: [] };
+      if (url.includes("/git/trees/")) return { status };
+      return { json: { private: false } };
+    });
+    const result = await checkCheckpointBranch("o", "r");
+    expect(result.checkUnavailable).toBe(true);
+    expect(result.satisfiesGate).toBe(false);
+  });
+
+  it("treats a rate limited access probe as an unavailable check", async () => {
+    globalThis.fetch = mockFetch((url) => /\/repos\/o\/r$/.test(url) ? { status: 429 } : { status: 404 });
+    const result = await checkCheckpointBranch("o", "r");
+    expect(result.checkUnavailable).toBe(true);
+    expect(result.repoUnreadable).toBe(false);
+    expect(result.satisfiesGate).toBe(false);
+  });
+
+  it("does not turn a malformed enumeration response into missing Entire", async () => {
+    globalThis.fetch = mockFetch((url) => {
+      if (url.includes("/git/matching-refs/")) return { json: { unexpected: true } };
+      if (/\/repos\/o\/r$/.test(url)) return { json: {} };
+      return { status: 404 };
+    });
+    const result = await checkCheckpointBranch("o", "r");
+    expect(result.checkUnavailable).toBe(true);
+    expect(result.satisfiesGate).toBe(false);
+  });
+
+  it("does not claim missing history from a truncated tree", async () => {
+    globalThis.fetch = mockFetch((url) => url.includes("/git/matching-refs/")
+      ? { json: [] }
+      : { json: { truncated: true, tree: [{ path: "README.md", type: "blob" }] } });
+    const result = await checkCheckpointBranch("o", "r");
+    expect(result.checkUnavailable).toBe(true);
+    expect(result.satisfiesGate).toBe(false);
   });
 });

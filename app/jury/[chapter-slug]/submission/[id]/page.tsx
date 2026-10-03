@@ -14,6 +14,7 @@ import {
 import { ReportCard } from "@/components/code-review/report-card";
 import { extractDriveFileId, getDriveEmbedUrl } from "@/lib/drive-embed";
 import { ensureFileLinkReadable } from "@/lib/gdrive";
+import { selectSubmissionRepository } from "@/lib/submission-snapshots/selection";
 
 interface PageProps {
   params: Promise<{ "chapter-slug": string; id: string }>;
@@ -70,7 +71,12 @@ export default async function JurySubmissionDetailPage({ params, searchParams }:
     if (!value) continue;
 
     const isRepo = fieldConfig.type === "repo";
-    const displayUrl = isRepo && submission.forkUrl ? submission.forkUrl : value;
+    const repository = isRepo ? selectSubmissionRepository(submission, challenge.submissionFields, fieldConfig.key) : null;
+    const displayUrl = isRepo ? repository?.href : value;
+    if (!displayUrl) {
+      textFields.push({ label: fieldConfig.label, value: "Accepted repository version unavailable." });
+      continue;
+    }
 
     if (fieldConfig.type === "file") {
       const embedUrl = getDriveEmbedUrl(displayUrl);
@@ -80,14 +86,13 @@ export default async function JurySubmissionDetailPage({ params, searchParams }:
         linkFields.push({ label: fieldConfig.label, url: displayUrl, type: "file" });
       }
     } else if (fieldConfig.type === "repo") {
-      // missingFork: the EHL snapshot was never created, so this URL is the
-      // team's own repository. A juror cannot open it if it is private, and a
-      // silent 404 is worse than a labelled one.
+      // Without a copy, new submissions still link to their accepted source
+      // commit. A private source may require access, so retain the warning.
       linkFields.push({
         label: fieldConfig.label,
         url: displayUrl,
         type: "repo",
-        missingFork: !submission.forkUrl,
+        missingFork: repository?.missingFork,
       });
     } else if (displayUrl.startsWith("http")) {
       linkFields.push({ label: fieldConfig.label, url: displayUrl, type: "url" });
