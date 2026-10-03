@@ -410,3 +410,17 @@ Okay, run the tests accordingly to tick off every box before squashing and mergi
 ---
 
 yes do so and invite then ehl-test-gg as juror
+
+---
+
+1. I don't get the differentiation between inviting the jury before and after the deadline. Why does it take up many tokens or many limits?
+2. I don't understand the exact calculation of the 1, 3, or 5 jurors in minutes per team, right? This table.
+3. I already accepted and could see everything with the ehl-test-gg account.
+
+---
+
+ok so no updates are needed based on the test runs? if so, then update the pr body to reflect this run test and its numbers/findings (briefly in 3 sentences or so)
+
+---
+
+a crashed worker blocking for 30 minutes???? thats unaceptable since after deadline the jurors instantly need to have acces while pitching happens
