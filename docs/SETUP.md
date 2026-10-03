@@ -290,7 +290,10 @@ the existing server service key for its restricted save RPC; no additional recei
 secret or settings provisioning is required.
 
 The worker exits after draining due work or after 20 minutes. Jobs have renewable
-leases, so a terminated worker can resume safely. GitHub quota errors honor reset
+leases, so a terminated worker can resume safely. The worker's own lock is a
+90-second lease renewed every 30 seconds while it runs, and the cron may dispatch
+a replacement after 90 seconds, so a crashed or killed run delays copies and jury
+invitations by about two minutes plus the Actions start time, not half an hour. GitHub quota errors honor reset
 and retry headers without consuming the five transient failure attempts. Permanent
 access/configuration errors stay visible on the existing submission detail page.
 The shared budget table contains quota timestamps and account IDs, never tokens.

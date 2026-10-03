@@ -3,6 +3,7 @@ import { getGitHubConfiguration } from "../lib/github";
 import { isProductionDatabase } from "../lib/dev-login";
 import { SnapshotWorker } from "../lib/submission-snapshots/worker";
 import { transferCapturedRepository } from "../lib/submission-snapshots/git-transfer";
+import { runWithWorkerLease } from "../lib/submission-snapshots/lease";
 
 async function main() {
   // Reuse the existing deployment identity check, not two copies of one secret.
@@ -15,13 +16,9 @@ async function main() {
       "Snapshot worker database identity does not match its environment",
     );
   const db = createAdminClient();
-  const { data: locked, error } = await db.rpc("try_acquire_cron_lock", {
-    lock_key: "snapshot:worker",
-    ttl_seconds: 1800,
-  });
-  if (error) throw new Error("Cannot acquire snapshot worker lock");
-  if (!locked) return;
-  try {
+  // A short lease renewed while alive: a crashed run blocks the queue for at
+  // most WORKER_LEASE_SECONDS instead of a fixed half hour.
+  await runWithWorkerLease(db, async () => {
     const { token, org } = await getGitHubConfiguration();
     if (!token) throw new Error("GitHub token is not configured");
     const worker = new SnapshotWorker(db, token, org, (copy, heartbeat) =>
@@ -31,9 +28,7 @@ async function main() {
     while (Date.now() < until && (await worker.runOne())) {
       /* stop when no job is due */
     }
-  } finally {
-    await db.rpc("release_cron_lock", { lock_key: "snapshot:worker" });
-  }
+  });
 }
 main().catch((error) => {
   console.error(

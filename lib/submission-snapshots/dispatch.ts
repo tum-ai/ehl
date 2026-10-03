@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { isDevLoginEnabled } from "@/lib/dev-login";
+import { DISPATCH_LOCK_SECONDS, WORKER_LOCK_KEY } from "./lease";
 
 /** Called by the existing cron, never by Submit. Idle events make no GitHub call. */
 export async function dispatchPendingSnapshots(
@@ -17,7 +18,7 @@ export async function dispatchPendingSnapshots(
   const { data: active, error: activeError } = await db
     .from("app_settings")
     .select("key")
-    .eq("key", "snapshot:worker")
+    .eq("key", WORKER_LOCK_KEY)
     .gt("expires_at", now)
     .maybeSingle();
   if (activeError) throw new Error("Cannot inspect snapshot worker lease");
@@ -28,7 +29,7 @@ export async function dispatchPendingSnapshots(
     throw new Error("Snapshot dispatch needs GITHUB_TOKEN and GITHUB_REPO");
   const { data: locked, error: lockError } = await db.rpc(
     "try_acquire_cron_lock",
-    { lock_key: "snapshot:dispatch", ttl_seconds: 300 },
+    { lock_key: "snapshot:dispatch", ttl_seconds: DISPATCH_LOCK_SECONDS },
   );
   if (lockError) throw new Error("Cannot acquire snapshot dispatch lock");
   if (!locked) return;
