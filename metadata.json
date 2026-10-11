@@ -3,8 +3,12 @@
   "checkpoint_id": "01M4N7J8BEM0XCTME53C16NP1W",
   "strategy": "manual-commit",
   "branch": "hotfix/review-archive-size",
-  "checkpoints_count": 10,
-  "files_touched": null,
+  "checkpoints_count": 18,
+  "files_touched": [
+    "lib/code-review/archive.ts",
+    "lib/submission-snapshots/types.ts",
+    "tests/review-archive.test.ts"
+  ],
   "sessions": [
     {
       "metadata": "/0/metadata.json",
@@ -12,13 +16,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 948,
-    "cache_creation_tokens": 7429434,
-    "cache_read_tokens": 236648056,
-    "output_tokens": 478639,
-    "api_call_count": 470
+    "input_tokens": 1030,
+    "cache_creation_tokens": 8617688,
+    "cache_read_tokens": 252116967,
+    "output_tokens": 505167,
+    "api_call_count": 510
   }
 }
