@@ -60,7 +60,7 @@ export async function downloadCapturedArchive(
     // Signed archive URL: never forward the API Authorization header.
     response = await fetch(location, {
       redirect: "error",
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(CAPTURE_LIMITS.archiveDownloadMs),
       cache: "no-store",
     });
   }

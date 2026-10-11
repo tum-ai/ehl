@@ -37,9 +37,12 @@ export interface RepositoryCapture extends RepositorySelection {
   revision: number;
 }
 export const CAPTURE_LIMITS = {
-  archiveBytes: 50 * 1024 * 1024,
-  expandedBytes: 250 * 1024 * 1024,
-  archiveFiles: 50000,
+  // Repositories often carry videos, models and datasets (finale: up to 484 MB)
+  // while the review only decompresses text files up to 50 KB.
+  archiveBytes: 768 * 1024 * 1024,
+  expandedBytes: 4 * 1024 * 1024 * 1024,
+  archiveFiles: 200_000,
+  archiveDownloadMs: 600_000,
 };
 export function strictRepository(url: string) {
   const match =
