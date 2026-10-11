@@ -100,3 +100,15 @@ it("omits binary and oversized files from review text", () => {
   );
   expect([...result]).toEqual([["safe.txt", "ok"]]);
 });
+
+// Finale: 5 of 50 reviews failed with "Repository archive exceeds download limit".
+// Those repositories carry videos, models and data files (84-484 MB in total) while
+// their reviewable text is 2-18 MB. Only files up to 50 KB are ever decompressed, so
+// the download and expansion limits must cover large repositories.
+import { CAPTURE_LIMITS as LIMITS } from "@/lib/submission-snapshots/types";
+it("allows repositories with large media and data files to be reviewed", () => {
+  expect(LIMITS.archiveBytes).toBeGreaterThanOrEqual(768 * 1024 * 1024);
+  expect(LIMITS.expandedBytes).toBeGreaterThanOrEqual(4 * 1024 * 1024 * 1024);
+  expect(LIMITS.archiveFiles).toBeGreaterThanOrEqual(200_000);
+  expect(LIMITS.archiveDownloadMs).toBeGreaterThanOrEqual(300_000);
+});
