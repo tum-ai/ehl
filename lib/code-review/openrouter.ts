@@ -16,6 +16,8 @@ interface ChatCompletionParams {
 
 interface ChatCompletionResult {
   content: string;
+  /** "length" means the answer was cut off at max_tokens. */
+  finishReason: string | null;
   usage: {
     prompt_tokens: number;
     completion_tokens: number;
@@ -98,6 +100,7 @@ export async function chatCompletion(
 
     return {
       content: choice.message.content,
+      finishReason: typeof choice.finish_reason === "string" ? choice.finish_reason : null,
       usage: {
         prompt_tokens: promptTokens,
         completion_tokens: completionTokens,

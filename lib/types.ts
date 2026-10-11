@@ -350,6 +350,10 @@ export interface PipelineStageLog {
   tokens_in?: number;
   tokens_out?: number;
   error?: string;
+  /** The answer hit max_tokens and was cut off. */
+  truncated?: boolean;
+  /** The coordinator needed its one retry. */
+  retried?: boolean;
 }
 
 export interface PipelineLog {
