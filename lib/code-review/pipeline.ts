@@ -55,17 +55,39 @@ function mergeConfig(config: CodeReviewConfig | null): CodeReviewConfig {
   };
 }
 
+// Output caps (max_tokens) per stage. Answers are billed by tokens produced, so a
+// higher cap only costs more when a model actually needs it. Zurich's coordinator
+// answers reached 2,997 of the former 3,000 and were cut off mid-string.
+const OUTPUT_TOKENS = {
+  tech_description: 3000,
+  code_quality: 6000,
+  highlights_issues: 6000,
+  originality: 3000,
+  session_history: 4000,
+  coordinator: 8000,
+  coordinator_retry: 16000,
+} as const;
+
 function parseJson(text: string): unknown {
   // Strip markdown code blocks if present
   let cleaned = text.trim();
   if (cleaned.startsWith("```")) {
     cleaned = cleaned.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "");
   }
-  return JSON.parse(cleaned);
+  try {
+    return JSON.parse(cleaned);
+  } catch (error) {
+    // Tolerate prose or a code fence around the object; still reject broken JSON.
+    const start = cleaned.indexOf("{");
+    const end = cleaned.lastIndexOf("}");
+    if (start === -1 || end <= start) throw error;
+    return JSON.parse(cleaned.slice(start, end + 1));
+  }
 }
 
 interface SubReviewerResult {
   content: string;
+  finishReason: string | null;
   usage: { prompt_tokens: number; completion_tokens: number; total_cost: number };
   duration_ms: number;
 }
@@ -87,6 +109,7 @@ async function runSubReviewer(
   });
   return {
     content: result.content,
+    finishReason: result.finishReason,
     usage: result.usage,
     duration_ms: Date.now() - start,
   };
@@ -142,22 +165,22 @@ export async function runCodeReviewPipeline(params: {
       runSubReviewer(
         config.models.tech_description,
         buildTechDescriptionPrompt(commonParams),
-        2000
+        OUTPUT_TOKENS.tech_description
       ),
       runSubReviewer(
         config.models.code_quality,
         buildCodeQualityPrompt(commonParams),
-        3000
+        OUTPUT_TOKENS.code_quality
       ),
       runSubReviewer(
         config.models.highlights_issues,
         buildHighlightsPrompt(commonParams),
-        3000
+        OUTPUT_TOKENS.highlights_issues
       ),
       runSubReviewer(
         config.models.originality,
         buildOriginalityPrompt(commonParams),
-        1500
+        OUTPUT_TOKENS.originality
       ),
     ]);
 
@@ -175,6 +198,7 @@ export async function runCodeReviewPipeline(params: {
         model,
         tokens_in: r.usage.prompt_tokens,
         tokens_out: r.usage.completion_tokens,
+        ...(r.finishReason === "length" ? { truncated: true } : {}),
       };
       totalCost += r.usage.total_cost;
       return r.content;
@@ -243,7 +267,7 @@ export async function runCodeReviewPipeline(params: {
             ];
           })(),
           temperature: 0,
-          max_tokens: 2000,
+          max_tokens: OUTPUT_TOKENS.session_history,
         });
         stages.session_history = {
           status: "completed",
@@ -251,6 +275,7 @@ export async function runCodeReviewPipeline(params: {
           model: config.models.coordinator,
           tokens_in: shResult.usage.prompt_tokens,
           tokens_out: shResult.usage.completion_tokens,
+          ...(shResult.finishReason === "length" ? { truncated: true } : {}),
         };
         totalCost += shResult.usage.total_cost;
         try {
@@ -284,27 +309,57 @@ export async function runCodeReviewPipeline(params: {
   });
 
   const coordStart = Date.now();
-  const coordResult = await chatCompletion({
-    model: config.models.coordinator,
-    messages: [
-      { role: "system", content: coordinatorPrompt.system },
-      { role: "user", content: coordinatorPrompt.user },
-    ],
-    temperature: 0,
-    max_tokens: 3000,
-  });
+  const askCoordinator = (maxTokens: number, retryNote?: string) =>
+    chatCompletion({
+      model: config.models.coordinator,
+      messages: [
+        { role: "system", content: coordinatorPrompt.system },
+        { role: "user", content: retryNote ? `${coordinatorPrompt.user}\n\n${retryNote}` : coordinatorPrompt.user },
+      ],
+      temperature: 0,
+      max_tokens: maxTokens,
+    });
+
+  // A cut-off or malformed answer must not fail a review whose sub-reviews are
+  // already paid for: ask once more with a higher cap and a firmer format note.
+  let coordResult = await askCoordinator(OUTPUT_TOKENS.coordinator);
+  let tokensIn = coordResult.usage.prompt_tokens;
+  let tokensOut = coordResult.usage.completion_tokens;
+  totalCost += coordResult.usage.total_cost;
+  let coordJson: unknown = null;
+  let retried = false;
+  try {
+    if (coordResult.finishReason === "length") throw new Error("Coordinator answer was cut off");
+    coordJson = parseJson(coordResult.content);
+  } catch {
+    retried = true;
+    await progress("Coordinator answer was incomplete. Retrying once...");
+    coordResult = await askCoordinator(
+      OUTPUT_TOKENS.coordinator_retry,
+      "Return exactly one complete, valid JSON object with no prose. Keep each rationale to two sentences.",
+    );
+    tokensIn += coordResult.usage.prompt_tokens;
+    tokensOut += coordResult.usage.completion_tokens;
+    totalCost += coordResult.usage.total_cost;
+    try {
+      if (coordResult.finishReason === "length") throw new Error("Coordinator answer was cut off");
+      coordJson = parseJson(coordResult.content);
+    } catch {
+      throw new Error("Coordinator returned invalid JSON after one retry");
+    }
+  }
 
   stages.coordinator = {
     status: "completed",
     duration_ms: Date.now() - coordStart,
     model: config.models.coordinator,
-    tokens_in: coordResult.usage.prompt_tokens,
-    tokens_out: coordResult.usage.completion_tokens,
+    tokens_in: tokensIn,
+    tokens_out: tokensOut,
+    ...(retried ? { retried: true } : {}),
   };
-  totalCost += coordResult.usage.total_cost;
 
   // Parse coordinator output
-  const coordParsed = parseJson(coordResult.content) as {
+  const coordParsed = coordJson as {
     executive_summary: string;
     scores: Record<string, { score: number; max: number; weight: number; rationale: string }>;
     weighted_total: number;
