@@ -3,9 +3,11 @@ import { getClient } from "@/lib/queries/client";
 import { toChapter, toMediaItem, toScore } from "@/lib/queries/mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 import {
+  buildShowcaseTeams,
   buildTeamNameByEmail,
   rowHasSponsorConsent,
   SPONSOR_CONSENT_OR_FILTER,
+  type ShowcaseTeam,
 } from "@/lib/showcase-shared";
 import type { ApplicationStatus, Chapter, MediaItem } from "@/lib/types";
 
@@ -53,6 +55,10 @@ export interface ShowcaseData {
   applicantsTruncated: boolean;
   ranking: ShowcaseRankingRow[];
   rankingTruncated: boolean;
+  // Every registered team of the chapter with its consented members and its
+  // submission (see buildShowcaseTeams).
+  teams: ShowcaseTeam<ShowcaseApplicant>[];
+  teamsTruncated: boolean;
   photos: MediaItem[];
   photosTruncated: boolean;
   // Server-computed limits for the client's LimitBanner. QUERY_LIMITS reads
@@ -61,7 +67,7 @@ export interface ShowcaseData {
   // the server whenever a LIMIT_* override is set (hydration mismatch, banner
   // vanishing). So the client must never import QUERY_LIMITS; it renders from
   // these values.
-  limits: { applicants: number; photos: number };
+  limits: { applicants: number; photos: number; teams: number };
 }
 
 // Map an application status to the sponsor-visible label. checked_in => the
@@ -148,17 +154,53 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
   // Two batched queries; roster ids are bounded by this chapter's registrations
   // (~5 per team), so the .in() stays tiny. Applicants without an account, a
   // team, or a registration naturally resolve to null.
-  const { data: regs, error: regError } = await supabase
-    .from("challenge_registrations")
-    .select("team_id, roster, teams!inner(name)")
-    .eq("chapter_id", chapterId)
-    .limit(QUERY_LIMITS.challengeRegistrations);
-  if (regError) throw regError;
+  // The same registrations also drive the Teams view (one card per team and
+  // challenge), so one extra row detects truncation for its LimitBanner.
+  const regLimit = QUERY_LIMITS.challengeRegistrations;
+  const [regResult, challengeResult] = await Promise.all([
+    supabase
+      .from("challenge_registrations")
+      .select("team_id, challenge_id, roster, teams!inner(name)")
+      .eq("chapter_id", chapterId)
+      .limit(regLimit + 1),
+    supabase
+      .from("challenges")
+      .select("id, title, submission_fields")
+      .eq("chapter_id", chapterId),
+  ]);
+  if (regResult.error) throw regResult.error;
+  if (challengeResult.error) throw challengeResult.error;
+  const regs = regResult.data ?? [];
+  const teamsTruncated = regs.length > regLimit;
 
-  const rosterRegs = (regs ?? []).map((reg) => ({
+  const rosterRegs = regs.slice(0, regLimit).map((reg) => ({
+    teamId: reg.team_id as string,
+    challengeId: reg.challenge_id as string,
     teamName: (reg.teams as unknown as { name: string }).name,
     roster: ((reg.roster as string[]) ?? []).filter((v) => typeof v === "string"),
   }));
+  const challenges = (challengeResult.data ?? []).map((c) => ({
+    id: c.id as string,
+    title: c.title as string,
+    submissionFields:
+      (c.submission_fields as Array<{ key: string; label: string; type: string }>) ?? [],
+  }));
+
+  // Submissions of this chapter's challenges. Unique per (challenge, team), so
+  // they are bounded by the registrations; filtered by challenge id (a handful)
+  // rather than by team id, which would put hundreds of UUIDs in the URL. Only
+  // the columns the sponsor view renders are selected.
+  const challengeIds = challenges.map((c) => c.id);
+  let submissionRows: Array<Record<string, unknown>> = [];
+  if (challengeIds.length > 0) {
+    const { data: subs, error: subError } = await supabase
+      .from("submissions")
+      .select("team_id, challenge_id, project_name, short_description, tech_stack, fields")
+      .in("challenge_id", challengeIds)
+      .limit(regLimit + 1);
+    if (subError) throw subError;
+    submissionRows = subs ?? [];
+  }
   const rosterUserIds = [...new Set(rosterRegs.flatMap((r) => r.roster))];
   // Chunked .in(): PostgREST filters ride in the GET URL, and at the
   // registration cap the roster set could reach thousands of UUIDs — far past
@@ -178,13 +220,16 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
 
   const rows = appResult.data ?? [];
   const applicantsTruncated = rows.length > appLimit;
+  // email stays in this server-side map only; it never reaches the client.
+  const memberByEmail = new Map<string, ShowcaseApplicant>();
   const applicants: ShowcaseApplicant[] = rows
     .slice(0, appLimit)
     .map((row) => {
       // Defence in depth: never trust the DB filter alone. Re-assert consent in
       // code so a query mistake cannot leak an unconsented applicant.
       if (!rowHasSponsorConsent(row)) return null;
-      return {
+      const email = ((row.email as string) ?? "").toLowerCase();
+      const applicant: ShowcaseApplicant = {
         id: row.id as string,
         firstName: row.first_name as string,
         lastName: row.last_name as string,
@@ -193,11 +238,28 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
         hasCv: Boolean(row.cv_url),
         status: labelFor(row.status as ApplicationStatus),
         checkedIn: Boolean(row.checked_in_at),
-        teamName:
-          teamNameByEmail.get(((row.email as string) ?? "").toLowerCase()) ?? null,
+        teamName: teamNameByEmail.get(email) ?? null,
       };
+      if (email) memberByEmail.set(email, applicant);
+      return applicant;
     })
     .filter((a): a is ShowcaseApplicant => a !== null);
+
+  const teams = buildShowcaseTeams({
+    registrations: rosterRegs,
+    challenges,
+    profiles: profileRows,
+    memberByEmail,
+    submissions: submissionRows.map((s) => ({
+      teamId: s.team_id as string,
+      challengeId: s.challenge_id as string,
+      projectName: s.project_name as string,
+      shortDescription: (s.short_description as string | null) ?? null,
+      techStack: s.tech_stack,
+      fields: s.fields,
+    })),
+    ranking: scores,
+  });
 
   // Resolve team names for the ranking. Bounded by the scores of ONE chapter,
   // but still capped per the QUERY_LIMITS rule — and if that cap ever bites, we
@@ -238,9 +300,11 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
     applicantsTruncated,
     ranking,
     rankingTruncated,
+    teams,
+    teamsTruncated,
     photos,
     photosTruncated,
-    limits: { applicants: appLimit, photos: QUERY_LIMITS.media },
+    limits: { applicants: appLimit, photos: QUERY_LIMITS.media, teams: regLimit },
   };
 }
 
