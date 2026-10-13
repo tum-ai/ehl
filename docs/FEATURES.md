@@ -307,14 +307,15 @@ Available to participants who are checked in at an event.
   `chapter_partner_showcase` table (never on the public `chapters` row). The public page
   resolves the chapter from the token via a service-role server action; a
   rotated/invalid/disabled/expired token 404s.
-- A "Teams & Projects" section pairs every team registered at the chapter with the people
-  who played on it and the project it submitted (one card per team and challenge, with its
-  published placement). Members come from the same roster bridge as the applicant cards and
+- Next to the All / Participated / With CV filters, a "Teams" button switches the applicant
+  grid to one card per team registered at the chapter, pairing it with the people who played
+  on it and the project it submitted (one card per team and challenge, with its published
+  placement). Members come from the same roster bridge as the applicant cards and
   pass the same consent gate: a member without sponsor consent is never named, only counted
   ("N members who did not opt into sharing their profile"). A project shows its name,
   description, tech stack and the http(s) links of its url/repo fields; file fields (pitch
-  decks) and free-text answers stay jury-only. The section has its own search (team, project,
-  member, tech).
+  decks) and free-text answers stay jury-only. In this view the search box matches team,
+  project, member and tech.
 - Each applicant card shows the team the person actually played on at this event
   (resolved from the chapter's challenge registrations, not their current global team);
   the search box also matches team names.
