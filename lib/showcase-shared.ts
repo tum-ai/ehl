@@ -85,6 +85,152 @@ export function buildTeamNameByEmail(
   return teamNameByEmail;
 }
 
+// ─── Teams paired with their members and submission ─────────
+//
+// One entry per challenge registration: the team, the consented applicants who
+// PLAYED on it (same roster -> profile.email -> applications.email bridge as
+// buildTeamNameByEmail), and the project it submitted for that challenge.
+// Roster members without sponsor consent are never named, only counted in
+// hiddenMemberCount, so the team view cannot widen the consent gate.
+//
+// A submission shows only its project name, description, tech stack and the
+// http(s) links of its url/repo fields. File fields (Drive ids) and free-text
+// answers are left out: they were written for the jury, not for sponsors.
+
+export interface ShowcaseSubmissionLink {
+  label: string;
+  url: string;
+}
+
+export interface ShowcaseSubmissionSummary {
+  projectName: string;
+  shortDescription: string | null;
+  techStack: string[];
+  links: ShowcaseSubmissionLink[];
+}
+
+export interface ShowcaseTeam<M> {
+  teamId: string;
+  teamName: string;
+  challengeName: string;
+  placement: number | null;
+  points: number | null;
+  members: M[];
+  hiddenMemberCount: number;
+  submission: ShowcaseSubmissionSummary | null;
+}
+
+export interface ShowcaseTeamInputs<M> {
+  registrations: Array<{
+    teamId: string;
+    teamName: string;
+    challengeId: string;
+    roster: string[];
+  }>;
+  challenges: Array<{
+    id: string;
+    title: string;
+    submissionFields: Array<{ key: string; label: string; type: string }>;
+  }>;
+  profiles: Array<{ id: string; email: string | null }>;
+  // Consented applicants only, keyed by lowercased email (server-side only).
+  memberByEmail: Map<string, M>;
+  submissions: Array<{
+    teamId: string;
+    challengeId: string;
+    projectName: string;
+    shortDescription: string | null;
+    techStack: unknown;
+    fields: unknown;
+  }>;
+  ranking: Array<{
+    teamId: string;
+    challengeId: string | null;
+    placement: number | null;
+    points: number;
+  }>;
+}
+
+function httpLink(raw: unknown): string | null {
+  if (typeof raw !== "string") return null;
+  try {
+    const u = new URL(raw.trim());
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+
+export function buildShowcaseTeams<M>(input: ShowcaseTeamInputs<M>): ShowcaseTeam<M>[] {
+  const challengeById = new Map(input.challenges.map((c) => [c.id, c]));
+  const emailByUserId = new Map(
+    input.profiles
+      .filter((p) => p.email)
+      .map((p) => [p.id, (p.email as string).toLowerCase()])
+  );
+  const submissionByKey = new Map(
+    input.submissions.map((s) => [`${s.teamId}:${s.challengeId}`, s])
+  );
+  const scoreByKey = new Map(
+    input.ranking
+      .filter((r) => r.challengeId)
+      .map((r) => [`${r.teamId}:${r.challengeId}`, r])
+  );
+
+  const teams = input.registrations.map((reg) => {
+    const challenge = challengeById.get(reg.challengeId);
+    const members: M[] = [];
+    let hiddenMemberCount = 0;
+    for (const uid of new Set(reg.roster)) {
+      const email = emailByUserId.get(uid);
+      const member = email ? input.memberByEmail.get(email) : undefined;
+      if (member) members.push(member);
+      else hiddenMemberCount += 1;
+    }
+
+    const sub = submissionByKey.get(`${reg.teamId}:${reg.challengeId}`);
+    let submission: ShowcaseSubmissionSummary | null = null;
+    if (sub) {
+      const fields = (sub.fields && typeof sub.fields === "object" ? sub.fields : {}) as Record<string, unknown>;
+      const links: ShowcaseSubmissionLink[] = [];
+      for (const field of challenge?.submissionFields ?? []) {
+        if (field.type !== "url" && field.type !== "repo") continue;
+        const url = httpLink(fields[field.key]);
+        if (url) links.push({ label: field.label, url });
+      }
+      submission = {
+        projectName: sub.projectName,
+        shortDescription: sub.shortDescription,
+        techStack: Array.isArray(sub.techStack)
+          ? sub.techStack.filter((t): t is string => typeof t === "string")
+          : [],
+        links,
+      };
+    }
+
+    const score = scoreByKey.get(`${reg.teamId}:${reg.challengeId}`);
+    return {
+      teamId: reg.teamId,
+      teamName: reg.teamName,
+      challengeName: challenge?.title ?? "",
+      placement: score?.placement ?? null,
+      points: score?.points ?? null,
+      members,
+      hiddenMemberCount,
+      submission,
+    };
+  });
+
+  // Placed teams first (by placement), then teams with a project, then by name.
+  return teams.sort((a, b) => {
+    const pa = a.placement ?? Number.POSITIVE_INFINITY;
+    const pb = b.placement ?? Number.POSITIVE_INFINITY;
+    if (pa !== pb) return pa - pb;
+    if (Boolean(a.submission) !== Boolean(b.submission)) return a.submission ? -1 : 1;
+    return a.teamName.localeCompare(b.teamName);
+  });
+}
+
 // ─── Podium eligibility ──────────────────────────────────────
 //
 // Placements are assigned PER CHALLENGE (finalizeChallengeScores gives each

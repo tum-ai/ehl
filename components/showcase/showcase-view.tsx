@@ -9,7 +9,7 @@ import { GlassPillar } from "@/components/podium/GlassPillar";
 import { RANK_COLORS } from "@/lib/design-tokens";
 import { cn, formatDateFull, getPlacementLabel, getPlacementColor } from "@/lib/utils";
 import { driveThumbnailUrl, drivePhotoViewUrl } from "@/lib/drive-urls";
-import { rankingSupportsPodium } from "@/lib/showcase-shared";
+import { rankingSupportsPodium, type ShowcaseTeam } from "@/lib/showcase-shared";
 import { extractLinkedInUsername, extractGitHubUsername } from "@/lib/flag-utils";
 import type { Chapter, MediaItem } from "@/lib/types";
 import type {
@@ -25,12 +25,14 @@ interface ShowcaseViewProps {
   applicantsTruncated: boolean;
   ranking: ShowcaseRankingRow[];
   rankingTruncated: boolean;
+  teams: ShowcaseTeam<ShowcaseApplicant>[];
+  teamsTruncated: boolean;
   photos: MediaItem[];
   photosTruncated: boolean;
   // Server-computed query limits: the client must not import QUERY_LIMITS
   // (env-var backed, not inlined into the client bundle), or SSR and hydration
   // disagree whenever a LIMIT_* override is set.
-  limits: { applicants: number; photos: number };
+  limits: { applicants: number; photos: number; teams: number };
 }
 
 type Filter = "all" | "participated" | "with_cv";
@@ -49,11 +51,14 @@ export function ShowcaseView({
   applicantsTruncated,
   ranking,
   rankingTruncated,
+  teams,
+  teamsTruncated,
   photos,
   photosTruncated,
   limits,
 }: ShowcaseViewProps) {
   const [query, setQuery] = useState("");
+  const [teamQuery, setTeamQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
 
   // Photo selection: a set of selected Drive fileIds (photo.url). Empty set =
@@ -264,6 +269,26 @@ export function ShowcaseView({
     });
   }, [applicants, query, filter, showCvs]);
 
+  const filteredTeams = useMemo(() => {
+    const q = teamQuery.trim().toLowerCase();
+    if (!q) return teams;
+    return teams.filter((t) => {
+      const hay = [
+        t.teamName,
+        t.challengeName,
+        t.submission?.projectName ?? "",
+        t.submission?.shortDescription ?? "",
+        ...(t.submission?.techStack ?? []),
+        ...t.members.map((m) => `${m.firstName} ${m.lastName}`),
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [teams, teamQuery]);
+  const teamChallengeCount = new Set(teams.map((t) => t.challengeName)).size;
+  const submittedCount = teams.filter((t) => t.submission).length;
+
   const placedRows = ranking.filter((r) => r.placement !== null);
   const participatedRows = ranking.filter((r) => r.placement === null);
   const challengeCount = new Set(placedRows.map((r) => r.challengeName)).size;
@@ -411,30 +436,67 @@ export function ShowcaseView({
           </section>
         )}
 
+        {/* ── Teams & Projects ──────────────────────────────── */}
+        {teams.length > 0 && (
+          <section className="mt-16">
+            <SectionTitle align="left">Teams &amp; Projects</SectionTitle>
+
+            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <SearchInput
+                value={teamQuery}
+                onChange={setTeamQuery}
+                placeholder="Search team, project, member, tech"
+              />
+              <p className="text-xs text-text-muted">
+                {teams.length} {teams.length === 1 ? "team" : "teams"}, {submittedCount}{" "}
+                {submittedCount === 1 ? "project" : "projects"} submitted
+              </p>
+            </div>
+
+            {teamsTruncated && (
+              <div className="mb-4">
+                <LimitBanner count={limits.teams} limit={limits.teams} label="teams" />
+              </div>
+            )}
+
+            {filteredTeams.length === 0 ? (
+              <div className="rounded-2xl border border-white/[0.06] bg-surface-card/40 px-5 py-12 text-center">
+                <p className="text-sm text-text-muted">No teams match your search.</p>
+                <button
+                  type="button"
+                  onClick={() => setTeamQuery("")}
+                  className="mt-3 text-xs font-semibold text-purple-light transition-colors hover:text-purple"
+                >
+                  Reset search
+                </button>
+              </div>
+            ) : (
+              <div className="grid gap-4 lg:grid-cols-2">
+                {filteredTeams.map((team) => (
+                  <TeamCard
+                    key={`${team.teamId}-${team.challengeName}`}
+                    team={team}
+                    token={token}
+                    showCvs={showCvs}
+                    showChallenge={teamChallengeCount > 1}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+
         {/* ── Applicants ────────────────────────────────────── */}
         <section className="mt-16">
           <SectionTitle align="left">Applicants</SectionTitle>
 
           {/* Search + filter toolbar */}
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="relative w-full sm:max-w-xs">
-              <svg
-                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
-              </svg>
-              <input
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name, team, LinkedIn, GitHub"
-                className="w-full rounded-xl border border-white/[0.08] bg-surface-card/60 py-2.5 pl-10 pr-4 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-purple/40 focus:outline-none focus:ring-1 focus:ring-purple/30"
-              />
-            </div>
+            <SearchInput
+              value={query}
+              onChange={setQuery}
+              placeholder="Search name, team, LinkedIn, GitHub"
+            />
             <div className="flex flex-wrap items-center gap-2">
               <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
                 All ({applicants.length})
@@ -717,6 +779,37 @@ function Stat({ value, label }: { value: number; label: string }) {
   );
 }
 
+function SearchInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="relative w-full sm:max-w-xs">
+      <svg
+        className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
+        fill="none"
+        viewBox="0 0 24 24"
+        stroke="currentColor"
+        strokeWidth={2}
+      >
+        <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
+      </svg>
+      <input
+        type="search"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-xl border border-white/[0.08] bg-surface-card/60 py-2.5 pl-10 pr-4 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-purple/40 focus:outline-none focus:ring-1 focus:ring-purple/30"
+      />
+    </div>
+  );
+}
+
 function FilterPill({
   active,
   onClick,
@@ -904,5 +997,165 @@ function ApplicantCard({
         </div>
       )}
     </div>
+  );
+}
+
+// ── Team card (members + submission) ──────────────────────────
+
+function TeamCard({
+  team,
+  token,
+  showCvs,
+  showChallenge,
+}: {
+  team: ShowcaseTeam<ShowcaseApplicant>;
+  token: string;
+  showCvs: boolean;
+  showChallenge: boolean;
+}) {
+  const sub = team.submission;
+  return (
+    <div className="flex flex-col rounded-2xl border border-white/[0.06] bg-surface-card/40 p-5 transition-colors duration-300 hover:border-purple/25">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h3 className="truncate font-hero-heading text-lg font-bold leading-tight" title={team.teamName}>
+            {team.teamName}
+          </h3>
+          {showChallenge && team.challengeName && (
+            <p className="mt-1 truncate text-[11px] uppercase tracking-wide text-text-muted">
+              {team.challengeName}
+            </p>
+          )}
+        </div>
+        {team.placement !== null && (
+          <span
+            className={cn(
+              "shrink-0 rounded-full border border-white/[0.08] bg-white/[0.03] px-2.5 py-0.5 font-mono text-xs font-black",
+              team.placement <= 3 ? getPlacementColor(team.placement) : "text-text-secondary"
+            )}
+          >
+            {getPlacementLabel(team.placement)}
+          </span>
+        )}
+      </div>
+
+      {/* Project */}
+      <div className="mt-4 rounded-xl border border-white/[0.04] bg-white/[0.02] p-4">
+        {sub ? (
+          <>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-muted">Project</p>
+            <p className="mt-1 font-semibold text-gold">{sub.projectName}</p>
+            {sub.shortDescription && (
+              <p className="mt-2 line-clamp-4 whitespace-pre-line text-sm text-text-secondary">
+                {sub.shortDescription}
+              </p>
+            )}
+            {sub.techStack.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {sub.techStack.map((tech) => (
+                  <span
+                    key={tech}
+                    className="rounded-md border border-white/[0.06] bg-white/[0.02] px-2 py-0.5 text-[11px] text-text-secondary"
+                  >
+                    {tech}
+                  </span>
+                ))}
+              </div>
+            )}
+            {sub.links.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {sub.links.map((link) => (
+                  <a
+                    key={`${link.label}-${link.url}`}
+                    href={link.url}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    referrerPolicy="no-referrer"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-lg border border-purple/25 bg-purple/10 px-2.5 py-1.5 text-xs font-semibold text-purple-light transition-colors hover:border-purple/40 hover:bg-purple/20"
+                  >
+                    <span className="truncate">{link.label}</span>
+                    <svg className="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                    </svg>
+                  </a>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="text-sm text-text-muted">No project submitted.</p>
+        )}
+      </div>
+
+      {/* Members */}
+      <div className="mt-4">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-text-muted">Members</p>
+        {team.members.length > 0 ? (
+          <ul className="mt-2 divide-y divide-white/[0.04]">
+            {team.members.map((m) => (
+              <TeamMemberRow key={m.id} member={m} token={token} showCvs={showCvs} />
+            ))}
+          </ul>
+        ) : null}
+        {team.hiddenMemberCount > 0 && (
+          <p className="mt-2 text-xs text-text-muted">
+            {team.members.length > 0 ? "+" : ""}
+            {team.hiddenMemberCount} {team.hiddenMemberCount === 1 ? "member" : "members"} who did not
+            opt into sharing their profile
+          </p>
+        )}
+        {team.members.length === 0 && team.hiddenMemberCount === 0 && (
+          <p className="mt-2 text-xs text-text-muted">No members listed.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TeamMemberRow({
+  member,
+  token,
+  showCvs,
+}: {
+  member: ShowcaseApplicant;
+  token: string;
+  showCvs: boolean;
+}) {
+  const fullName = `${member.firstName} ${member.lastName}`;
+  const linkedInHref = safeHttpUrl(member.linkedIn);
+  const githubHref = safeHttpUrl(member.github);
+  const cvHref = `/api/showcase/${encodeURIComponent(token)}/cv/${encodeURIComponent(member.id)}`;
+  const linkClass =
+    "rounded-md border border-white/[0.08] bg-white/[0.02] px-2 py-1 text-[11px] text-text-secondary transition-colors hover:border-white/20 hover:text-text-primary";
+
+  return (
+    <li className="flex items-center justify-between gap-3 py-2">
+      <span className="truncate text-sm" title={fullName}>
+        {fullName}
+      </span>
+      <span className="flex shrink-0 items-center gap-1.5">
+        {linkedInHref && (
+          <a href={linkedInHref} target="_blank" rel="noreferrer noopener" referrerPolicy="no-referrer" className={linkClass} title="LinkedIn">
+            <span className="font-bold">in</span>
+          </a>
+        )}
+        {githubHref && (
+          <a href={githubHref} target="_blank" rel="noreferrer noopener" referrerPolicy="no-referrer" className={linkClass} title="GitHub">
+            GitHub
+          </a>
+        )}
+        {showCvs && member.hasCv && (
+          <a
+            href={cvHref}
+            target="_blank"
+            rel="noreferrer noopener"
+            referrerPolicy="no-referrer"
+            className="rounded-md border border-gold/30 bg-gold/10 px-2 py-1 text-[11px] font-semibold text-gold transition-colors hover:bg-gold/20"
+          >
+            CV
+          </a>
+        )}
+      </span>
+    </li>
   );
 }

@@ -42,6 +42,8 @@ export default async function ShowcasePage({ params }: PageProps) {
       applicantsTruncated={data.applicantsTruncated}
       ranking={data.ranking}
       rankingTruncated={data.rankingTruncated}
+      teams={data.teams}
+      teamsTruncated={data.teamsTruncated}
       photos={data.photos}
       photosTruncated={data.photosTruncated}
       limits={data.limits}
