@@ -7,3 +7,7 @@ create multiple commits and open a pr
 ---
 
 yes
+
+---
+
+the views from before should stay the same so the current main view, should be just an option so the three options from before buttons should stay + this view as button
