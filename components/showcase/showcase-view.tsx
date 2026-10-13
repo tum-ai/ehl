@@ -35,7 +35,8 @@ interface ShowcaseViewProps {
   limits: { applicants: number; photos: number; teams: number };
 }
 
-type Filter = "all" | "participated" | "with_cv";
+// "teams" swaps the applicant grid for one card per team with its project.
+type Filter = "all" | "participated" | "with_cv" | "teams";
 
 const PODIUM_HEIGHTS: Record<number, string> = {
   1: "h-36 sm:h-44",
@@ -58,7 +59,6 @@ export function ShowcaseView({
   limits,
 }: ShowcaseViewProps) {
   const [query, setQuery] = useState("");
-  const [teamQuery, setTeamQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
 
   // Photo selection: a set of selected Drive fileIds (photo.url). Empty set =
@@ -270,7 +270,7 @@ export function ShowcaseView({
   }, [applicants, query, filter, showCvs]);
 
   const filteredTeams = useMemo(() => {
-    const q = teamQuery.trim().toLowerCase();
+    const q = query.trim().toLowerCase();
     if (!q) return teams;
     return teams.filter((t) => {
       const hay = [
@@ -285,9 +285,8 @@ export function ShowcaseView({
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [teams, teamQuery]);
+  }, [teams, query]);
   const teamChallengeCount = new Set(teams.map((t) => t.challengeName)).size;
-  const submittedCount = teams.filter((t) => t.submission).length;
 
   const placedRows = ranking.filter((r) => r.placement !== null);
   const participatedRows = ranking.filter((r) => r.placement === null);
@@ -436,67 +435,34 @@ export function ShowcaseView({
           </section>
         )}
 
-        {/* ── Teams & Projects ──────────────────────────────── */}
-        {teams.length > 0 && (
-          <section className="mt-16">
-            <SectionTitle align="left">Teams &amp; Projects</SectionTitle>
-
-            <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <SearchInput
-                value={teamQuery}
-                onChange={setTeamQuery}
-                placeholder="Search team, project, member, tech"
-              />
-              <p className="text-xs text-text-muted">
-                {teams.length} {teams.length === 1 ? "team" : "teams"}, {submittedCount}{" "}
-                {submittedCount === 1 ? "project" : "projects"} submitted
-              </p>
-            </div>
-
-            {teamsTruncated && (
-              <div className="mb-4">
-                <LimitBanner count={limits.teams} limit={limits.teams} label="teams" />
-              </div>
-            )}
-
-            {filteredTeams.length === 0 ? (
-              <div className="rounded-2xl border border-white/[0.06] bg-surface-card/40 px-5 py-12 text-center">
-                <p className="text-sm text-text-muted">No teams match your search.</p>
-                <button
-                  type="button"
-                  onClick={() => setTeamQuery("")}
-                  className="mt-3 text-xs font-semibold text-purple-light transition-colors hover:text-purple"
-                >
-                  Reset search
-                </button>
-              </div>
-            ) : (
-              <div className="grid gap-4 lg:grid-cols-2">
-                {filteredTeams.map((team) => (
-                  <TeamCard
-                    key={`${team.teamId}-${team.challengeName}`}
-                    team={team}
-                    token={token}
-                    showCvs={showCvs}
-                    showChallenge={teamChallengeCount > 1}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        )}
-
         {/* ── Applicants ────────────────────────────────────── */}
         <section className="mt-16">
           <SectionTitle align="left">Applicants</SectionTitle>
 
           {/* Search + filter toolbar */}
           <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <SearchInput
-              value={query}
-              onChange={setQuery}
-              placeholder="Search name, team, LinkedIn, GitHub"
-            />
+            <div className="relative w-full sm:max-w-xs">
+              <svg
+                className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
+              </svg>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder={
+                  filter === "teams"
+                    ? "Search team, project, member, tech"
+                    : "Search name, team, LinkedIn, GitHub"
+                }
+                className="w-full rounded-xl border border-white/[0.08] bg-surface-card/60 py-2.5 pl-10 pr-4 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-purple/40 focus:outline-none focus:ring-1 focus:ring-purple/30"
+              />
+            </div>
             <div className="flex flex-wrap items-center gap-2">
               <FilterPill active={filter === "all"} onClick={() => setFilter("all")}>
                 All ({applicants.length})
@@ -507,6 +473,11 @@ export function ShowcaseView({
               {showCvs && (
                 <FilterPill active={filter === "with_cv"} onClick={() => setFilter("with_cv")}>
                   With CV ({cvCount})
+                </FilterPill>
+              )}
+              {teams.length > 0 && (
+                <FilterPill active={filter === "teams"} onClick={() => setFilter("teams")}>
+                  Teams ({teams.length})
                 </FilterPill>
               )}
               {showCvs && cvCount > 0 && (
@@ -531,36 +502,64 @@ export function ShowcaseView({
             </p>
           )}
 
-          {applicantsTruncated && (
-            <div className="mb-4">
-              {/* count=limit: the flag is server-computed pre-filter, so the
-                  banner must not depend on the post-filter array length. */}
-              <LimitBanner count={limits.applicants} limit={limits.applicants} label="applicants" />
-            </div>
-          )}
-
-          {filtered.length === 0 ? (
-            <div className="rounded-2xl border border-white/[0.06] bg-surface-card/40 px-5 py-12 text-center">
-              <p className="text-sm text-text-muted">No applicants match your search.</p>
-              {(query || filter !== "all") && (
-                <button
-                  type="button"
-                  onClick={() => {
+          {filter === "teams" ? (
+            <>
+              {teamsTruncated && (
+                <div className="mb-4">
+                  <LimitBanner count={limits.teams} limit={limits.teams} label="teams" />
+                </div>
+              )}
+              {filteredTeams.length === 0 ? (
+                <EmptyResults
+                  label="No teams match your search."
+                  onReset={() => {
                     setQuery("");
                     setFilter("all");
                   }}
-                  className="mt-3 text-xs font-semibold text-purple-light transition-colors hover:text-purple"
-                >
-                  Reset filters
-                </button>
+                />
+              ) : (
+                <div className="grid gap-4 lg:grid-cols-2">
+                  {filteredTeams.map((team) => (
+                    <TeamCard
+                      key={`${team.teamId}-${team.challengeName}`}
+                      team={team}
+                      token={token}
+                      showCvs={showCvs}
+                      showChallenge={teamChallengeCount > 1}
+                    />
+                  ))}
+                </div>
               )}
-            </div>
+            </>
           ) : (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {filtered.map((a) => (
-                <ApplicantCard key={a.id} applicant={a} token={token} showCvs={showCvs} />
-              ))}
-            </div>
+            <>
+              {applicantsTruncated && (
+                <div className="mb-4">
+                  {/* count=limit: the flag is server-computed pre-filter, so the
+                      banner must not depend on the post-filter array length. */}
+                  <LimitBanner count={limits.applicants} limit={limits.applicants} label="applicants" />
+                </div>
+              )}
+              {filtered.length === 0 ? (
+                <EmptyResults
+                  label="No applicants match your search."
+                  onReset={
+                    query || filter !== "all"
+                      ? () => {
+                          setQuery("");
+                          setFilter("all");
+                        }
+                      : undefined
+                  }
+                />
+              ) : (
+                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {filtered.map((a) => (
+                    <ApplicantCard key={a.id} applicant={a} token={token} showCvs={showCvs} />
+                  ))}
+                </div>
+              )}
+            </>
           )}
         </section>
 
@@ -779,33 +778,19 @@ function Stat({ value, label }: { value: number; label: string }) {
   );
 }
 
-function SearchInput({
-  value,
-  onChange,
-  placeholder,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  placeholder: string;
-}) {
+function EmptyResults({ label, onReset }: { label: string; onReset?: () => void }) {
   return (
-    <div className="relative w-full sm:max-w-xs">
-      <svg
-        className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
-        fill="none"
-        viewBox="0 0 24 24"
-        stroke="currentColor"
-        strokeWidth={2}
-      >
-        <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35M17 11a6 6 0 1 1-12 0 6 6 0 0 1 12 0Z" />
-      </svg>
-      <input
-        type="search"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full rounded-xl border border-white/[0.08] bg-surface-card/60 py-2.5 pl-10 pr-4 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-purple/40 focus:outline-none focus:ring-1 focus:ring-purple/30"
-      />
+    <div className="rounded-2xl border border-white/[0.06] bg-surface-card/40 px-5 py-12 text-center">
+      <p className="text-sm text-text-muted">{label}</p>
+      {onReset && (
+        <button
+          type="button"
+          onClick={onReset}
+          className="mt-3 text-xs font-semibold text-purple-light transition-colors hover:text-purple"
+        >
+          Reset filters
+        </button>
+      )}
     </div>
   );
 }
