@@ -231,6 +231,25 @@ export function buildShowcaseTeams<M>(input: ShowcaseTeamInputs<M>): ShowcaseTea
   });
 }
 
+// ─── People who submitted a project ──────────────────────────
+//
+// Distinct roster members of every registration that has a submission for its
+// challenge. A bare count for the hero: it names nobody, so it covers members
+// without sponsor consent too. Someone on two submitting registrations counts
+// once.
+export function countSubmitters(
+  registrations: Array<{ teamId: string; challengeId: string; roster: string[] }>,
+  submissions: Array<{ teamId: string; challengeId: string }>
+): number {
+  const submitted = new Set(submissions.map((s) => `${s.teamId}:${s.challengeId}`));
+  const people = new Set<string>();
+  for (const reg of registrations) {
+    if (!submitted.has(`${reg.teamId}:${reg.challengeId}`)) continue;
+    for (const uid of reg.roster) people.add(uid);
+  }
+  return people.size;
+}
+
 // ─── Podium eligibility ──────────────────────────────────────
 //
 // Placements are assigned PER CHALLENGE (finalizeChallengeScores gives each

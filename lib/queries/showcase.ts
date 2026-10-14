@@ -5,6 +5,7 @@ import { QUERY_LIMITS } from "@/lib/config/limits";
 import {
   buildShowcaseTeams,
   buildTeamNameByEmail,
+  countSubmitters,
   rowHasSponsorConsent,
   SPONSOR_CONSENT_OR_FILTER,
   type ShowcaseTeam,
@@ -68,6 +69,8 @@ export interface ShowcaseData {
   // vanishing). So the client must never import QUERY_LIMITS; it renders from
   // these values.
   limits: { applicants: number; photos: number; teams: number };
+  // Chapter-wide head counts for the hero stats (see getShowcaseTotals).
+  totals: ShowcaseTotals;
 }
 
 // Map an application status to the sponsor-visible label. checked_in => the
@@ -107,7 +110,7 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
   // (not via the shared get* helpers, which swallow errors): a DB failure must
   // surface as an error page, not render a plausible-looking showcase claiming
   // "0 applicants" or an empty ranking to a sponsor.
-  const [appResult, scoresResult, mediaResult, chapterResult] = await Promise.all([
+  const [appResult, scoresResult, mediaResult, chapterResult, applicantTotal] = await Promise.all([
     // Applicants: consented only, capped at the applications limit. One extra
     // row detects truncation for the LimitBanner. Select ONLY what the sponsor
     // view renders — form_data holds ~25 fields including sensitive ones
@@ -138,6 +141,7 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
     // Admin client: the chapter may not be publicly readable yet (draft), but
     // the admin explicitly enabled its showcase.
     supabase.from("chapters").select("*").eq("id", chapterId).maybeSingle(),
+    getShowcaseApplicantTotal(chapterId),
   ]);
 
   if (appResult.error) throw appResult.error;
@@ -245,6 +249,14 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
     })
     .filter((a): a is ShowcaseApplicant => a !== null);
 
+  const submitted = countSubmitters(
+    rosterRegs,
+    submissionRows.map((s) => ({
+      teamId: s.team_id as string,
+      challengeId: s.challenge_id as string,
+    }))
+  );
+
   const teams = buildShowcaseTeams({
     registrations: rosterRegs,
     challenges,
@@ -305,7 +317,33 @@ export async function getShowcaseData(chapterId: string): Promise<ShowcaseData> 
     photos,
     photosTruncated,
     limits: { applicants: appLimit, photos: QUERY_LIMITS.media, teams: regLimit },
+    totals: { applicants: applicantTotal, submitted },
   };
+}
+
+// ─── Sponsor-facing totals for the hero stats ────────────────
+//
+// The applicant list only holds people who consented to sponsor sharing, so its
+// length undersells the event (a 404-applicant chapter read "275 Applicants").
+// The hero states the real reach instead: every application of the chapter, and
+// (computed in getShowcaseData) every person on a team that submitted. Both are
+// bare counts, no row and no name leaves the database, so they do not widen the
+// consent gate.
+export interface ShowcaseTotals {
+  applicants: number; // all applications for the chapter
+  submitted: number; // distinct members of teams that submitted a project
+}
+
+// Exact at any scale: a head count, no row transfer, no max_rows clipping.
+export async function getShowcaseApplicantTotal(chapterId: string): Promise<number> {
+  const supabase = createAdminClient();
+  const { count, error } = await supabase
+    .from("applications")
+    .select("id", { count: "exact", head: true })
+    .eq("chapter_id", chapterId);
+  // A failed count must surface as an error page, never as "0 applicants".
+  if (error) throw error;
+  return count ?? 0;
 }
 
 // ─── Admin: consent/visibility counts for a chapter ─────────

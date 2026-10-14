@@ -15,6 +15,7 @@ import type { Chapter, MediaItem } from "@/lib/types";
 import type {
   ShowcaseApplicant,
   ShowcaseRankingRow,
+  ShowcaseTotals,
 } from "@/lib/queries/showcase";
 
 interface ShowcaseViewProps {
@@ -33,6 +34,9 @@ interface ShowcaseViewProps {
   // (env-var backed, not inlined into the client bundle), or SSR and hydration
   // disagree whenever a LIMIT_* override is set.
   limits: { applicants: number; photos: number; teams: number };
+  // Chapter-wide counts (all applications / everyone on a submitting team),
+  // not only the consented people listed below.
+  totals: ShowcaseTotals;
 }
 
 // "teams" swaps the applicant grid for one card per team with its project.
@@ -57,6 +61,7 @@ export function ShowcaseView({
   photos,
   photosTruncated,
   limits,
+  totals,
 }: ShowcaseViewProps) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -365,8 +370,9 @@ export function ShowcaseView({
               className="animate-fade-in-up mt-8 flex flex-wrap gap-8"
               style={{ animationDelay: "0.3s" }}
             >
-              <Stat value={applicants.length} label="Applicants" />
-              <Stat value={participantCount} label="Participated" />
+              <Stat value={totals.applicants} label="Applicants" />
+              <Stat value={totals.submitted} label="Submitted" />
+              <Stat value={applicants.length} label="Profiles shared" />
               {showCvs && <Stat value={cvCount} label="CVs available" />}
               {ranking.length > 0 && <Stat value={ranking.length} label="Teams" />}
             </div>

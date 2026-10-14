@@ -47,6 +47,7 @@ export default async function ShowcasePage({ params }: PageProps) {
       photos={data.photos}
       photosTruncated={data.photosTruncated}
       limits={data.limits}
+      totals={data.totals}
     />
   );
 }
