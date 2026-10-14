@@ -1,0 +1,37 @@
+the showcase for the partners needs to pair up the current participants into their teams and with their submission, so kind of like a view with the teams and submissions. everything else stays same
+
+---
+
+create multiple commits and open a pr
+
+---
+
+yes
+
+---
+
+the views from before should stay the same so the current main view, should be just an option so the three options from before buttons should stay + this view as button
+
+---
+
+yes
+
+---
+
+i dont see it
+
+---
+
+open up the pr, i dont see it in github
+
+---
+
+what about the formulation on the main page of the showcase? it says 275 Applicants, thats not correct right? and 190 available also? we had 404 applicants
+
+---
+
+yes
+
+---
+
+do not say participated, say submitted or so, bc others participated as well just did not submit
