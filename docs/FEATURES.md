@@ -316,6 +316,10 @@ Available to participants who are checked in at an event.
   description, tech stack and the http(s) links of its url/repo fields; file fields (pitch
   decks) and free-text answers stay jury-only. In this view the search box matches team,
   project, member and tech.
+- The hero stats state the chapter's real reach: "Applicants" counts every application of the
+  chapter and "Submitted" every person on a team that submitted a project (bare counts, no
+  names), while "Profiles shared" and "CVs available" count the consented people the page
+  actually lists.
 - Each applicant card shows the team the person actually played on at this event
   (resolved from the chapter's challenge registrations, not their current global team);
   the search box also matches team names.
