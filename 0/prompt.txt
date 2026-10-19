@@ -605,3 +605,7 @@ can we make our fork public?
 ---
 
 i can text oasis to make it public, how to do it then
+
+---
+
+check now again if every repo is accessible and viewable from the portal
