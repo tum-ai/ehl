@@ -47,3 +47,7 @@ i need to do the following on the frontend of the ehl placements: [Image #1]. an
 ---
 
 yes go with A, the landing page should be switched to the winners aswell. no extra linking. confirm the plan
+
+---
+
+go
