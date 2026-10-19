@@ -7,7 +7,8 @@ import { EASING } from "@/lib/design-tokens";
 interface GlassPillarProps {
   rank: number;
   teamName: string;
-  points: number;
+  /** Omitted for a result not decided by points (the Grand Finale). */
+  points?: number;
   color: string;
   height: string;
   delay: number;
@@ -43,18 +44,22 @@ export function GlassPillar({
           {teamName}
         </p>
 
-        <p
-          className="mt-1 font-mono text-2xl font-black sm:text-3xl"
-          style={{
-            color,
-            filter: `drop-shadow(0 0 12px ${color}60)`,
-          }}
-        >
-          {points}
-        </p>
-        <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-text-muted">
-          points
-        </p>
+        {points !== undefined && (
+          <>
+            <p
+              className="mt-1 font-mono text-2xl font-black sm:text-3xl"
+              style={{
+                color,
+                filter: `drop-shadow(0 0 12px ${color}60)`,
+              }}
+            >
+              {points}
+            </p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-text-muted">
+              points
+            </p>
+          </>
+        )}
       </div>
 
       {/* Glass pillar — driven by --pillar-color CSS variable */}

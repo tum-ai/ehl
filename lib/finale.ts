@@ -18,3 +18,20 @@ export const FINALE_RSVP_DEADLINE_LABEL = "30 September";
 export const FINALE_SUPPORT_EMAIL = "makeathon@tum-ai.com";
 
 export const FINALE_INVITE_SUBJECT = `You're in 🏆 EHL Grand Finale, ${FINALE_CITY} - Oct 10-11`;
+
+/**
+ * The Grand Finale result, 1st to 3rd. Hardcoded because the finale was decided
+ * on stage, not by season points: the season leaderboard is the ranking GOING
+ * INTO the finale and keeps its own numbers. The /leaderboard podium and the
+ * landing-page podium both read this list.
+ */
+export const FINALE_WINNERS = ["Codacabana", "Yantra", "BaoByte"] as const;
+
+/** Podium display order (2nd, 1st, 3rd) with each team's place. */
+export function finalePodiumSlots(
+  winners: readonly string[] = FINALE_WINNERS
+): Array<{ teamName: string; place: number }> {
+  return [2, 1, 3]
+    .filter((place) => winners[place - 1])
+    .map((place) => ({ teamName: winners[place - 1], place }));
+}
