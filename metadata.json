@@ -3,7 +3,7 @@
   "checkpoint_id": "01M5AKVBQQXPA3W0W2AHFJZTNN",
   "strategy": "manual-commit",
   "branch": "feat/finale-winners-podium",
-  "checkpoints_count": 1,
+  "checkpoints_count": 5,
   "files_touched": null,
   "sessions": [
     {
@@ -12,13 +12,20 @@
       "compact_transcript": "/0/transcript.jsonl",
       "content_hash": "/0/content_hash.txt",
       "prompt": "/0/prompt.txt"
+    },
+    {
+      "metadata": "/1/metadata.json",
+      "transcript": "/1/full.jsonl",
+      "compact_transcript": "/1/transcript.jsonl",
+      "content_hash": "/1/content_hash.txt",
+      "prompt": "/1/prompt.txt"
     }
   ],
   "token_usage": {
-    "input_tokens": 1052,
-    "cache_creation_tokens": 10293944,
-    "cache_read_tokens": 278084014,
-    "output_tokens": 521833,
-    "api_call_count": 522
+    "input_tokens": 1054,
+    "cache_creation_tokens": 10295137,
+    "cache_read_tokens": 278290990,
+    "output_tokens": 522897,
+    "api_call_count": 523
   }
 }
