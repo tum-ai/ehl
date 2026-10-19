@@ -25,7 +25,7 @@ Accessible to everyone without login.
 - Dynamic "Apply Now" CTA when a chapter has open applications (falls back to "View Leaderboard")
 - "How it Works" explainer section
 - Tour timeline showing all season matches
-- Live leaderboard preview (top 3 podium)
+- Grand Finale Champions podium (the finale winners from `lib/finale.ts`) with a link to the full leaderboard
 - Media section with embedded YouTube videos
 - Partner bar with logos
 - "Founded by TUM.ai" attribution
@@ -40,7 +40,8 @@ Accessible to everyone without login.
   - **Completed**: Results with placements, scores, photos
 
 ### Leaderboard (`/leaderboard`)
-- Season standings with podium for places 1 to 3. Every team tied on a podium place gets its own pillar (two teams tied for 3rd both stand on the podium), up to 9 pillars; any remaining tied teams are counted in a "+N more tied" note
+- "Grand Finale Champions" podium: the finale result, 1st to 3rd, hardcoded as `FINALE_WINNERS` in `lib/finale.ts` because the finale was decided on stage, not by points. No points are shown on it
+- "EHL Ranking going into the Finale": the season points table below the podium, unchanged
 - Sortable table with rank, team, points, matches played, best finish. Teams with equal points share a rank; a team with a loyalty bonus shows a "+N loyalty" label next to its name (bonus rows are added by hand in `loyalty_bonuses`)
 - Scoring rules explainer (how points are awarded)
 
