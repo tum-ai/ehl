@@ -5,7 +5,7 @@ import { MediaTeaser } from "@/components/landing/media-teaser";
 import { LandingPodium } from "@/components/podium/LandingPodium";
 import { TourTimeline } from "@/components/landing/tour-timeline";
 import { PartnersBar } from "@/components/landing/partners-bar";
-import { getLeaderboard, getChapters, getChapterStats } from "@/lib/queries";
+import { getChapters, getChapterStats } from "@/lib/queries";
 
 // Revalidate every minute so the per-chapter "Apply Now" CTAs disappear shortly
 // after the deadline cron closes applications. Without this the page is fully
@@ -23,8 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function Home() {
-  const [leaderboard, chapters, stats] = await Promise.all([
-    getLeaderboard(),
+  const [chapters, stats] = await Promise.all([
     getChapters(),
     getChapterStats(),
   ]);
@@ -63,7 +62,7 @@ export default async function Home() {
       />
       <HowItWorks />
       <TourTimeline />
-      <LandingPodium entries={leaderboard} />
+      <LandingPodium />
       <MediaTeaser />
       <PartnersBar />
     </>
