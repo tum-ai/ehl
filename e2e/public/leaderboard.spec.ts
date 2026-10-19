@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { SEED } from "../helpers/auth";
+import { FINALE_WINNERS } from "../../lib/finale";
 
 test.describe("Leaderboard page", () => {
   test.beforeEach(async ({ page }) => {
@@ -42,14 +43,17 @@ test.describe("Leaderboard page", () => {
     }
   });
 
-  test("podium section renders the leader", async ({ page }) => {
-    // The podium renders above the table. With the current standings two teams
-    // tie for 1st (8 pts), so the podium shows the tied-for-1st layout rather
-    // than distinct 1st/2nd/3rd badges. Assert the leader is shown.
-    const beforeTable = page.locator("section");
-    await expect(beforeTable.getByText(SEED.teams.alpha.name).first()).toBeVisible();
-    // A podium rank label is present (1st always; 2nd/3rd only without ties).
-    await expect(page.getByText("1st").first()).toBeVisible();
+  test("podium shows the Grand Finale winners above the season table", async ({ page }) => {
+    // The finale was decided on stage, so the podium shows the hardcoded
+    // finale result (lib/finale.ts) and the points table is labelled as the
+    // ranking going into the finale.
+    await expect(page.getByRole("heading", { name: "Grand Finale Champions" })).toBeVisible();
+    for (const name of FINALE_WINNERS) {
+      await expect(page.getByText(name, { exact: true }).first()).toBeVisible();
+    }
+    await expect(
+      page.getByRole("heading", { name: "EHL Ranking going into the Finale" })
+    ).toBeVisible();
   });
 
   test("points values are correct for each team", async ({ page }) => {
