@@ -1,24 +1,19 @@
 import Link from "next/link";
 import { Section, SectionTitle } from "@/components/ui/section";
-import { LandingPodiumClient } from "./LandingPodiumClient";
-import type { LeaderboardEntry } from "@/lib/types";
+import { FinaleWinnersPodium } from "./FinaleWinnersPodium";
 
-interface LandingPodiumProps {
-  entries: LeaderboardEntry[];
-}
-
-export function LandingPodium({ entries }: LandingPodiumProps) {
-  if (entries.length === 0) return null;
-
+// Landing-page podium: the Grand Finale winners (lib/finale.ts), linking on to
+// the full season leaderboard.
+export function LandingPodium() {
   return (
     <Section className="relative overflow-hidden">
       {/* Background glow */}
       <div className="glow-blob glow-blob-gold absolute -right-60 top-0 h-[400px] w-[400px] opacity-20" />
       <div className="glow-blob glow-blob-purple absolute -left-40 top-1/2 h-[300px] w-[300px] opacity-15" />
 
-      <SectionTitle>Leaderboard</SectionTitle>
+      <SectionTitle>Grand Finale Champions</SectionTitle>
 
-      <LandingPodiumClient entries={entries} />
+      <FinaleWinnersPodium spotlight />
 
       <div className="mt-12 text-center">
         <Link

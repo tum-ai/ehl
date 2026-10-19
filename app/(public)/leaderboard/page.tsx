@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { Section } from "@/components/ui/section";
-import { Podium } from "@/components/leaderboard/podium";
+import { Section, SectionTitle } from "@/components/ui/section";
+import { FinaleWinnersPodium } from "@/components/podium/FinaleWinnersPodium";
 import { LeaderboardTable } from "@/components/leaderboard/table";
 import { ScoringExplainer } from "@/components/leaderboard/scoring-explainer";
 import { getLeaderboard, getCompletedChaptersCount, getChapterStats } from "@/lib/queries";
@@ -36,13 +36,15 @@ export default async function LeaderboardPage() {
         </p>
       </div>
 
-      {/* Podium with glow backdrop */}
+      {/* Grand Finale winners (hardcoded in lib/finale.ts), with glow backdrop */}
       <div className="relative mb-20">
+        <SectionTitle>Grand Finale Champions</SectionTitle>
         <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-64 bg-[radial-gradient(ellipse_at_center,rgba(255,204,106,0.06)_0%,transparent_70%)]" />
-        <Podium entries={leaderboard} />
+        <FinaleWinnersPodium />
       </div>
 
-      {/* Full table */}
+      {/* Season points table: the ranking teams carried into the finale */}
+      <SectionTitle>EHL Ranking going into the Finale</SectionTitle>
       <LimitBanner count={leaderboard.length} limit={QUERY_LIMITS.leaderboard} label="teams" />
       <LeaderboardTable entries={leaderboard} />
 
