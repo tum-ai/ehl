@@ -215,3 +215,18 @@ export function findDuplicatePlacements(
   }
   return [...seen.values()].filter((e) => e.teamIds.length > 1);
 }
+
+/**
+ * Teams that submitted to a SCORED challenge, to feed getPublishReadiness's
+ * "submitted but no score" check. Community (unscored) challenges never yield
+ * league scores, so their submitters are correctly score-less and must not be
+ * reported (an operator would otherwise be told to add points they should not
+ * receive).
+ */
+export function getScoredSubmitterTeamIds(
+  challenges: ReadonlyArray<{ id: string; isScored: boolean }>,
+  submissions: ReadonlyArray<{ teamId: string; challengeId: string }>
+): string[] {
+  const scored = new Set(challenges.filter((c) => c.isScored).map((c) => c.id));
+  return [...new Set(submissions.filter((s) => scored.has(s.challengeId)).map((s) => s.teamId))];
+}

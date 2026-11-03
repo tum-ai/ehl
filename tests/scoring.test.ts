@@ -5,6 +5,7 @@ import {
   getPoints,
   calculateLeaderboard,
   getPublishReadiness,
+  getScoredSubmitterTeamIds,
   getPendingJuryTeamIds,
   getJudgedUnscoredChallenges,
   isPlacedPlacement,
@@ -593,5 +594,33 @@ describe("getPublishReadiness: teams that submitted without a score", () => {
   it("keeps reporting an empty chapter as empty", () => {
     const readiness = getPublishReadiness([], [], ["t1"]);
     expect(readiness).toEqual({ kind: "empty" });
+  });
+});
+
+describe("getScoredSubmitterTeamIds", () => {
+  it("REGRESSION: a mixed chapter does not report community-challenge submitters as missing", () => {
+    const challenges = [
+      { id: "scored", isScored: true },
+      { id: "community", isScored: false },
+    ];
+    const submissions = [
+      { teamId: "t-scored", challengeId: "scored" },
+      { teamId: "t-community", challengeId: "community" },
+    ];
+    expect(getScoredSubmitterTeamIds(challenges, submissions)).toEqual(["t-scored"]);
+    // Fed into the readiness check, the community team is not flagged.
+    expect(getPublishReadiness(["t-scored"], [], getScoredSubmitterTeamIds(challenges, submissions))).toEqual({
+      kind: "ready",
+      scoredCount: 1,
+    });
+  });
+
+  it("lists a team once even with several scored submissions", () => {
+    expect(
+      getScoredSubmitterTeamIds([{ id: "a", isScored: true }, { id: "b", isScored: true }], [
+        { teamId: "t1", challengeId: "a" },
+        { teamId: "t1", challengeId: "b" },
+      ])
+    ).toEqual(["t1"]);
   });
 });

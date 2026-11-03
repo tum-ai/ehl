@@ -9,6 +9,7 @@ import {
   PLACEMENT_POINTS,
   PARTICIPATION_POINTS,
   getPublishReadiness,
+  getScoredSubmitterTeamIds,
   getPendingJuryTeamIds,
   getJudgedUnscoredChallenges,
   findDuplicatePlacements,
@@ -106,10 +107,12 @@ export default function AdminScoresPage({
         fetch(`/api/admin/chapters/${id}/registrations`).then((r) => r.json()).catch(() => []),
         fetch(`/api/admin/chapters/${id}/submissions`).then((r) => r.json()).catch(() => []),
       ]);
+      // Only submitters to SCORED challenges are expected to have a score.
       setSubmittedTeamIds(
-        Array.isArray(submissionsRes)
-          ? submissionsRes.map((sub: { teamId: string }) => sub.teamId)
-          : []
+        getScoredSubmitterTeamIds(
+          Array.isArray(challengesRes) ? challengesRes : [],
+          Array.isArray(submissionsRes) ? submissionsRes : []
+        )
       );
 
       setTeams(teamsRes);
@@ -347,7 +350,10 @@ export default function AdminScoresPage({
       setSuccess(
         `Certificate emails sent to ${result.sent} member(s).` +
           (result.failed ? ` ${result.failed} failed.` : "") +
-          (result.remaining ? ` ${result.remaining} still pending: click again to continue.` : "")
+          (result.remaining ? ` ${result.remaining} still pending: click again to continue.` : "") +
+          (result.stuck
+            ? ` ${result.stuck} failed send(s) could not be reset and will be skipped until fixed (see the audit log).`
+            : "")
       );
     }
     setSendingCerts(false);

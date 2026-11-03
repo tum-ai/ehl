@@ -360,7 +360,9 @@ This is an **open-source public repository**. Every commit, branch name, PR titl
    against 25000 and stays quiet. That shipped once: the admin Teams page showed exactly
    1000 participants with no banner. Any query whose limit exceeds 1000 MUST read through
    `fetchPaged()` in `lib/queries/paged.ts` (which walks `.range()` windows) and MUST pass
-   the returned `truncated` flag to `LimitBanner` instead of letting it infer. The setting
+   the returned `truncated` flag to `LimitBanner` instead of letting it infer. A caller
+   that must not act on partial data (who is excluded from an email send) must also
+   check `failed`: a failed window otherwise looks exactly like the end of the table. The setting
    lives in `supabase/config.toml` (`max_rows`) and, for a hosted project, in
    Settings -> API -> Max rows. Note several limits still exceed it without paging
    (`applicationsPerChapter` 2000, `applicationStats`/`screeningScores` 5000,

@@ -27,6 +27,15 @@ alter table certificate_sends enable row level security;
 -- their team's score was published and they joined the team, i.e. they were a
 -- recipient of that press. Members a press could not have reached (score
 -- published or joined later) stay unrecorded and are mailed on the next press.
+--
+-- Only LEGACY events count, and only those with zero failures: a legacy event
+-- holds a total, not who received it, so one with failures cannot say which
+-- members were reached. Events written by the new send record a `remaining`
+-- count and are excluded: from then on certificate_sends itself is the record,
+-- so re-applying this file can never mark a member the new send did not reach.
+-- Limit: publishScores re-stamps published_at on every publish, so a chapter
+-- re-published after a legacy send would leave those members unrecorded (they
+-- would be mailed once more on the next press, never skipped).
 insert into certificate_sends (chapter_id, user_id, team_id, email_sent_at)
 select distinct on (sc.chapter_id, tm.user_id)
        sc.chapter_id, tm.user_id, sc.team_id, e.created_at
@@ -36,6 +45,8 @@ join profiles p on p.id = tm.user_id and p.email is not null and p.name is not n
 join event_log e
   on e.action = 'chapter.certificates_sent'
  and e.entity_id = sc.chapter_id::text
+ and not coalesce((e.delta -> 'created') ? 'remaining', false)
+ and coalesce((e.delta -> 'created' ->> 'failed')::int, 0) = 0
  and sc.published
  and sc.published_at is not null
  and e.created_at >= sc.published_at

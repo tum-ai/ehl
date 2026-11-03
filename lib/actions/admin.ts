@@ -1801,7 +1801,9 @@ type CertificateChapter = {
 
 /**
  * Who a certificate press would mail right now. Shared by the preview and the
- * send so the number the admin confirms is the number that is sent.
+ * send so the number the admin confirms is the number that is sent. Refuses
+ * (returns an error) whenever a read it depends on failed or was cut off:
+ * acting on partial data would either re-mail people or silently exclude them.
  */
 async function loadCertificateRecipients(
   adminClient: ReturnType<typeof createAdminClient>,
@@ -1838,37 +1840,55 @@ async function loadCertificateRecipients(
     return { error: "No published scores found for this chapter." };
   }
 
-  const { data: sentRows, error: sentError } = await adminClient
-    .from("certificate_sends")
-    .select("user_id")
-    .eq("chapter_id", chapterId);
-  if (sentError) return { error: "Could not load who already received a certificate." };
-  const sentUserIds = new Set((sentRows ?? []).map((r) => r.user_id as string));
+  const ledger = await fetchPaged<{ user_id: string }>(
+    () =>
+      adminClient
+        .from("certificate_sends")
+        .select("user_id")
+        .eq("chapter_id", chapterId)
+        .order("user_id"),
+    QUERY_LIMITS.applicationsPerChapter
+  );
+  if (ledger.failed || ledger.truncated) {
+    return { error: "Could not load who already received a certificate. Nothing was sent." };
+  }
+  const sentUserIds = new Set(ledger.rows.map((r) => r.user_id));
 
-  // Who attended. Matched by account and by email: applications from before
-  // 00069 are not always linked to an account.
-  const { rows: checkedIn, truncated } = await fetchPaged<{ user_id: string | null; email: string | null }>(
+  // Who attended, and with which team. An application linked to an account
+  // (00069) is matched ONLY by that account: its email may be stale after an
+  // email change and now belong to someone else. Email is the fallback for
+  // older applications that were never linked.
+  const attendance = await fetchPaged<{
+    user_id: string | null;
+    email: string | null;
+    existing_team_id: string | null;
+  }>(
     () =>
       adminClient
         .from("applications")
-        .select("user_id, email")
+        .select("user_id, email, existing_team_id")
         .eq("chapter_id", chapterId)
         .eq("status", "checked_in")
         .order("id"),
     QUERY_LIMITS.applicationsPerChapter
   );
-  if (truncated) {
-    return { error: "Too many check-ins to verify recipients safely. Raise the applications limit first." };
+  if (attendance.failed || attendance.truncated) {
+    return { error: "Could not load this match's check-ins completely. Nothing was sent." };
   }
-  const attendedUserIds = new Set(checkedIn.map((a) => a.user_id).filter((id): id is string => !!id));
-  const attendedEmails = new Set(
-    checkedIn.map((a) => a.email?.trim().toLowerCase()).filter((e): e is string => !!e)
-  );
+  const attendedByUser = new Map<string, string | null>();
+  const attendedByUnlinkedEmail = new Map<string, string | null>();
+  for (const a of attendance.rows) {
+    if (a.user_id) attendedByUser.set(a.user_id, a.existing_team_id);
+    else if (a.email) attendedByUnlinkedEmail.set(a.email.trim().toLowerCase(), a.existing_team_id);
+  }
 
-  const pending: CertificateRecipient[] = [];
-  let alreadySent = 0;
-  let missingProfile = 0;
-  let notCheckedIn = 0;
+  // One candidate list per person: someone on two scored teams must get ONE
+  // email, for the team they attended with, not whichever insert wins.
+  const candidates = new Map<string, CertificateRecipient[]>();
+  const attendedTeam = new Map<string, string | null>();
+  const alreadySentUsers = new Set<string>();
+  const missingProfileUsers = new Set<string>();
+  const notCheckedInUsers = new Set<string>();
 
   for (const score of scores) {
     const teamId = score.team_id as string;
@@ -1891,7 +1911,7 @@ async function loadCertificateRecipients(
     for (const m of members) {
       const userId = m.user_id as string;
       if (sentUserIds.has(userId)) {
-        alreadySent++;
+        alreadySentUsers.add(userId);
         continue;
       }
       const profile = m.profiles as unknown as { email: string | null; name: string | null } | null;
@@ -1899,14 +1919,20 @@ async function loadCertificateRecipients(
         console.error(
           `Cannot send personal certificates to member ${userId} of team ${teamId}: profile email or name is missing.`
         );
-        missingProfile++;
+        missingProfileUsers.add(userId);
         continue;
       }
-      if (!attendedUserIds.has(userId) && !attendedEmails.has(profile.email.trim().toLowerCase())) {
-        notCheckedIn++;
+      const emailKey = profile.email.trim().toLowerCase();
+      if (attendedByUser.has(userId)) {
+        attendedTeam.set(userId, attendedByUser.get(userId) ?? null);
+      } else if (attendedByUnlinkedEmail.has(emailKey)) {
+        attendedTeam.set(userId, attendedByUnlinkedEmail.get(emailKey) ?? null);
+      } else {
+        notCheckedInUsers.add(userId);
         continue;
       }
-      pending.push({
+      const list = candidates.get(userId) ?? [];
+      list.push({
         userId,
         teamId,
         teamName: team.name as string,
@@ -1915,16 +1941,23 @@ async function loadCertificateRecipients(
         placement: score.placement as number | null,
         points: score.points as number,
       });
+      candidates.set(userId, list);
     }
+  }
+
+  const pending: CertificateRecipient[] = [];
+  for (const [userId, list] of candidates) {
+    const team = attendedTeam.get(userId);
+    pending.push(list.find((c) => c.teamId === team) ?? list[0]);
   }
 
   return {
     chapter: chapter as CertificateChapter,
     pending,
     teams: scores.length,
-    alreadySent,
-    missingProfile,
-    notCheckedIn,
+    alreadySent: alreadySentUsers.size,
+    missingProfile: missingProfileUsers.size,
+    notCheckedIn: notCheckedInUsers.size,
   };
 }
 
@@ -1968,8 +2001,47 @@ export async function sendCertificateEmails(chapterId: string) {
   // A member without a printable name or email can never receive one: counted
   // as failed, as before, so the admin sees it.
   let failed = missingProfile;
+  // Members whose rollback ALSO failed: their record says "sent" although no
+  // email went out. Reported, because the next press would skip them.
+  const stuck: string[] = [];
 
   const { skipped } = await runBudgetedConcurrent(pending, async (r) => {
+    const isPlaced = isPlacedPlacement(r.placement);
+    // Participation certificates carry no points. Placed members receive one
+    // in addition to their achievement certificate.
+    const resultLabel = isPlaced
+      ? `${getPlacementLabel(r.placement as number)} Place (+${r.points} pts)`
+      : "Participant";
+    const defaultVariant = isPlaced ? ("achievement" as const) : ("participation" as const);
+
+    // Build the links BEFORE claiming: minting a token throws when the signing
+    // secret is missing, and a throw after the claim would leave a record for
+    // an email that was never sent.
+    let personalCertificateUrl: string;
+    let participationCertificateUrl: string | null;
+    try {
+      // Unguessable capability tokens let links work without login while
+      // staying bound to exactly one member and certificate variant.
+      const routeUrl = `${baseUrl}/api/certificates/${chapterId}/${r.teamId}`;
+      personalCertificateUrl =
+        `${routeUrl}?variant=${defaultVariant}&member=${r.userId}` +
+        `&token=${certificateTokenV2(chapterId, r.teamId, {
+          variant: defaultVariant,
+          memberId: r.userId,
+        })}`;
+      participationCertificateUrl = isPlaced
+        ? `${routeUrl}?variant=participation&member=${r.userId}` +
+          `&token=${certificateTokenV2(chapterId, r.teamId, {
+            variant: "participation",
+            memberId: r.userId,
+          })}`
+        : null;
+    } catch (err) {
+      console.error(`Could not build certificate links for member ${r.userId}:`, err);
+      failed++;
+      return;
+    }
+
     // Claim first: the primary key makes a concurrent press skip this member
     // instead of mailing them a second time.
     const { error: claimError } = await adminClient
@@ -1983,31 +2055,6 @@ export async function sendCertificateEmails(chapterId: string) {
       return;
     }
 
-    const isPlaced = isPlacedPlacement(r.placement);
-    // Participation certificates carry no points. Placed members receive one
-    // in addition to their achievement certificate.
-    const resultLabel = isPlaced
-      ? `${getPlacementLabel(r.placement as number)} Place (+${r.points} pts)`
-      : "Participant";
-    const defaultVariant = isPlaced ? ("achievement" as const) : ("participation" as const);
-
-    // Unguessable capability tokens let links work without login while staying
-    // bound to exactly one member and certificate variant.
-    const routeUrl = `${baseUrl}/api/certificates/${chapterId}/${r.teamId}`;
-    const personalCertificateUrl =
-      `${routeUrl}?variant=${defaultVariant}&member=${r.userId}` +
-      `&token=${certificateTokenV2(chapterId, r.teamId, {
-        variant: defaultVariant,
-        memberId: r.userId,
-      })}`;
-    const participationCertificateUrl = isPlaced
-      ? `${routeUrl}?variant=participation&member=${r.userId}` +
-        `&token=${certificateTokenV2(chapterId, r.teamId, {
-          variant: "participation",
-          memberId: r.userId,
-        })}`
-      : null;
-
     try {
       const html = await renderCertificateEmail({
         memberName: r.name,
@@ -2020,21 +2067,30 @@ export async function sendCertificateEmails(chapterId: string) {
         participationCertificateUrl,
       });
 
-      await sendEmail({
+      const delivered = await sendEmail({
         to: r.email,
         subject: `Your EHL Certificates: ${chapter.name}`,
         html,
       });
+      // A skipped send (no SMTP_FROM) must not stay recorded as delivered.
+      if (!delivered) throw new Error("Email not sent: SMTP is not configured.");
       sent++;
     } catch (err) {
       console.error(`Failed to send certificate email to a member of team ${r.teamId}:`, err);
       // Roll the claim back so the next press retries this member instead of
       // treating them as sent.
-      await adminClient
+      const { error: rollbackError } = await adminClient
         .from("certificate_sends")
         .delete()
         .eq("chapter_id", chapterId)
         .eq("user_id", r.userId);
+      if (rollbackError) {
+        console.error(
+          `Certificate send record for member ${r.userId} could not be removed; they will be skipped until it is deleted:`,
+          rollbackError.message
+        );
+        stuck.push(r.userId);
+      }
       failed++;
     }
   });
@@ -2053,9 +2109,10 @@ export async function sendCertificateEmails(chapterId: string) {
         remaining: skipped.length,
         already_sent: alreadySent,
         not_checked_in: notCheckedIn,
+        ...(stuck.length > 0 ? { stuck_user_ids: stuck } : {}),
       },
     },
   });
 
-  return { success: true, sent, failed, remaining: skipped.length, alreadySent };
+  return { success: true, sent, failed, remaining: skipped.length, alreadySent, stuck: stuck.length };
 }

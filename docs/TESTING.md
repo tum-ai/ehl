@@ -640,7 +640,10 @@ the push; those need a separate test bot/org rehearsal before release.
 Use the local Supabase setup in section 3. Check that `.env.test` points at
 `http://127.0.0.1:54321`, has `SUPABASE_TEST_MODE=true`, and blanks all external
 GitHub, Drive, SMTP, AI and Redis credentials. For the local-only run, also set
-`NODE_OPTIONS=--require ./e2e/helpers/local-network-guard.cjs`. This opt-in guard
+`NODE_OPTIONS=--require ./e2e/helpers/local-network-guard.cjs`. Also set `SMTP_FROM`
+to any address together with `EMAIL_FAKE_TRANSPORT=true`: without a sender,
+`sendEmail()` skips the message and returns `false`, and flows that record a send
+(certificates) correctly report it as failed. This opt-in guard
 serves only named synthetic e2e-source GitHub objects and blocks other external
 global fetch calls; it is not a general socket firewall. Do not
 load `.env.local` credentials or run a real Actions worker for this walkthrough.

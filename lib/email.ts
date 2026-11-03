@@ -46,11 +46,17 @@ interface SendEmailOptions {
   skipRateLimit?: boolean;
 }
 
-export async function sendEmail({ to, subject, html, attachments = [], skipRateLimit = false }: SendEmailOptions) {
+/**
+ * Resolves true once the transport accepted the message, false when it was
+ * skipped because SMTP_FROM is not configured. Throws on a transport failure or
+ * a rate-limit hit. Callers that RECORD a send (a ledger row, a sent-at stamp)
+ * must check the result: a skipped email must not be recorded as delivered.
+ */
+export async function sendEmail({ to, subject, html, attachments = [], skipRateLimit = false }: SendEmailOptions): Promise<boolean> {
   const from = process.env.SMTP_FROM;
   if (!from) {
     console.error("SMTP_FROM env var is not set. Skipping email.");
-    return;
+    return false;
   }
 
   // Per-address rate limiting (3 emails/hour/address)
@@ -85,4 +91,5 @@ export async function sendEmail({ to, subject, html, attachments = [], skipRateL
     console.error(`[Email] Failed to send "${subject}" to ${recipients.join(", ")}:`, err);
     throw err;
   }
+  return true;
 }

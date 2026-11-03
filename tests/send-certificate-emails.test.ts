@@ -50,6 +50,8 @@ interface QueryState {
 /** Every write to certificate_sends, in order, so tests can assert claim/rollback. */
 let ledgerWrites: QueryState[] = [];
 
+type CheckIn = { user_id: string | null; email: string | null; existing_team_id?: string | null };
+
 function makeAdminClient({
   includeNameless = false,
   alreadySent = [] as string[],
@@ -58,11 +60,26 @@ function makeAdminClient({
   checkedIn = [
     { user_id: PLACED_MEMBER, email: "placed@example.com" },
     { user_id: UNPLACED_MEMBER, email: "participant@example.com" },
-  ] as Array<{ user_id: string | null; email: string | null }>,
+  ] as CheckIn[],
   checkInsOverflow = false,
+  // The certificate_sends table. Stateful: inserts add a row (or fail with the
+  // primary-key error if it exists), deletes remove it. Share one Set between
+  // two clients to model two presses against the same database.
+  ledger = undefined as Set<string> | undefined,
+  ledgerReadFails = false,
+  checkInReadFails = false,
+  rollbackFails = false,
+  // The unplaced member is ALSO on the placed team (rosters carry over).
+  unplacedAlsoOnPlacedTeam = false,
 } = {}) {
+  const rows = ledger ?? new Set(alreadySent);
   function rangeFor(state: QueryState, from: number, to: number) {
+    if (state.table === "certificate_sends") {
+      if (ledgerReadFails) return { data: null, error: { message: "read failed" } };
+      return { data: [...rows].slice(from, to + 1).map((user_id) => ({ user_id })), error: null };
+    }
     if (state.table !== "applications") return { data: [], error: null };
+    if (checkInReadFails) return { data: null, error: { message: "read failed" } };
     // Overflow: every window comes back full, so the paged read never ends.
     if (checkInsOverflow) {
       return {
@@ -76,13 +93,19 @@ function makeAdminClient({
   function resultFor(state: QueryState) {
     const { table, filters } = state;
     if (table === "certificate_sends") {
-      if (state.op === "select") return { data: alreadySent.map((user_id) => ({ user_id })), error: null };
       ledgerWrites.push(state);
       if (state.op === "insert") {
         const userId = (state.payload as { user_id: string }).user_id;
-        return claimConflictFor.includes(userId)
-          ? { error: { code: "23505", message: "duplicate key" } }
-          : { error: null };
+        if (claimConflictFor.includes(userId) || rows.has(userId)) {
+          return { error: { code: "23505", message: "duplicate key" } };
+        }
+        rows.add(userId);
+        return { error: null };
+      }
+      if (state.op === "delete") {
+        if (rollbackFails) return { error: { message: "delete failed" } };
+        const userId = filters.find(([c]) => c === "user_id")?.[1] as string;
+        rows.delete(userId);
       }
       return { error: null };
     }
@@ -129,6 +152,9 @@ function makeAdminClient({
             user_id: PLACED_MEMBER,
             profiles: { email: "placed@example.com", name: "Placed Person" },
           },
+          ...(unplacedAlsoOnPlacedTeam
+            ? [{ user_id: UNPLACED_MEMBER, profiles: { email: "participant@example.com", name: "Participant Person" } }]
+            : []),
         ],
       };
     }
@@ -199,7 +225,8 @@ beforeEach(() => {
   mocks.getActingUserId.mockResolvedValue("admin-1");
   mocks.createAdminClient.mockReturnValue(makeAdminClient());
   mocks.renderCertificateEmail.mockResolvedValue("<html>certificate email</html>");
-  mocks.sendEmail.mockResolvedValue(undefined);
+  // sendEmail resolves true once the transport accepted the message.
+  mocks.sendEmail.mockResolvedValue(true);
   mocks.certificateTokenV2.mockImplementation(
     (
       _chapterId: string,
@@ -223,7 +250,7 @@ describe("sendCertificateEmails", () => {
   it("sends only personal certificate links and scopes participation to each member", async () => {
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 2, failed: 0, remaining: 0, alreadySent: 0 });
+    expect(result).toEqual({ success: true, sent: 2, failed: 0, remaining: 0, alreadySent: 0, stuck: 0 });
     expect(mocks.renderCertificateEmail).toHaveBeenCalledTimes(2);
 
     const payloads = mocks.renderCertificateEmail.mock.calls.map(([payload]) => payload);
@@ -260,7 +287,7 @@ describe("sendCertificateEmails", () => {
 
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 2, failed: 1, remaining: 0, alreadySent: 0 });
+    expect(result).toEqual({ success: true, sent: 2, failed: 1, remaining: 0, alreadySent: 0, stuck: 0 });
     expect(mocks.renderCertificateEmail).toHaveBeenCalledTimes(2);
     expect(mocks.sendEmail).toHaveBeenCalledTimes(2);
     expect(consoleError).toHaveBeenCalledWith(
@@ -280,7 +307,7 @@ describe("sendCertificateEmails: each member is mailed once", () => {
 
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 1 });
+    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 1, stuck: 0 });
     expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
     expect(mocks.sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({ to: "participant@example.com" })
@@ -306,7 +333,7 @@ describe("sendCertificateEmails: each member is mailed once", () => {
 
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 0 });
+    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 0, stuck: 0 });
     expect(mocks.sendEmail).not.toHaveBeenCalledWith(
       expect.objectContaining({ to: "placed@example.com" })
     );
@@ -316,11 +343,12 @@ describe("sendCertificateEmails: each member is mailed once", () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.sendEmail.mockImplementation(async ({ to }: { to: string }) => {
       if (to === "participant@example.com") throw new Error("smtp timeout");
+      return true;
     });
 
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 1, failed: 1, remaining: 0, alreadySent: 0 });
+    expect(result).toEqual({ success: true, sent: 1, failed: 1, remaining: 0, alreadySent: 0, stuck: 0 });
     const rollbacks = ledgerWrites.filter((w) => w.op === "delete");
     expect(rollbacks).toHaveLength(1);
     expect(rollbacks[0].filters).toEqual([
@@ -379,7 +407,7 @@ describe("sendCertificateEmails: only members who checked in at the chapter", ()
 
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 0 });
+    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 0, stuck: 0 });
     expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
     expect(mocks.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "placed@example.com" }));
     expect(mocks.logEvent).toHaveBeenCalledWith(
@@ -401,7 +429,7 @@ describe("sendCertificateEmails: only members who checked in at the chapter", ()
 
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 2, failed: 0, remaining: 0, alreadySent: 0 });
+    expect(result).toEqual({ success: true, sent: 2, failed: 0, remaining: 0, alreadySent: 0, stuck: 0 });
   });
 
   it("refuses rather than guessing when the check-in list is cut off", async () => {
@@ -410,7 +438,7 @@ describe("sendCertificateEmails: only members who checked in at the chapter", ()
     const result = await sendCertificateEmails(CHAPTER);
 
     expect(result).toEqual({
-      error: "Too many check-ins to verify recipients safely. Raise the applications limit first.",
+      error: "Could not load this match's check-ins completely. Nothing was sent.",
     });
     expect(mocks.sendEmail).not.toHaveBeenCalled();
     expect(ledgerWrites).toHaveLength(0);
@@ -422,5 +450,172 @@ describe("sendCertificateEmails: only members who checked in at the chapter", ()
     const preview = await getCertificateSendPreview(CHAPTER);
 
     expect(preview).toEqual({ teams: 2, recipients: 0, alreadySent: 0, missingProfile: 0, notCheckedIn: 2 });
+  });
+});
+
+// Review follow-ups: the claim must exist BEFORE the email goes out, a failure
+// must be retried by the next press, two presses must not double-mail, and any
+// read the decision depends on must be complete.
+describe("sendCertificateEmails: claim, retry and concurrency", () => {
+  it("records the member before their email is sent", async () => {
+    const recordedAtSend: boolean[] = [];
+    const ledger = new Set<string>();
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ ledger }));
+    mocks.sendEmail.mockImplementation(async ({ to }: { to: string }) => {
+      const member = to === "placed@example.com" ? PLACED_MEMBER : UNPLACED_MEMBER;
+      recordedAtSend.push(ledger.has(member));
+      return true;
+    });
+
+    await sendCertificateEmails(CHAPTER);
+
+    expect(recordedAtSend).toEqual([true, true]);
+  });
+
+  it("retries a failed member on the next press, and mails nobody twice", async () => {
+    const ledger = new Set<string>();
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ ledger }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.sendEmail.mockImplementation(async ({ to }: { to: string }) => {
+      if (to === "participant@example.com") throw new Error("smtp timeout");
+      return true;
+    });
+    const first = await sendCertificateEmails(CHAPTER);
+    expect(first).toMatchObject({ sent: 1, failed: 1 });
+    expect([...ledger]).toEqual([PLACED_MEMBER]);
+
+    mocks.sendEmail.mockReset();
+    mocks.sendEmail.mockResolvedValue(true);
+    const second = await sendCertificateEmails(CHAPTER);
+
+    expect(second).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 1, stuck: 0 });
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
+    expect(mocks.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "participant@example.com" }));
+    consoleError.mockRestore();
+  });
+
+  it("two presses at the same time mail each member exactly once", async () => {
+    const ledger = new Set<string>();
+    mocks.createAdminClient.mockImplementation(() => makeAdminClient({ ledger }));
+
+    const [a, b] = await Promise.all([sendCertificateEmails(CHAPTER), sendCertificateEmails(CHAPTER)]);
+
+    const recipients = mocks.sendEmail.mock.calls.map(([arg]) => (arg as { to: string }).to).sort();
+    expect(recipients).toEqual(["participant@example.com", "placed@example.com"]);
+    expect(((a as { sent: number }).sent ?? 0) + ((b as { sent: number }).sent ?? 0)).toBe(2);
+  });
+
+  it("treats a skipped email (SMTP not configured) as failed and keeps the member pending", async () => {
+    const ledger = new Set<string>();
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ ledger }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.sendEmail.mockResolvedValue(false);
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({ success: true, sent: 0, failed: 2, remaining: 0, alreadySent: 0, stuck: 0 });
+    expect(ledger.size).toBe(0);
+    consoleError.mockRestore();
+  });
+
+  it("reports a member whose failed send could not be rolled back", async () => {
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ rollbackFails: true }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.sendEmail.mockImplementation(async ({ to }: { to: string }) => {
+      if (to === "participant@example.com") throw new Error("smtp timeout");
+      return true;
+    });
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({ success: true, sent: 1, failed: 1, remaining: 0, alreadySent: 0, stuck: 1 });
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delta: {
+          created: {
+            sent: 1, failed: 1, remaining: 0, already_sent: 0, not_checked_in: 0,
+            stuck_user_ids: [UNPLACED_MEMBER],
+          },
+        },
+      })
+    );
+    consoleError.mockRestore();
+  });
+
+  it("does not record anyone when the certificate links cannot be built", async () => {
+    const ledger = new Set<string>();
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ ledger }));
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.certificateTokenV2.mockImplementation(() => {
+      throw new Error("CERTIFICATE_LINK_SECRET is required");
+    });
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({ success: true, sent: 0, failed: 2, remaining: 0, alreadySent: 0, stuck: 0 });
+    expect(ledgerWrites.filter((w) => w.op === "insert")).toHaveLength(0);
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+});
+
+describe("sendCertificateEmails: incomplete reads refuse instead of guessing", () => {
+  it("refuses when the record of past sends cannot be read", async () => {
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ ledgerReadFails: true }));
+    await expect(sendCertificateEmails(CHAPTER)).resolves.toEqual({
+      error: "Could not load who already received a certificate. Nothing was sent.",
+    });
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("refuses when the check-ins cannot be read, instead of treating everyone as absent", async () => {
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ checkInReadFails: true }));
+    await expect(getCertificateSendPreview(CHAPTER)).resolves.toEqual({
+      error: "Could not load this match's check-ins completely. Nothing was sent.",
+    });
+  });
+});
+
+describe("sendCertificateEmails: attendance identity", () => {
+  it("does not match by email when the application is linked to a different account", async () => {
+    // The application belongs to another account; its stale email now matches
+    // the placed member's profile. Only the account link counts.
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        checkedIn: [
+          { user_id: "someone-else", email: "placed@example.com" },
+          { user_id: UNPLACED_MEMBER, email: "participant@example.com" },
+        ],
+      })
+    );
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toMatchObject({ sent: 1 });
+    expect(mocks.sendEmail).not.toHaveBeenCalledWith(expect.objectContaining({ to: "placed@example.com" }));
+  });
+
+  it("mails a member on two scored teams once, for the team they checked in with", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        unplacedAlsoOnPlacedTeam: true,
+        checkedIn: [
+          { user_id: PLACED_MEMBER, email: "placed@example.com", existing_team_id: PLACED_TEAM },
+          { user_id: UNPLACED_MEMBER, email: "participant@example.com", existing_team_id: UNPLACED_TEAM },
+        ],
+      })
+    );
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toMatchObject({ sent: 2 });
+    const toParticipant = mocks.sendEmail.mock.calls.filter(
+      ([arg]) => (arg as { to: string }).to === "participant@example.com"
+    );
+    expect(toParticipant).toHaveLength(1);
+    const payload = mocks.renderCertificateEmail.mock.calls
+      .map(([p]) => p)
+      .find((p) => p.memberName === "Participant Person");
+    expect(payload).toMatchObject({ teamName: "Participant Team" });
   });
 });

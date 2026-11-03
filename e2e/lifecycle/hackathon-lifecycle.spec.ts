@@ -2265,6 +2265,16 @@ test.describe.serial("Hackathon Lifecycle", () => {
     }).length;
     expect(expected).toBeGreaterThan(0);
 
+    const sendEvents = async () =>
+      (
+        await admin
+          .from("event_log")
+          .select("delta")
+          .eq("action", "chapter.certificates_sent")
+          .eq("entity_id", chapterId)
+      ).data ?? [];
+    const eventsBefore = (await sendEvents()).length;
+
     await loginAsAdmin(page);
     await page.goto(`/admin/chapters/${chapterId}/scores`, { waitUntil: "networkidle" });
 
@@ -2284,6 +2294,11 @@ test.describe.serial("Hackathon Lifecycle", () => {
       .select("user_id", { count: "exact", head: true })
       .eq("chapter_id", chapterId);
     expect(recorded).toBe(expected);
+    // The audit row counts emails the transport ACCEPTED (sendEmail resolved
+    // true), not just records written.
+    const afterFirst = await sendEvents();
+    expect(afterFirst.length).toBe(eventsBefore + 1);
+    expect((afterFirst[afterFirst.length - 1].delta as { created: { sent: number } }).created.sent).toBe(expected);
 
     // Second press: nobody left to mail, so no confirmation and no send.
     let secondDialog = false;
@@ -2300,6 +2315,8 @@ test.describe.serial("Hackathon Lifecycle", () => {
       .select("user_id", { count: "exact", head: true })
       .eq("chapter_id", chapterId);
     expect(after).toBe(expected);
+    // No send ran at all: no new audit row.
+    expect((await sendEvents()).length).toBe(eventsBefore + 1);
   });
 
   // ── BLOCK 15: UPCOMING EVENT RECRUITING ────────────────
