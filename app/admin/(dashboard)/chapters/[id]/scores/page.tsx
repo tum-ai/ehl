@@ -323,6 +323,7 @@ export default function AdminScoresPage({
     if (preview.recipients === 0) {
       setSuccess(
         `Everyone on the ${preview.teams} scored team(s) already has their certificate.` +
+          (preview.notCheckedIn ? ` ${preview.notCheckedIn} member(s) did not check in at this match and get none.` : "") +
           (preview.missingProfile ? ` ${preview.missingProfile} member(s) cannot be emailed (missing name or email).` : "")
       );
       setSendingCerts(false);
@@ -331,6 +332,7 @@ export default function AdminScoresPage({
     const confirmed = confirm(
       `Send certificate emails to ${preview.recipients} member(s) on ${preview.teams} scored team(s)?` +
         (preview.alreadySent ? ` ${preview.alreadySent} already received theirs and will be skipped.` : "") +
+        (preview.notCheckedIn ? ` ${preview.notCheckedIn} did not check in at this match and get none.` : "") +
         (preview.missingProfile ? ` ${preview.missingProfile} cannot be emailed (missing name or email).` : "")
     );
     if (!confirmed) {

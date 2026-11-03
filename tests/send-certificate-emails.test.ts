@@ -54,7 +54,25 @@ function makeAdminClient({
   includeNameless = false,
   alreadySent = [] as string[],
   claimConflictFor = [] as string[],
+  // Who checked in at this chapter. Default: both test members.
+  checkedIn = [
+    { user_id: PLACED_MEMBER, email: "placed@example.com" },
+    { user_id: UNPLACED_MEMBER, email: "participant@example.com" },
+  ] as Array<{ user_id: string | null; email: string | null }>,
+  checkInsOverflow = false,
 } = {}) {
+  function rangeFor(state: QueryState, from: number, to: number) {
+    if (state.table !== "applications") return { data: [], error: null };
+    // Overflow: every window comes back full, so the paged read never ends.
+    if (checkInsOverflow) {
+      return {
+        data: Array.from({ length: to - from + 1 }, (_, i) => ({ user_id: `u${from + i}`, email: null })),
+        error: null,
+      };
+    }
+    return { data: checkedIn.slice(from, to + 1), error: null };
+  }
+
   function resultFor(state: QueryState) {
     const { table, filters } = state;
     if (table === "certificate_sends") {
@@ -156,6 +174,8 @@ function makeAdminClient({
           state.op = "delete";
           return builder;
         },
+        order: () => builder,
+        range: (from: number, to: number) => Promise.resolve(rangeFor(state, from, to)),
         eq: (column: string, value: unknown) => {
           state.filters.push([column, value]);
           return builder;
@@ -318,7 +338,7 @@ describe("sendCertificateEmails: each member is mailed once", () => {
     expect(mocks.logEvent).toHaveBeenCalledWith(
       expect.objectContaining({
         action: "chapter.certificates_sent",
-        delta: { created: { sent: 1, failed: 0, remaining: 0, already_sent: 1 } },
+        delta: { created: { sent: 1, failed: 0, remaining: 0, already_sent: 1, not_checked_in: 0 } },
       })
     );
   });
@@ -333,7 +353,7 @@ describe("getCertificateSendPreview", () => {
 
     const preview = await getCertificateSendPreview(CHAPTER);
 
-    expect(preview).toEqual({ teams: 2, recipients: 1, alreadySent: 1, missingProfile: 1 });
+    expect(preview).toEqual({ teams: 2, recipients: 1, alreadySent: 1, missingProfile: 1, notCheckedIn: 0 });
     expect(mocks.sendEmail).not.toHaveBeenCalled();
     expect(ledgerWrites).toHaveLength(0);
     consoleError.mockRestore();
@@ -345,5 +365,62 @@ describe("getCertificateSendPreview", () => {
       error: "Admin access required.",
     });
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
+  });
+});
+
+// Rosters carry over between chapters, so "current member of a scored team"
+// also matches people who joined later and never attended. Only members who
+// CHECKED IN at the chapter get a certificate.
+describe("sendCertificateEmails: only members who checked in at the chapter", () => {
+  it("skips a team member who did not check in, and reports them", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ checkedIn: [{ user_id: PLACED_MEMBER, email: "placed@example.com" }] })
+    );
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 0 });
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
+    expect(mocks.sendEmail).toHaveBeenCalledWith(expect.objectContaining({ to: "placed@example.com" }));
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        delta: { created: { sent: 1, failed: 0, remaining: 0, already_sent: 0, not_checked_in: 1 } },
+      })
+    );
+  });
+
+  it("recognises a check-in by email when the application is not linked to an account", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({
+        checkedIn: [
+          { user_id: null, email: "Placed@Example.com" },
+          { user_id: UNPLACED_MEMBER, email: "participant@example.com" },
+        ],
+      })
+    );
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({ success: true, sent: 2, failed: 0, remaining: 0, alreadySent: 0 });
+  });
+
+  it("refuses rather than guessing when the check-in list is cut off", async () => {
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ checkInsOverflow: true }));
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({
+      error: "Too many check-ins to verify recipients safely. Raise the applications limit first.",
+    });
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(ledgerWrites).toHaveLength(0);
+  });
+
+  it("counts members who did not check in in the preview", async () => {
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ checkedIn: [] }));
+
+    const preview = await getCertificateSendPreview(CHAPTER);
+
+    expect(preview).toEqual({ teams: 2, recipients: 0, alreadySent: 0, missingProfile: 0, notCheckedIn: 2 });
   });
 });

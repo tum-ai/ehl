@@ -690,6 +690,10 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
   failures). The confirmation shows how many people will be emailed and how
   many already have their certificate; a large chapter that runs out of time
   reports how many are still pending, and the next press continues
+- Only members who **checked in at that match** receive a certificate. Team
+  rosters carry over between matches, so a current member who joined the team
+  later is not mailed for a match they never attended; the confirmation shows
+  how many were left out for that reason
 
 ### Certificate Designs (`/admin/chapters/<id>/certificates`)
 - Global admins upload a custom certificate design per chapter and per

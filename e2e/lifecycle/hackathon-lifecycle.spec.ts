@@ -2240,7 +2240,8 @@ test.describe.serial("Hackathon Lifecycle", () => {
     const admin = getAdminClient();
     await admin.from("certificate_sends").delete().eq("chapter_id", chapterId);
 
-    // Expected recipients: members of scored teams with a printable name and email.
+    // Expected recipients: members of scored teams with a printable name and
+    // email who CHECKED IN at this chapter (by account or by email).
     const { data: scored } = await admin
       .from("scores")
       .select("team_id")
@@ -2250,9 +2251,17 @@ test.describe.serial("Hackathon Lifecycle", () => {
       .from("team_members")
       .select("user_id, profiles(email, name)")
       .in("team_id", (scored ?? []).map((s) => s.team_id as string));
+    const { data: checkIns } = await admin
+      .from("applications")
+      .select("user_id, email")
+      .eq("chapter_id", chapterId)
+      .eq("status", "checked_in");
+    const attendedIds = new Set((checkIns ?? []).map((a) => a.user_id as string | null).filter(Boolean));
+    const attendedEmails = new Set((checkIns ?? []).map((a) => (a.email as string).toLowerCase()));
     const expected = (members ?? []).filter((m) => {
       const p = m.profiles as unknown as { email: string | null; name: string | null } | null;
-      return !!p?.email && !!p?.name;
+      if (!p?.email || !p?.name) return false;
+      return attendedIds.has(m.user_id as string) || attendedEmails.has(p.email.toLowerCase());
     }).length;
     expect(expected).toBeGreaterThan(0);
 

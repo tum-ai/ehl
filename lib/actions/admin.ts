@@ -10,8 +10,9 @@ import { getPlacementLabel, formatDate } from "@/lib/utils";
 import { isPlacedPlacement } from "@/lib/scoring";
 import { certificateTokenV2 } from "@/lib/certificate-token";
 import { runBudgetedConcurrent } from "@/lib/bulk-send";
+import { fetchPaged } from "@/lib/queries/paged";
 import { logEvent, logEventStrict } from "@/lib/event-log";
-import { MAX_TEAM_SIZE, MIN_TEAM_SIZE } from "@/lib/config/limits";
+import { MAX_TEAM_SIZE, MIN_TEAM_SIZE, QUERY_LIMITS } from "@/lib/config/limits";
 import type { ChapterStatus } from "@/lib/types";
 import {
   isBackwardTransition,
@@ -1774,6 +1775,10 @@ export async function adminSetTeamChallenge(
 // and the (chapter_id, user_id) primary key stops two concurrent presses from
 // mailing the same person twice. runBudgetedConcurrent keeps a large chapter
 // under the function timeout and reports who it did not reach as `remaining`.
+//
+// Only members who CHECKED IN at this chapter are mailed. Rosters carry over
+// between chapters, so "current member of a scored team" also matches people
+// who joined the team later and never attended this match.
 
 interface CertificateRecipient {
   userId: string;
@@ -1809,6 +1814,7 @@ async function loadCertificateRecipients(
       teams: number;
       alreadySent: number;
       missingProfile: number;
+      notCheckedIn: number;
     }
 > {
   const { data: chapter } = await adminClient
@@ -1839,9 +1845,30 @@ async function loadCertificateRecipients(
   if (sentError) return { error: "Could not load who already received a certificate." };
   const sentUserIds = new Set((sentRows ?? []).map((r) => r.user_id as string));
 
+  // Who attended. Matched by account and by email: applications from before
+  // 00069 are not always linked to an account.
+  const { rows: checkedIn, truncated } = await fetchPaged<{ user_id: string | null; email: string | null }>(
+    () =>
+      adminClient
+        .from("applications")
+        .select("user_id, email")
+        .eq("chapter_id", chapterId)
+        .eq("status", "checked_in")
+        .order("id"),
+    QUERY_LIMITS.applicationsPerChapter
+  );
+  if (truncated) {
+    return { error: "Too many check-ins to verify recipients safely. Raise the applications limit first." };
+  }
+  const attendedUserIds = new Set(checkedIn.map((a) => a.user_id).filter((id): id is string => !!id));
+  const attendedEmails = new Set(
+    checkedIn.map((a) => a.email?.trim().toLowerCase()).filter((e): e is string => !!e)
+  );
+
   const pending: CertificateRecipient[] = [];
   let alreadySent = 0;
   let missingProfile = 0;
+  let notCheckedIn = 0;
 
   for (const score of scores) {
     const teamId = score.team_id as string;
@@ -1875,6 +1902,10 @@ async function loadCertificateRecipients(
         missingProfile++;
         continue;
       }
+      if (!attendedUserIds.has(userId) && !attendedEmails.has(profile.email.trim().toLowerCase())) {
+        notCheckedIn++;
+        continue;
+      }
       pending.push({
         userId,
         teamId,
@@ -1893,13 +1924,14 @@ async function loadCertificateRecipients(
     teams: scores.length,
     alreadySent,
     missingProfile,
+    notCheckedIn,
   };
 }
 
 /** What "Send Certificates" would do now, for the confirmation dialog. */
 export async function getCertificateSendPreview(chapterId: string): Promise<
   | { error: string }
-  | { teams: number; recipients: number; alreadySent: number; missingProfile: number }
+  | { teams: number; recipients: number; alreadySent: number; missingProfile: number; notCheckedIn: number }
 > {
   const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
@@ -1911,6 +1943,7 @@ export async function getCertificateSendPreview(chapterId: string): Promise<
     recipients: loaded.pending.length,
     alreadySent: loaded.alreadySent,
     missingProfile: loaded.missingProfile,
+    notCheckedIn: loaded.notCheckedIn,
   };
 }
 
@@ -1921,7 +1954,7 @@ export async function sendCertificateEmails(chapterId: string) {
   const adminClient = createAdminClient();
   const loaded = await loadCertificateRecipients(adminClient, chapterId);
   if ("error" in loaded) return { error: loaded.error };
-  const { chapter, pending, alreadySent, missingProfile } = loaded;
+  const { chapter, pending, alreadySent, missingProfile, notCheckedIn } = loaded;
 
   const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ehl.gg";
   const chapterDate = chapter.date
@@ -2013,7 +2046,15 @@ export async function sendCertificateEmails(chapterId: string) {
     entityId: chapterId,
     actorId,
     actorType: "admin",
-    delta: { created: { sent, failed, remaining: skipped.length, already_sent: alreadySent } },
+    delta: {
+      created: {
+        sent,
+        failed,
+        remaining: skipped.length,
+        already_sent: alreadySent,
+        not_checked_in: notCheckedIn,
+      },
+    },
   });
 
   return { success: true, sent, failed, remaining: skipped.length, alreadySent };
