@@ -1,0 +1,89 @@
+{
+  "cli_version": "0.9.0",
+  "checkpoint_id": "01M6H37MWQVYZBTT7K1F4PEGDA",
+  "session_id": "4b089b05-630a-4937-a1b7-2ce6e1acdee6",
+  "strategy": "manual-commit",
+  "created_at": "2026-11-03T16:17:52.591433Z",
+  "branch": "fix/finale-certificates-participation",
+  "checkpoints_count": 2,
+  "save_step_count": 3,
+  "files_touched": [],
+  "agent": "Claude Code",
+  "model": "claude-opus-5-5",
+  "turn_id": "5bdd39c5726d",
+  "compact_transcript_start": 0,
+  "token_usage": {
+    "input_tokens": 948,
+    "cache_creation_tokens": 5534481,
+    "cache_read_tokens": 183419940,
+    "output_tokens": 382520,
+    "api_call_count": 469
+  },
+  "session_metrics": {
+    "turn_count": 11
+  },
+  "prompt_attributions": [
+    {
+      "checkpoint_number": 2,
+      "user_lines_added": 0,
+      "user_lines_removed": 0,
+      "agent_lines_added": 0,
+      "agent_lines_removed": 0
+    },
+    {
+      "checkpoint_number": 3,
+      "user_lines_added": 1654,
+      "user_lines_removed": 0,
+      "agent_lines_added": 111,
+      "agent_lines_removed": 38,
+      "user_added_per_file": {
+        "AGENTS.md": 280,
+        "CHANGES.md": 67,
+        "github-ratelimit-handoff.md": 633,
+        "handover.md": 188,
+        "scripts/download-checked-in-cvs.ts": 82,
+        "submission-private-workaround.md": 121,
+        "to-do.txt": 200,
+        "todo.txt": 83
+      }
+    },
+    {
+      "checkpoint_number": 4,
+      "user_lines_added": 2111,
+      "user_lines_removed": 84,
+      "agent_lines_added": 111,
+      "agent_lines_removed": 38,
+      "user_added_per_file": {
+        "AGENTS.md": 280,
+        "CHANGES.md": 67,
+        "CLAUDE.md": 3,
+        "app/admin/(dashboard)/chapters/[id]/scores/page.tsx": 10,
+        "docs/TESTING.md": 4,
+        "e2e/lifecycle/hackathon-lifecycle.spec.ts": 17,
+        "github-ratelimit-handoff.md": 633,
+        "handover.md": 188,
+        "lib/actions/admin.ts": 114,
+        "lib/email.ts": 9,
+        "lib/queries/paged.ts": 12,
+        "lib/scoring.ts": 15,
+        "scripts/download-checked-in-cvs.ts": 82,
+        "submission-private-workaround.md": 121,
+        "supabase/migrations/00073_certificate_sends.sql": 11,
+        "tests/paged.test.ts": 24,
+        "tests/scoring.test.ts": 29,
+        "tests/send-certificate-emails.test.ts": 209,
+        "to-do.txt": 200,
+        "todo.txt": 83
+      },
+      "user_removed_per_file": {
+        "CLAUDE.md": 1,
+        "app/admin/(dashboard)/chapters/[id]/scores/page.tsx": 4,
+        "docs/TESTING.md": 1,
+        "lib/actions/admin.ts": 57,
+        "lib/email.ts": 2,
+        "lib/queries/paged.ts": 5,
+        "tests/send-certificate-emails.test.ts": 14
+      }
+    }
+  ]
+}
