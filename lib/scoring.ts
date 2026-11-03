@@ -54,11 +54,19 @@ export function getPoints(
 export type PublishReadiness =
   | { kind: "ready"; scoredCount: number }
   | { kind: "unfinalized"; pendingTeamCount: number; scoredCount: number }
+  | { kind: "unscored_submitters"; missingTeamCount: number; scoredCount: number }
   | { kind: "empty" };
 
 export function getPublishReadiness(
   scoredTeamIds: Iterable<string>,
-  pendingJuryTeamIds: Iterable<string>
+  pendingJuryTeamIds: Iterable<string>,
+  /**
+   * 3. Teams with a submission in this chapter. A submitter without a score row
+   *    gets neither its participation points nor a certificate. Finalizing the
+   *    jury writes those rows; entering only podium results by override does
+   *    not, which is how a whole chapter's participants once went missing.
+   */
+  submittedTeamIds: Iterable<string> = []
 ): PublishReadiness {
   const scored = new Set(scoredTeamIds);
   const pendingDisplayed = new Set(pendingJuryTeamIds);
@@ -83,6 +91,11 @@ export function getPublishReadiness(
 
   if (scored.size === 0) {
     return { kind: "empty" };
+  }
+
+  const missing = new Set([...submittedTeamIds].filter((teamId) => !scored.has(teamId)));
+  if (missing.size > 0) {
+    return { kind: "unscored_submitters", missingTeamCount: missing.size, scoredCount: scored.size };
   }
 
   return { kind: "ready", scoredCount: scored.size };
@@ -201,4 +214,19 @@ export function findDuplicatePlacements(
     seen.set(key, entry);
   }
   return [...seen.values()].filter((e) => e.teamIds.length > 1);
+}
+
+/**
+ * Teams that submitted to a SCORED challenge, to feed getPublishReadiness's
+ * "submitted but no score" check. Community (unscored) challenges never yield
+ * league scores, so their submitters are correctly score-less and must not be
+ * reported (an operator would otherwise be told to add points they should not
+ * receive).
+ */
+export function getScoredSubmitterTeamIds(
+  challenges: ReadonlyArray<{ id: string; isScored: boolean }>,
+  submissions: ReadonlyArray<{ teamId: string; challengeId: string }>
+): string[] {
+  const scored = new Set(challenges.filter((c) => c.isScored).map((c) => c.id));
+  return [...new Set(submissions.filter((s) => scored.has(s.challengeId)).map((s) => s.teamId))];
 }

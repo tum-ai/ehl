@@ -37,6 +37,13 @@ export interface PagedResult<T> {
    * and cannot see a server-side cap at all.
    */
   truncated: boolean;
+  /**
+   * True when a window's query FAILED, so `rows` is incomplete for a reason
+   * other than the limit. A caller that must not act on partial data (for
+   * example deciding who is excluded from an email send) has to check this:
+   * without it, a failed first window looks exactly like an empty table.
+   */
+  failed: boolean;
 }
 
 /**
@@ -51,7 +58,7 @@ export async function fetchPaged<T>(
   limit: number,
   pageSize: number = PAGE_SIZE
 ): Promise<PagedResult<T>> {
-  if (limit <= 0) return { rows: [], truncated: false };
+  if (limit <= 0) return { rows: [], truncated: false, failed: false };
 
   const rows: T[] = [];
   const step = Math.max(1, Math.min(pageSize, limit));
@@ -60,19 +67,19 @@ export async function fetchPaged<T>(
     const window = Math.min(step, limit - offset);
     const { data, error } = await build().range(offset, offset + window - 1);
 
-    if (error || !data) break;
+    if (error || !data) return { rows, truncated: false, failed: true };
     rows.push(...data);
 
     // A short window means the table ended: nothing more to read.
-    if (data.length < window) return { rows, truncated: false };
+    if (data.length < window) return { rows, truncated: false, failed: false };
   }
 
   // We stopped because `limit` was reached. Ask for one more row: if it exists,
   // the caller really is seeing a truncated view and must say so.
   if (rows.length >= limit) {
     const { data } = await build().range(limit, limit);
-    return { rows, truncated: !!data && data.length > 0 };
+    return { rows, truncated: !!data && data.length > 0, failed: false };
   }
 
-  return { rows, truncated: false };
+  return { rows, truncated: false, failed: false };
 }

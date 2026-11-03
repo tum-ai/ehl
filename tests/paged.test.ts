@@ -114,3 +114,27 @@ describe("fetchPaged", () => {
     expect(rows.length).toBeLessThanOrEqual(2500);
   });
 });
+
+// A failed window used to look exactly like the end of the table. Callers that
+// must not act on partial data (who is excluded from an email send) need to see
+// the difference.
+describe("fetchPaged: failed reads are reported", () => {
+  it("marks a failure on the first window, with no rows", async () => {
+    const { build } = table(2500, { failAt: 0 });
+    const result = await fetchPaged(build, 25000);
+    expect(result).toEqual({ rows: [], truncated: false, failed: true });
+  });
+
+  it("marks a failure on a later window and keeps the rows read so far", async () => {
+    const { build } = table(2500, { failAt: 1 });
+    const result = await fetchPaged(build, 25000);
+    expect(result.rows.length).toBe(1000);
+    expect(result.failed).toBe(true);
+    expect(result.truncated).toBe(false);
+  });
+
+  it("reports no failure when the table simply ends", async () => {
+    const { build } = table(10);
+    expect(await fetchPaged(build, 25000)).toMatchObject({ truncated: false, failed: false });
+  });
+});

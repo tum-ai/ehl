@@ -5,6 +5,7 @@ import {
   getPoints,
   calculateLeaderboard,
   getPublishReadiness,
+  getScoredSubmitterTeamIds,
   getPendingJuryTeamIds,
   getJudgedUnscoredChallenges,
   isPlacedPlacement,
@@ -552,5 +553,74 @@ describe("isPlacedPlacement", () => {
     expect(isPlacedPlacement(null)).toBe(false);
     expect(isPlacedPlacement(6)).toBe(false);
     expect(isPlacedPlacement(0)).toBe(false);
+  });
+});
+
+// ─── getPublishReadiness(): submitters without a score ─────────
+// A chapter whose results were entered only as podium overrides once published
+// with every other submitting team missing: no participation points, and the
+// certificate send (which mails only scored teams) skipped them all.
+describe("getPublishReadiness: teams that submitted without a score", () => {
+  it("flags submitters with no score row, counting each team once", () => {
+    const readiness = getPublishReadiness(["podium-1", "podium-2"], [], [
+      "podium-1",
+      "podium-2",
+      "participant-1",
+      "participant-2",
+      "participant-2",
+    ]);
+    expect(readiness).toEqual({
+      kind: "unscored_submitters",
+      missingTeamCount: 2,
+      scoredCount: 2,
+    });
+  });
+
+  it("is ready once every submitter has a score", () => {
+    const readiness = getPublishReadiness(["t1", "t2"], [], ["t1", "t2"]);
+    expect(readiness).toEqual({ kind: "ready", scoredCount: 2 });
+  });
+
+  it("does not count scored teams that did not submit (a manual result is allowed)", () => {
+    const readiness = getPublishReadiness(["t1", "t2"], [], ["t1"]);
+    expect(readiness).toEqual({ kind: "ready", scoredCount: 2 });
+  });
+
+  it("keeps reporting unfinalized jury results first", () => {
+    const readiness = getPublishReadiness(["t1"], ["t2"], ["t1", "t3"]);
+    expect(readiness).toEqual({ kind: "unfinalized", pendingTeamCount: 1, scoredCount: 1 });
+  });
+
+  it("keeps reporting an empty chapter as empty", () => {
+    const readiness = getPublishReadiness([], [], ["t1"]);
+    expect(readiness).toEqual({ kind: "empty" });
+  });
+});
+
+describe("getScoredSubmitterTeamIds", () => {
+  it("REGRESSION: a mixed chapter does not report community-challenge submitters as missing", () => {
+    const challenges = [
+      { id: "scored", isScored: true },
+      { id: "community", isScored: false },
+    ];
+    const submissions = [
+      { teamId: "t-scored", challengeId: "scored" },
+      { teamId: "t-community", challengeId: "community" },
+    ];
+    expect(getScoredSubmitterTeamIds(challenges, submissions)).toEqual(["t-scored"]);
+    // Fed into the readiness check, the community team is not flagged.
+    expect(getPublishReadiness(["t-scored"], [], getScoredSubmitterTeamIds(challenges, submissions))).toEqual({
+      kind: "ready",
+      scoredCount: 1,
+    });
+  });
+
+  it("lists a team once even with several scored submissions", () => {
+    expect(
+      getScoredSubmitterTeamIds([{ id: "a", isScored: true }, { id: "b", isScored: true }], [
+        { teamId: "t1", challengeId: "a" },
+        { teamId: "t1", challengeId: "b" },
+      ])
+    ).toEqual(["t1"]);
   });
 });

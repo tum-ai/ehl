@@ -9,11 +9,12 @@ import {
   PLACEMENT_POINTS,
   PARTICIPATION_POINTS,
   getPublishReadiness,
+  getScoredSubmitterTeamIds,
   getPendingJuryTeamIds,
   getJudgedUnscoredChallenges,
   findDuplicatePlacements,
 } from "@/lib/scoring";
-import { publishScores, sendCertificateEmails } from "@/lib/actions/admin";
+import { publishScores, sendCertificateEmails, getCertificateSendPreview } from "@/lib/actions/admin";
 
 interface Team {
   id: string;
@@ -88,6 +89,9 @@ export default function AdminScoresPage({
   const [loading, setLoading] = useState(true);
   const [publishing, setPublishing] = useState(false);
   const [sendingCerts, setSendingCerts] = useState(false);
+  // Teams with a submission in this chapter: a submitter without a score gets
+  // neither its participation points nor a certificate.
+  const [submittedTeamIds, setSubmittedTeamIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -96,12 +100,20 @@ export default function AdminScoresPage({
     params.then(async ({ id }) => {
       setChapterId(id);
 
-      const [teamsRes, challengesRes, chapterRes, registrationsRes] = await Promise.all([
+      const [teamsRes, challengesRes, chapterRes, registrationsRes, submissionsRes] = await Promise.all([
         fetch("/api/admin/teams").then((r) => r.json()),
         fetch(`/api/admin/chapters/${id}/challenges`).then((r) => r.json()),
         fetch(`/api/admin/chapters/${id}/details`).then((r) => r.json()).catch(() => null),
         fetch(`/api/admin/chapters/${id}/registrations`).then((r) => r.json()).catch(() => []),
+        fetch(`/api/admin/chapters/${id}/submissions`).then((r) => r.json()).catch(() => []),
       ]);
+      // Only submitters to SCORED challenges are expected to have a score.
+      setSubmittedTeamIds(
+        getScoredSubmitterTeamIds(
+          Array.isArray(challengesRes) ? challengesRes : [],
+          Array.isArray(submissionsRes) ? submissionsRes : []
+        )
+      );
 
       setTeams(teamsRes);
       setChallenges(challengesRes);
@@ -261,13 +273,18 @@ export default function AdminScoresPage({
     // when there is genuinely nothing to publish (empty leaderboard).
     const readiness = getPublishReadiness(
       scores.map((s) => s.teamId),
-      pendingJuryTeamIds()
+      pendingJuryTeamIds(),
+      submittedTeamIds
     );
     let message: string;
     if (readiness.kind === "unfinalized") {
       message =
         `Jury results are shown for ${readiness.pendingTeamCount} team(s) that have NOT been finalized into scores. ` +
         "Publishing now will NOT include them on the public leaderboard. Finalize the jury rankings first (Jury page) so they count. Publish anyway?";
+    } else if (readiness.kind === "unscored_submitters") {
+      message =
+        `${readiness.missingTeamCount} team(s) submitted but have NO score. They will get no participation points and no certificate. ` +
+        'Finalize the jury rankings (Jury page), or set them to "Participation" below, before publishing. Publish anyway?';
     } else if (readiness.kind === "empty") {
       message =
         "This chapter has NO scores yet. Publishing will mark it as completed with an empty leaderboard. If you expected scores, finalize the jury rankings first. Continue anyway?";
@@ -294,17 +311,50 @@ export default function AdminScoresPage({
   }
 
   async function handleSendCertificates() {
-    if (!confirm("Send certificate emails to all teams with published scores? Each team member will receive their own personal certificate links.")) {
-      return;
-    }
     setSendingCerts(true);
     setError(null);
+
+    // Ask what a press would do BEFORE sending: the send is idempotent (members
+    // who already received theirs are skipped), so the count is the people who
+    // will actually get an email now.
+    const preview = await getCertificateSendPreview(chapterId);
+    if ("error" in preview) {
+      setError(preview.error);
+      setSendingCerts(false);
+      return;
+    }
+    if (preview.recipients === 0) {
+      setSuccess(
+        `Everyone on the ${preview.teams} scored team(s) already has their certificate.` +
+          (preview.notCheckedIn ? ` ${preview.notCheckedIn} member(s) did not check in at this match and get none.` : "") +
+          (preview.missingProfile ? ` ${preview.missingProfile} member(s) cannot be emailed (missing name or email).` : "")
+      );
+      setSendingCerts(false);
+      return;
+    }
+    const confirmed = confirm(
+      `Send certificate emails to ${preview.recipients} member(s) on ${preview.teams} scored team(s)?` +
+        (preview.alreadySent ? ` ${preview.alreadySent} already received theirs and will be skipped.` : "") +
+        (preview.notCheckedIn ? ` ${preview.notCheckedIn} did not check in at this match and get none.` : "") +
+        (preview.missingProfile ? ` ${preview.missingProfile} cannot be emailed (missing name or email).` : "")
+    );
+    if (!confirmed) {
+      setSendingCerts(false);
+      return;
+    }
 
     const result = await sendCertificateEmails(chapterId);
     if (result.error) {
       setError(result.error);
     } else {
-      setSuccess(`Certificate emails sent to ${result.sent} member(s).${result.failed ? ` ${result.failed} failed.` : ""}`);
+      setSuccess(
+        `Certificate emails sent to ${result.sent} member(s).` +
+          (result.failed ? ` ${result.failed} failed.` : "") +
+          (result.remaining ? ` ${result.remaining} still pending: click again to continue.` : "") +
+          (result.stuck
+            ? ` ${result.stuck} failed send(s) could not be reset and will be skipped until fixed (see the audit log).`
+            : "")
+      );
     }
     setSendingCerts(false);
   }
@@ -323,7 +373,8 @@ export default function AdminScoresPage({
   // the publish UI reflects what will actually surface publicly.
   const publishReadiness = getPublishReadiness(
     scores.map((s) => s.teamId),
-    pendingJuryTeamIds()
+    pendingJuryTeamIds(),
+    submittedTeamIds
   );
   // Challenges the jury ranked but that produce no league points (unscored). This
   // is the usual reason the page shows "No scores yet" while jury results display
@@ -638,6 +689,17 @@ export default function AdminScoresPage({
                     Jury page
                   </Link>
                   . Publishing now publishes only finalized scores.
+                </p>
+              )}
+              {publishReadiness.kind === "unscored_submitters" && (
+                <p className="mt-2 text-sm ad-text-warning">
+                  {publishReadiness.missingTeamCount} team(s) submitted but have no
+                  score. Without one they get no participation points and no
+                  certificate. Finalize the jury rankings on the{" "}
+                  <Link href="/admin/jury" className="underline ad-text-link">
+                    Jury page
+                  </Link>
+                  , or set them to &quot;Participation&quot; below.
                 </p>
               )}
               {publishReadiness.kind === "empty" && judgedUnscored.length > 0 && (
