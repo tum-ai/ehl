@@ -32,7 +32,7 @@ vi.mock("@/lib/certificate-token", () => ({
   certificateTokenV2: mocks.certificateTokenV2,
 }));
 
-import { sendCertificateEmails } from "@/lib/actions/admin";
+import { sendCertificateEmails, getCertificateSendPreview } from "@/lib/actions/admin";
 
 const CHAPTER = "chapter-1";
 const PLACED_TEAM = "team-placed";
@@ -42,11 +42,32 @@ const UNPLACED_MEMBER = "member-unplaced";
 
 interface QueryState {
   table: string;
+  op: "select" | "insert" | "delete";
+  payload?: unknown;
   filters: [string, unknown][];
 }
 
-function makeAdminClient({ includeNameless = false } = {}) {
-  function resultFor({ table, filters }: QueryState) {
+/** Every write to certificate_sends, in order, so tests can assert claim/rollback. */
+let ledgerWrites: QueryState[] = [];
+
+function makeAdminClient({
+  includeNameless = false,
+  alreadySent = [] as string[],
+  claimConflictFor = [] as string[],
+} = {}) {
+  function resultFor(state: QueryState) {
+    const { table, filters } = state;
+    if (table === "certificate_sends") {
+      if (state.op === "select") return { data: alreadySent.map((user_id) => ({ user_id })), error: null };
+      ledgerWrites.push(state);
+      if (state.op === "insert") {
+        const userId = (state.payload as { user_id: string }).user_id;
+        return claimConflictFor.includes(userId)
+          ? { error: { code: "23505", message: "duplicate key" } }
+          : { error: null };
+      }
+      return { error: null };
+    }
     const teamId = filters.find(
       ([column]) => column === "team_id" || (table === "teams" && column === "id")
     )?.[1];
@@ -122,10 +143,19 @@ function makeAdminClient({ includeNameless = false } = {}) {
 
   return {
     from(table: string) {
-      const state: QueryState = { table, filters: [] };
+      const state: QueryState = { table, op: "select", filters: [] };
       const resolve = () => Promise.resolve(resultFor(state));
       const builder = {
         select: () => builder,
+        insert: (payload: unknown) => {
+          state.op = "insert";
+          state.payload = payload;
+          return builder;
+        },
+        delete: () => {
+          state.op = "delete";
+          return builder;
+        },
         eq: (column: string, value: unknown) => {
           state.filters.push([column, value]);
           return builder;
@@ -143,6 +173,7 @@ function makeAdminClient({ includeNameless = false } = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  ledgerWrites = [];
   process.env.NEXT_PUBLIC_SITE_URL = "https://ehl.test";
   mocks.requireAdminAction.mockResolvedValue(null);
   mocks.getActingUserId.mockResolvedValue("admin-1");
@@ -172,7 +203,7 @@ describe("sendCertificateEmails", () => {
   it("sends only personal certificate links and scopes participation to each member", async () => {
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 2, failed: 0 });
+    expect(result).toEqual({ success: true, sent: 2, failed: 0, remaining: 0, alreadySent: 0 });
     expect(mocks.renderCertificateEmail).toHaveBeenCalledTimes(2);
 
     const payloads = mocks.renderCertificateEmail.mock.calls.map(([payload]) => payload);
@@ -209,7 +240,7 @@ describe("sendCertificateEmails", () => {
 
     const result = await sendCertificateEmails(CHAPTER);
 
-    expect(result).toEqual({ success: true, sent: 2, failed: 1 });
+    expect(result).toEqual({ success: true, sent: 2, failed: 1, remaining: 0, alreadySent: 0 });
     expect(mocks.renderCertificateEmail).toHaveBeenCalledTimes(2);
     expect(mocks.sendEmail).toHaveBeenCalledTimes(2);
     expect(consoleError).toHaveBeenCalledWith(
@@ -217,5 +248,102 @@ describe("sendCertificateEmails", () => {
     );
 
     consoleError.mockRestore();
+  });
+});
+
+// Idempotence (migration 00073), built like sendRsvpEmails: a certificate_sends
+// row is claimed BEFORE each email and removed if the send fails, so a second
+// press only reaches members the first one did not.
+describe("sendCertificateEmails: each member is mailed once", () => {
+  it("skips members who already received theirs and mails only the rest", async () => {
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ alreadySent: [PLACED_MEMBER] }));
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 1 });
+    expect(mocks.sendEmail).toHaveBeenCalledTimes(1);
+    expect(mocks.sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "participant@example.com" })
+    );
+  });
+
+  it("claims a record for every member before mailing them", async () => {
+    await sendCertificateEmails(CHAPTER);
+
+    const claims = ledgerWrites.filter((w) => w.op === "insert").map((w) => w.payload);
+    expect(claims).toEqual(
+      expect.arrayContaining([
+        { chapter_id: CHAPTER, user_id: PLACED_MEMBER, team_id: PLACED_TEAM },
+        { chapter_id: CHAPTER, user_id: UNPLACED_MEMBER, team_id: UNPLACED_TEAM },
+      ])
+    );
+    expect(claims).toHaveLength(2);
+    expect(ledgerWrites.some((w) => w.op === "delete")).toBe(false);
+  });
+
+  it("does not mail a member a concurrent press already claimed", async () => {
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ claimConflictFor: [PLACED_MEMBER] }));
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({ success: true, sent: 1, failed: 0, remaining: 0, alreadySent: 0 });
+    expect(mocks.sendEmail).not.toHaveBeenCalledWith(
+      expect.objectContaining({ to: "placed@example.com" })
+    );
+  });
+
+  it("removes the record when the email fails, so the next press retries that member", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    mocks.sendEmail.mockImplementation(async ({ to }: { to: string }) => {
+      if (to === "participant@example.com") throw new Error("smtp timeout");
+    });
+
+    const result = await sendCertificateEmails(CHAPTER);
+
+    expect(result).toEqual({ success: true, sent: 1, failed: 1, remaining: 0, alreadySent: 0 });
+    const rollbacks = ledgerWrites.filter((w) => w.op === "delete");
+    expect(rollbacks).toHaveLength(1);
+    expect(rollbacks[0].filters).toEqual([
+      ["chapter_id", CHAPTER],
+      ["user_id", UNPLACED_MEMBER],
+    ]);
+    consoleError.mockRestore();
+  });
+
+  it("records already-sent and remaining counts in the audit log", async () => {
+    mocks.createAdminClient.mockReturnValue(makeAdminClient({ alreadySent: [PLACED_MEMBER] }));
+
+    await sendCertificateEmails(CHAPTER);
+
+    expect(mocks.logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "chapter.certificates_sent",
+        delta: { created: { sent: 1, failed: 0, remaining: 0, already_sent: 1 } },
+      })
+    );
+  });
+});
+
+describe("getCertificateSendPreview", () => {
+  it("reports exactly the members a press would mail, without sending", async () => {
+    mocks.createAdminClient.mockReturnValue(
+      makeAdminClient({ alreadySent: [PLACED_MEMBER], includeNameless: true })
+    );
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const preview = await getCertificateSendPreview(CHAPTER);
+
+    expect(preview).toEqual({ teams: 2, recipients: 1, alreadySent: 1, missingProfile: 1 });
+    expect(mocks.sendEmail).not.toHaveBeenCalled();
+    expect(ledgerWrites).toHaveLength(0);
+    consoleError.mockRestore();
+  });
+
+  it("rejects non-admin callers", async () => {
+    mocks.requireAdminAction.mockResolvedValue("Admin access required.");
+    await expect(getCertificateSendPreview(CHAPTER)).resolves.toEqual({
+      error: "Admin access required.",
+    });
+    expect(mocks.createAdminClient).not.toHaveBeenCalled();
   });
 });

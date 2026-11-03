@@ -2232,6 +2232,67 @@ test.describe.serial("Hackathon Lifecycle", () => {
     }
   });
 
+  test("14.4 Send Certificates mails each member once: a second press sends nothing", async ({ page }) => {
+    // The send is idempotent (certificate_sends, migration 00073). The first
+    // press confirms how many people will be emailed and records each one; a
+    // second press finds everyone recorded and sends no email at all.
+    test.setTimeout(90000);
+    const admin = getAdminClient();
+    await admin.from("certificate_sends").delete().eq("chapter_id", chapterId);
+
+    // Expected recipients: members of scored teams with a printable name and email.
+    const { data: scored } = await admin
+      .from("scores")
+      .select("team_id")
+      .eq("chapter_id", chapterId)
+      .eq("published", true);
+    const { data: members } = await admin
+      .from("team_members")
+      .select("user_id, profiles(email, name)")
+      .in("team_id", (scored ?? []).map((s) => s.team_id as string));
+    const expected = (members ?? []).filter((m) => {
+      const p = m.profiles as unknown as { email: string | null; name: string | null } | null;
+      return !!p?.email && !!p?.name;
+    }).length;
+    expect(expected).toBeGreaterThan(0);
+
+    await loginAsAdmin(page);
+    await page.goto(`/admin/chapters/${chapterId}/scores`, { waitUntil: "networkidle" });
+
+    let dialogText = "";
+    page.once("dialog", (dialog) => {
+      dialogText = dialog.message();
+      dialog.accept();
+    });
+    await page.getByRole("button", { name: /Send Certificate Emails/i }).click();
+    await expect(page.getByText(`Certificate emails sent to ${expected} member(s).`)).toBeVisible({
+      timeout: 60000,
+    });
+    expect(dialogText).toContain(`Send certificate emails to ${expected} member(s)`);
+
+    const { count: recorded } = await admin
+      .from("certificate_sends")
+      .select("user_id", { count: "exact", head: true })
+      .eq("chapter_id", chapterId);
+    expect(recorded).toBe(expected);
+
+    // Second press: nobody left to mail, so no confirmation and no send.
+    let secondDialog = false;
+    page.once("dialog", (dialog) => {
+      secondDialog = true;
+      dialog.dismiss();
+    });
+    await page.getByRole("button", { name: /Send Certificate Emails/i }).click();
+    await expect(page.getByText(/already has their certificate/i)).toBeVisible({ timeout: 30000 });
+    expect(secondDialog).toBe(false);
+
+    const { count: after } = await admin
+      .from("certificate_sends")
+      .select("user_id", { count: "exact", head: true })
+      .eq("chapter_id", chapterId);
+    expect(after).toBe(expected);
+  });
+
   // ── BLOCK 15: UPCOMING EVENT RECRUITING ────────────────
 
   test("15.1 Dashboard highlights recruiting teams whose president applied to the next event", async ({ page }) => {

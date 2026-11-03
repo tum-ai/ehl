@@ -54,11 +54,19 @@ export function getPoints(
 export type PublishReadiness =
   | { kind: "ready"; scoredCount: number }
   | { kind: "unfinalized"; pendingTeamCount: number; scoredCount: number }
+  | { kind: "unscored_submitters"; missingTeamCount: number; scoredCount: number }
   | { kind: "empty" };
 
 export function getPublishReadiness(
   scoredTeamIds: Iterable<string>,
-  pendingJuryTeamIds: Iterable<string>
+  pendingJuryTeamIds: Iterable<string>,
+  /**
+   * 3. Teams with a submission in this chapter. A submitter without a score row
+   *    gets neither its participation points nor a certificate. Finalizing the
+   *    jury writes those rows; entering only podium results by override does
+   *    not, which is how a whole chapter's participants once went missing.
+   */
+  submittedTeamIds: Iterable<string> = []
 ): PublishReadiness {
   const scored = new Set(scoredTeamIds);
   const pendingDisplayed = new Set(pendingJuryTeamIds);
@@ -83,6 +91,11 @@ export function getPublishReadiness(
 
   if (scored.size === 0) {
     return { kind: "empty" };
+  }
+
+  const missing = new Set([...submittedTeamIds].filter((teamId) => !scored.has(teamId)));
+  if (missing.size > 0) {
+    return { kind: "unscored_submitters", missingTeamCount: missing.size, scoredCount: scored.size };
   }
 
   return { kind: "ready", scoredCount: scored.size };

@@ -94,7 +94,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-70 migration files (through 00072) in `supabase/migrations/`. Key tables:
+71 migration files (through 00073) in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055;
   `github_username`, migration 00066, is the bare GitHub handle used to add jury
@@ -130,6 +130,13 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
   would be readable by the applicant's own session. Deliberately decoupled: it
   never reads or writes `applications.status`, is not part of the acceptance
   email, and dropping the table removes the feature)
+- `certificate_sends` (migration 00073: one row per chapter + member once their
+  certificate email went out, so "Send Certificates" is idempotent. Claimed BEFORE
+  the send and deleted if it fails, like `application_rsvps` and `finale_invites`;
+  the (chapter_id, user_id) primary key stops two presses mailing someone twice.
+  Service-role only. Backfilled from past `chapter.certificates_sent` events,
+  counting only members whose team score was published and who had joined before
+  a send)
 - `finale_invites` (migration 00068: per-person Grand Finale invite for members of the
   top-ranked teams. An unguessable emailed token; "I'm in" creates an ACCEPTED application
   for the Finale chapter and triggers the normal acceptance email with the QR code, so a

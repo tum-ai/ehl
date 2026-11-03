@@ -677,9 +677,19 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
   unfinalized results are not silently dropped at publish time. Publishing a
   chapter with genuinely no scores is still allowed (completes with an empty
   leaderboard) but explicitly confirmed.
+- The same check warns when teams **submitted but have no score** (for example
+  when only podium results were entered as overrides): those teams would get no
+  participation points and no certificate. Finalizing the jury writes their
+  participation rows; otherwise set them to "Participation" before publishing.
 - Send certificate emails after publishing: one email per team member with a
   personal participation certificate, plus a personal achievement certificate
   for placed members
+- The send is **idempotent**: each member is recorded once mailed
+  (`certificate_sends`), so pressing it again only reaches members who have not
+  received theirs yet (scores added later, members who joined later, earlier
+  failures). The confirmation shows how many people will be emailed and how
+  many already have their certificate; a large chapter that runs out of time
+  reports how many are still pending, and the next press continues
 
 ### Certificate Designs (`/admin/chapters/<id>/certificates`)
 - Global admins upload a custom certificate design per chapter and per

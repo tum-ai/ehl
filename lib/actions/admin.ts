@@ -6,9 +6,10 @@ import { ensureFileLinkReadable, getFileMimeType } from "@/lib/gdrive";
 import { requireAdminAction, requireChapterAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
-import { getPlacementLabel, formatDate, runWithConcurrency } from "@/lib/utils";
+import { getPlacementLabel, formatDate } from "@/lib/utils";
 import { isPlacedPlacement } from "@/lib/scoring";
 import { certificateTokenV2 } from "@/lib/certificate-token";
+import { runBudgetedConcurrent } from "@/lib/bulk-send";
 import { logEvent, logEventStrict } from "@/lib/event-log";
 import { MAX_TEAM_SIZE, MIN_TEAM_SIZE } from "@/lib/config/limits";
 import type { ChapterStatus } from "@/lib/types";
@@ -1763,14 +1764,53 @@ export async function adminSetTeamChallenge(
 }
 
 // ─── Certificate Emails ──────────────────────────────────
+//
+// One personal email per member of every team with a published score. The send
+// is IDEMPOTENT, built like sendRsvpEmails (lib/actions/rsvp.ts) and
+// sendFinaleInvites: a certificate_sends row (migration 00073) is inserted
+// BEFORE each email and deleted if the send fails, so "row exists" means
+// "already sent". A second press therefore reaches only members the first one
+// did not (scores added later, members who joined later, earlier failures),
+// and the (chapter_id, user_id) primary key stops two concurrent presses from
+// mailing the same person twice. runBudgetedConcurrent keeps a large chapter
+// under the function timeout and reports who it did not reach as `remaining`.
 
-export async function sendCertificateEmails(chapterId: string) {
-  const adminErr = await requireAdminAction();
-  if (adminErr) return { error: adminErr };
+interface CertificateRecipient {
+  userId: string;
+  teamId: string;
+  teamName: string;
+  email: string;
+  name: string;
+  placement: number | null;
+  points: number;
+}
 
-  const adminClient = createAdminClient();
+type CertificateChapter = {
+  name: string;
+  city: string;
+  country: string;
+  date: string | null;
+  date_end: string | null;
+  status: string;
+};
 
-  // Verify chapter exists and scores are published
+/**
+ * Who a certificate press would mail right now. Shared by the preview and the
+ * send so the number the admin confirms is the number that is sent.
+ */
+async function loadCertificateRecipients(
+  adminClient: ReturnType<typeof createAdminClient>,
+  chapterId: string
+): Promise<
+  | { error: string }
+  | {
+      chapter: CertificateChapter;
+      pending: CertificateRecipient[];
+      teams: number;
+      alreadySent: number;
+      missingProfile: number;
+    }
+> {
   const { data: chapter } = await adminClient
     .from("chapters")
     .select("name, city, country, date, date_end, status")
@@ -1782,7 +1822,6 @@ export async function sendCertificateEmails(chapterId: string) {
     return { error: "Scores must be published before sending certificates." };
   }
 
-  // Get all published scores for this chapter
   const { data: scores } = await adminClient
     .from("scores")
     .select("team_id, placement, points, challenge_name, published")
@@ -1793,37 +1832,27 @@ export async function sendCertificateEmails(chapterId: string) {
     return { error: "No published scores found for this chapter." };
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ehl.gg";
+  const { data: sentRows, error: sentError } = await adminClient
+    .from("certificate_sends")
+    .select("user_id")
+    .eq("chapter_id", chapterId);
+  if (sentError) return { error: "Could not load who already received a certificate." };
+  const sentUserIds = new Set((sentRows ?? []).map((r) => r.user_id as string));
 
-  // Format date
-  const chapterDate = chapter.date
-    ? chapter.date_end
-      ? `${formatDate(chapter.date as string)} - ${formatDate(chapter.date_end as string)}`
-      : formatDate(chapter.date as string)
-    : "";
-
-  const chapterCity = `${chapter.city as string}, ${chapter.country as string}`;
-
-  let sent = 0;
-  let failed = 0;
-
-  // Collect one send-job per member first, then run them with bounded
-  // concurrency: one email per member multiplies the send count by team size,
-  // and a strictly sequential SMTP loop could blow the 60s function timeout on
-  // a large chapter (leaving later teams unemailed with no audit row).
-  const sendJobs: (() => Promise<void>)[] = [];
+  const pending: CertificateRecipient[] = [];
+  let alreadySent = 0;
+  let missingProfile = 0;
 
   for (const score of scores) {
     const teamId = score.team_id as string;
 
-    // Get team members with their email addresses (user_id is needed to mint
-    // each member's personal certificate link)
+    // Team members with their email addresses (user_id is needed to mint each
+    // member's personal certificate link)
     const { data: members } = await adminClient
       .from("team_members")
       .select("user_id, profiles(email, name)")
       .eq("team_id", teamId);
 
-    // Get team name
     const { data: team } = await adminClient
       .from("teams")
       .select("name")
@@ -1832,79 +1861,150 @@ export async function sendCertificateEmails(chapterId: string) {
 
     if (!team || !members) continue;
 
-    const placement = score.placement as number | null;
-    const isPlaced = isPlacedPlacement(placement);
-    // Participation certificates carry no points. Placed members receive one
-    // in addition to their achievement certificate.
-    const resultLabel = isPlaced
-      ? `${getPlacementLabel(placement as number)} Place (+${score.points as number} pts)`
-      : "Participant";
-    const defaultVariant = isPlaced ? ("achievement" as const) : ("participation" as const);
-
-    // Unguessable capability tokens let links work without login while staying
-    // bound to exactly one member and certificate variant.
-    const routeUrl = `${baseUrl}/api/certificates/${chapterId}/${teamId}`;
-
-    // One email per member: each carries that member's own personal
-    // certificate link, so recipients can no longer share a single message.
     for (const m of members) {
       const userId = m.user_id as string;
+      if (sentUserIds.has(userId)) {
+        alreadySent++;
+        continue;
+      }
       const profile = m.profiles as unknown as { email: string | null; name: string | null } | null;
       if (!profile?.email || !profile.name) {
         console.error(
           `Cannot send personal certificates to member ${userId} of team ${teamId}: profile email or name is missing.`
         );
-        failed++;
+        missingProfile++;
         continue;
       }
-      const email = profile.email;
-
-      const personalCertificateUrl =
-        `${routeUrl}?variant=${defaultVariant}&member=${userId}` +
-        `&token=${certificateTokenV2(chapterId, teamId, {
-          variant: defaultVariant,
-          memberId: userId,
-        })}`;
-      const participationCertificateUrl = isPlaced
-        ? `${routeUrl}?variant=participation&member=${userId}` +
-          `&token=${certificateTokenV2(chapterId, teamId, {
-            variant: "participation",
-            memberId: userId,
-          })}`
-        : null;
-
-      sendJobs.push(async () => {
-        try {
-          const html = await renderCertificateEmail({
-            memberName: profile.name ?? null,
-            teamName: team.name as string,
-            chapterName: chapter.name as string,
-            chapterCity,
-            chapterDate,
-            resultLabel,
-            personalCertificateUrl,
-            participationCertificateUrl,
-          });
-
-          await sendEmail({
-            to: email,
-            subject: `Your EHL Certificates: ${chapter.name as string}`,
-            html,
-          });
-          sent++;
-        } catch (err) {
-          console.error(
-            `Failed to send certificate email to a member of team ${teamId}:`,
-            err
-          );
-          failed++;
-        }
+      pending.push({
+        userId,
+        teamId,
+        teamName: team.name as string,
+        email: profile.email,
+        name: profile.name,
+        placement: score.placement as number | null,
+        points: score.points as number,
       });
     }
   }
 
-  // Every job catches its own error, so a failed send never stops the batch.
-  await runWithConcurrency(sendJobs, 5);
+  return {
+    chapter: chapter as CertificateChapter,
+    pending,
+    teams: scores.length,
+    alreadySent,
+    missingProfile,
+  };
+}
+
+/** What "Send Certificates" would do now, for the confirmation dialog. */
+export async function getCertificateSendPreview(chapterId: string): Promise<
+  | { error: string }
+  | { teams: number; recipients: number; alreadySent: number; missingProfile: number }
+> {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+
+  const loaded = await loadCertificateRecipients(createAdminClient(), chapterId);
+  if ("error" in loaded) return loaded;
+  return {
+    teams: loaded.teams,
+    recipients: loaded.pending.length,
+    alreadySent: loaded.alreadySent,
+    missingProfile: loaded.missingProfile,
+  };
+}
+
+export async function sendCertificateEmails(chapterId: string) {
+  const adminErr = await requireAdminAction();
+  if (adminErr) return { error: adminErr };
+
+  const adminClient = createAdminClient();
+  const loaded = await loadCertificateRecipients(adminClient, chapterId);
+  if ("error" in loaded) return { error: loaded.error };
+  const { chapter, pending, alreadySent, missingProfile } = loaded;
+
+  const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || "https://ehl.gg";
+  const chapterDate = chapter.date
+    ? chapter.date_end
+      ? `${formatDate(chapter.date)} - ${formatDate(chapter.date_end)}`
+      : formatDate(chapter.date)
+    : "";
+  const chapterCity = `${chapter.city}, ${chapter.country}`;
+
+  let sent = 0;
+  // A member without a printable name or email can never receive one: counted
+  // as failed, as before, so the admin sees it.
+  let failed = missingProfile;
+
+  const { skipped } = await runBudgetedConcurrent(pending, async (r) => {
+    // Claim first: the primary key makes a concurrent press skip this member
+    // instead of mailing them a second time.
+    const { error: claimError } = await adminClient
+      .from("certificate_sends")
+      .insert({ chapter_id: chapterId, user_id: r.userId, team_id: r.teamId });
+    if (claimError) {
+      if (claimError.code !== "23505") {
+        console.error(`Could not record certificate send for member ${r.userId}:`, claimError.message);
+        failed++;
+      }
+      return;
+    }
+
+    const isPlaced = isPlacedPlacement(r.placement);
+    // Participation certificates carry no points. Placed members receive one
+    // in addition to their achievement certificate.
+    const resultLabel = isPlaced
+      ? `${getPlacementLabel(r.placement as number)} Place (+${r.points} pts)`
+      : "Participant";
+    const defaultVariant = isPlaced ? ("achievement" as const) : ("participation" as const);
+
+    // Unguessable capability tokens let links work without login while staying
+    // bound to exactly one member and certificate variant.
+    const routeUrl = `${baseUrl}/api/certificates/${chapterId}/${r.teamId}`;
+    const personalCertificateUrl =
+      `${routeUrl}?variant=${defaultVariant}&member=${r.userId}` +
+      `&token=${certificateTokenV2(chapterId, r.teamId, {
+        variant: defaultVariant,
+        memberId: r.userId,
+      })}`;
+    const participationCertificateUrl = isPlaced
+      ? `${routeUrl}?variant=participation&member=${r.userId}` +
+        `&token=${certificateTokenV2(chapterId, r.teamId, {
+          variant: "participation",
+          memberId: r.userId,
+        })}`
+      : null;
+
+    try {
+      const html = await renderCertificateEmail({
+        memberName: r.name,
+        teamName: r.teamName,
+        chapterName: chapter.name,
+        chapterCity,
+        chapterDate,
+        resultLabel,
+        personalCertificateUrl,
+        participationCertificateUrl,
+      });
+
+      await sendEmail({
+        to: r.email,
+        subject: `Your EHL Certificates: ${chapter.name}`,
+        html,
+      });
+      sent++;
+    } catch (err) {
+      console.error(`Failed to send certificate email to a member of team ${r.teamId}:`, err);
+      // Roll the claim back so the next press retries this member instead of
+      // treating them as sent.
+      await adminClient
+        .from("certificate_sends")
+        .delete()
+        .eq("chapter_id", chapterId)
+        .eq("user_id", r.userId);
+      failed++;
+    }
+  });
 
   const actorId = await getAdminUserId();
   logEvent({
@@ -1913,8 +2013,8 @@ export async function sendCertificateEmails(chapterId: string) {
     entityId: chapterId,
     actorId,
     actorType: "admin",
-    delta: { created: { sent, failed } },
+    delta: { created: { sent, failed, remaining: skipped.length, already_sent: alreadySent } },
   });
 
-  return { success: true, sent, failed };
+  return { success: true, sent, failed, remaining: skipped.length, alreadySent };
 }
