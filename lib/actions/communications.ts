@@ -1,7 +1,7 @@
 "use server";
 
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireChapterAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction } from "@/lib/admin-auth";
 import { getSession } from "@/lib/actions/auth";
 import { sendEmail } from "@/lib/email";
 import { renderChapterBroadcastEmail } from "@/lib/emails/render";
@@ -35,7 +35,7 @@ export async function updateChapterEmailSettings(
     eventInfo?: string | null;
   }
 ) {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   // Only write keys that were actually provided, so a partial save (e.g. just
@@ -95,7 +95,7 @@ export async function getBroadcastRecipientCount(
   chapterId: string,
   statusFilter: string[]
 ) {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   const statuses = sanitizeBroadcastStatuses(statusFilter);
@@ -119,7 +119,7 @@ export async function sendChapterBroadcast(
   body: string,
   statusFilter: string[]
 ) {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   // Resolve the acting admin up front (before any email is sent), so the

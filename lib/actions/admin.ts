@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureFileLinkReadable, getFileMimeType } from "@/lib/gdrive";
-import { requireAdminAction, requireChapterAdminAction, getActingUserId } from "@/lib/admin-auth";
+import { requireAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderCertificateEmail } from "@/lib/emails/render";
 import { getPlacementLabel, formatDate } from "@/lib/utils";
@@ -679,13 +679,11 @@ export async function deleteChallenge(challengeId: string, chapterId: string) {
 }
 
 /**
- * Delete a chapter (match) and everything under it. GLOBAL admins only
- * (requireAdminAction rejects chapter_admins, per CLAUDE.md: local admins may
- * never delete).
+ * Delete a chapter (match) and everything under it. Admins only.
  *
  * Most children cascade on delete (challenges then submissions, jury rankings,
  * jury feedback, code reviews; applications then notes and screening_scores;
- * scores, jury_assignments, challenge_registrations, chapter_admins). But three
+ * scores, jury_assignments, challenge_registrations). But three
  * FKs are NO ACTION (media, partners, team_join_requests) and would block the
  * delete with a constraint violation. The delete_chapter_cascade RPC (migration
  * 00050) removes those three children and the chapter in a SINGLE transaction,
@@ -1589,10 +1587,7 @@ export async function adminSetTeamChallenge(
   if (!teamId || !challengeId || !chapterId) {
     return { error: "Team, challenge, and chapter are required." };
   }
-  // Chapter-scoped guard: a local (chapter) admin may only override teams in
-  // their OWN chapter; a global admin passes for any chapter. requireAdminAction
-  // would let a chapter admin act on another chapter's teams.
-  const adminErr = await requireChapterAdminAction(chapterId);
+  const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 

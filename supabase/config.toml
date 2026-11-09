@@ -60,7 +60,7 @@ schema_paths = []
 [db.seed]
 # Disabled on purpose. supabase/seed.sql inserts profiles that (a) FK to
 # auth.users (the fixed-UUID seed users must exist first) and (b) carry
-# elevated roles (admin/jury/chapter_admin), which the prevent_role_on_insert
+# elevated roles (admin/jury), which the prevent_role_on_insert
 # trigger rejects for any caller that is not service_role. A plain `db reset`
 # seed runs as the postgres superuser with no request.jwt.claims set, so those
 # inserts would fail. We instead run scripts/seed-local.ts after `supabase

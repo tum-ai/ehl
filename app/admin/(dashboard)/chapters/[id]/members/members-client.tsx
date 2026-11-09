@@ -15,10 +15,9 @@ interface MemberInfo {
 
 interface Props {
   chapterId: string;
-  isGlobalAdmin: boolean;
 }
 
-export function AdminChapterMembersClient({ chapterId, isGlobalAdmin }: Props) {
+export function AdminChapterMembersClient({ chapterId }: Props) {
   const [members, setMembers] = useState<MemberInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState<string | null>(null);
@@ -117,7 +116,7 @@ export function AdminChapterMembersClient({ chapterId, isGlobalAdmin }: Props) {
                         <span className="text-[10px] font-bold uppercase ad-text-gold">Capt</span>
                       )}
                     </div>
-                    {isGlobalAdmin && m.role !== "president" && (
+                    {m.role !== "president" && (
                       <button
                         onClick={() => handleRemove(m.teamId, m.userId, m.name || m.email)}
                         disabled={removing === m.userId}

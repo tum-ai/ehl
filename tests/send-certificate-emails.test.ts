@@ -14,7 +14,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: mocks.requireAdminAction,
-  requireChapterAdminAction: vi.fn(),
   getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/supabase/admin", () => ({

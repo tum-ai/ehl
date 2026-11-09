@@ -2,7 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireChapterAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction } from "@/lib/admin-auth";
 import { logEvent } from "@/lib/event-log";
 
 export async function submitScore(
@@ -25,19 +25,7 @@ export async function submitScore(
 
   const adminClient = createAdminClient();
 
-  // Resolve the application's chapter, then authorize a global admin OR the
-  // local admin of that chapter.
-  const { data: application } = await adminClient
-    .from("applications")
-    .select("chapter_id")
-    .eq("id", applicationId)
-    .single();
-
-  if (!application) {
-    return { error: "Application not found." };
-  }
-
-  const authErr = await requireChapterAdminAction(application.chapter_id as string);
+  const authErr = await requireAdminAction();
   if (authErr) {
     return { error: "Unauthorized." };
   }

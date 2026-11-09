@@ -7,7 +7,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // on a change, and that an audit entry is written.
 const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
-  requireChapterAdminAction: vi.fn(),
   getActingUserId: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
@@ -19,7 +18,6 @@ const mocks = vi.hoisted(() => ({
 vi.mock("next/cache", () => ({ revalidatePath: mocks.revalidatePath }));
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: mocks.requireAdminAction,
-  requireChapterAdminAction: mocks.requireChapterAdminAction,
   getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
@@ -146,7 +144,6 @@ function defaultResponder(overrides: Partial<{
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.requireAdminAction.mockResolvedValue(null);
-  mocks.requireChapterAdminAction.mockResolvedValue(null);
   mocks.getActingUserId.mockResolvedValue(CALLER);
   mocks.logEventStrict.mockResolvedValue(undefined);
   mocks.createClient.mockResolvedValue({
@@ -156,7 +153,7 @@ beforeEach(() => {
 
 describe("adminSetTeamChallenge", () => {
   it("rejects a non-admin caller before touching the DB", async () => {
-    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
+    mocks.requireAdminAction.mockResolvedValue("Admin access required.");
     const result = await adminSetTeamChallenge(TEAM, CHALLENGE_A, CHAPTER);
     expect(result).toEqual({ error: "Admin access required." });
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
@@ -363,16 +360,6 @@ describe("adminSetTeamChallenge", () => {
           (c.op === "insert" || c.op === "update")
       )
     ).toBeUndefined();
-  });
-
-  it("rejects a chapter admin acting on a chapter that is not theirs (scoped guard)", async () => {
-    // requireChapterAdminAction denies a local admin whose chapter != this one.
-    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
-    const result = await adminSetTeamChallenge(TEAM, CHALLENGE_A, CHAPTER);
-    expect(result).toEqual({ error: "Admin access required." });
-    expect(mocks.createAdminClient).not.toHaveBeenCalled();
-    // The guard was called WITH the chapter id (scope), not the global guard.
-    expect(mocks.requireChapterAdminAction).toHaveBeenCalledWith(CHAPTER);
   });
 
   it("does not treat a rejected/non-accepted applicant as making the team part of the chapter", async () => {

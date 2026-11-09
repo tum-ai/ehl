@@ -18,7 +18,7 @@ const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   checkRateLimit: vi.fn(),
   headers: vi.fn(),
-  requireChapterAdminAction: vi.fn(),
+  requireAdminAction: vi.fn(),
   getActingUserId: vi.fn(),
   logEvent: vi.fn(),
   sendEmail: vi.fn(),
@@ -33,7 +33,7 @@ vi.mock("@/lib/ratelimit", () => ({
 }));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("@/lib/admin-auth", () => ({
-  requireChapterAdminAction: mocks.requireChapterAdminAction,
+  requireAdminAction: mocks.requireAdminAction,
   getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
@@ -122,7 +122,7 @@ function ok<T extends object>(result: { error: string } | T): T {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.requireChapterAdminAction.mockResolvedValue(null);
+  mocks.requireAdminAction.mockResolvedValue(null);
   mocks.getActingUserId.mockResolvedValue("admin-1");
   mocks.renderRsvpRequestEmail.mockResolvedValue("<html></html>");
   mocks.sendEmail.mockResolvedValue(undefined);

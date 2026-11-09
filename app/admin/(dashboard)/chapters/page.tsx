@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { getChaptersAdmin } from "@/lib/queries";
 import { formatDate } from "@/lib/utils";
-import { requireGlobalAdminPage } from "@/lib/admin-auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 import { CreateChapterButton } from "./create-chapter-button";
 
 const statusVariant: Record<string, "completed" | "announced" | "upcoming"> = {
@@ -20,7 +20,7 @@ const statusLabel: Record<string, string> = {
 };
 
 export default async function AdminChaptersPage() {
-  await requireGlobalAdminPage();
+  await requireAdminPage();
   const chapters = await getChaptersAdmin();
   return (
     <div>

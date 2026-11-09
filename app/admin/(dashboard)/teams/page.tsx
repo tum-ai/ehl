@@ -9,7 +9,7 @@ import {
   getAllParticipantsWithTeamsPaged,
 } from "@/lib/queries/teams";
 import { TeamsAndParticipantsView } from "./teams-participants-view";
-import { requireGlobalAdminPage } from "@/lib/admin-auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 
 // Statuses during which an admin may still override a team's challenge. Mirrors
 // CHALLENGE_OVERRIDE_OPEN_STATUSES in lib/actions/admin.ts (the server-side gate
@@ -21,7 +21,7 @@ const CHALLENGE_OVERRIDE_OPEN_STATUSES = new Set([
 ]);
 
 export default async function AdminTeamsPage() {
-  await requireGlobalAdminPage();
+  await requireAdminPage();
   const chapters = await getChaptersAdmin();
 
   // Find the active event chapter (hacking/submissions_open/pitching/preparation/challenge_selection)

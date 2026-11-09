@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireChapterAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction } from "@/lib/admin-auth";
 import { getSession } from "@/lib/actions/auth";
 import { logEvent } from "@/lib/event-log";
 import { checkRateLimit, showcaseLimiter } from "@/lib/ratelimit";
@@ -62,7 +62,7 @@ export async function getShowcaseByToken(
 //
 // Used by the admin showcase page to display the current link + toggles. Lazily
 // creates the row (with a fresh uuid via the column default, disabled by
-// default) on first view. Guarded to the chapter's admins.
+// default) on first view. Admin only.
 //
 // A single upsert (not select-then-insert): two concurrent first visits — e.g.
 // Link prefetch racing the navigation render — must both succeed instead of the
@@ -71,7 +71,7 @@ export async function getShowcaseByToken(
 export async function getOrCreateShowcase(
   chapterId: string
 ): Promise<{ error: string } | ShowcaseSettings> {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   const adminClient = createAdminClient();
@@ -91,11 +91,11 @@ export async function getOrCreateShowcase(
 
 // ─── Admin: rotate a chapter's showcase token ────────────────
 //
-// Invalidates any previously shared link. Guarded to the chapter's admins.
+// Invalidates any previously shared link. Admin only.
 export async function rotateShowcaseToken(
   chapterId: string
 ): Promise<{ error: string } | { token: string }> {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   const session = await getSession();
@@ -139,7 +139,7 @@ export async function setShowcaseSettings(
   chapterId: string,
   settings: { isEnabled?: boolean; showCvs?: boolean; expiresAt?: string | null }
 ): Promise<{ error: string } | ShowcaseSettings> {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   const session = await getSession();

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireChapterAdminPage } from "@/lib/admin-auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 import {
   getChapterByIdAdmin,
   getChapterCommunications,
@@ -13,7 +13,7 @@ export default async function AdminChapterCommunicationsPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireChapterAdminPage(id);
+  await requireAdminPage();
 
   const chapter = await getChapterByIdAdmin(id);
   if (!chapter) notFound();

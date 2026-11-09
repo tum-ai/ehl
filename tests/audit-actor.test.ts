@@ -8,7 +8,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // asserting the real admin id now reaches logEvent.
 const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
-  requireChapterAdminAction: vi.fn(),
   getActingUserId: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
@@ -18,7 +17,6 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: mocks.requireAdminAction,
-  requireChapterAdminAction: mocks.requireChapterAdminAction,
   getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));

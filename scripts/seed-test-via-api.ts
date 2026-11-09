@@ -48,10 +48,7 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 // (id, name, email) so this never drifts from the seed file.
 function parseSeedUsers(): { id: string; email: string; name: string }[] {
   const seed = readFileSync(resolve(__dirname, "../supabase/seed.sql"), "utf-8");
-  // Seed profile emails are @example.com, plus the one external local-admin
-  // persona on @partner.com (proves a non-admin-domain partner can be a
-  // chapter_admin). Both must get auth.users rows so dev-login can mint a token.
-  const re = /'([ab c]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',\s*'([^']*)',\s*'([^']*@(?:example|partner)\.com)'/g;
+  const re = /'([ab c]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',\s*'([^']*)',\s*'([^']*@example\.com)'/g;
   const seen = new Map<string, { id: string; email: string; name: string }>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(seed)) !== null) {

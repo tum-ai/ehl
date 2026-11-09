@@ -5,7 +5,6 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import {
   requireAdminAction,
-  requireChapterAdminAction,
   getActingUserId,
 } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
@@ -658,7 +657,7 @@ export async function deleteApplication(applicationId: string) {
     return { error: "Application not found." };
   }
 
-  const authErr = await requireChapterAdminAction(app.chapter_id as string);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   const session = await getSession();
@@ -709,7 +708,7 @@ export async function updateApplicationStatus(
     .eq("id", applicationId)
     .single();
 
-  const authErr = await requireChapterAdminAction(app?.chapter_id as string);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   // Cancellation is terminal: a cancelled applicant can never be reactivated via
@@ -770,7 +769,7 @@ export async function bulkUpdateApplicationStatus(
     .in("id", applicationIds);
 
   const chapterId = (apps ?? [])[0]?.chapter_id as string | undefined;
-  const authErr = await requireChapterAdminAction(chapterId ?? "");
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   // Reject if any application belongs to a different chapter.
@@ -844,7 +843,7 @@ export async function sendAcceptanceEmails(
     .eq("status", "accepted");
 
   const chapterId = (applications ?? [])[0]?.chapter_id as string | undefined;
-  const authErr = await requireChapterAdminAction(chapterId ?? "");
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   if (!applications || applications.length === 0) {
@@ -920,7 +919,7 @@ export async function sendRejectionEmails(
     .eq("status", "rejected");
 
   const chapterId = (applications ?? [])[0]?.chapter_id as string | undefined;
-  const authErr = await requireChapterAdminAction(chapterId ?? "");
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   if (!applications || applications.length === 0) {
@@ -1010,12 +1009,8 @@ export async function cancelApplication(
 
   // Authorize before distinguishing not-found from unauthorized, so an
   // unauthorized caller cannot use the error to probe which application IDs
-  // exist. When the row is missing we have no chapter_id, so run the guard with
-  // an empty chapter: only a global admin passes (and may see "not found");
-  // everyone else gets the generic auth error regardless of existence.
-  const authErr = await requireChapterAdminAction(
-    (app?.chapter_id as string) ?? ""
-  );
+  // exist: only an admin may see "not found".
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   if (!app) {
@@ -1171,9 +1166,7 @@ export async function addApplicationNote(applicationId: string, body: string) {
 
   // Authorize before distinguishing not-found from unauthorized (see
   // cancelApplication): prevents probing application-ID existence.
-  const authErr = await requireChapterAdminAction(
-    (app?.chapter_id as string) ?? ""
-  );
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   if (!app) {
@@ -1216,7 +1209,7 @@ export async function addApplicationNote(applicationId: string, body: string) {
 // ─── Admin: Send all pending emails (acceptance + rejection) ─
 
 export async function sendBulkEmails(chapterId: string) {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
   const adminClient = createAdminClient();
 
@@ -1292,7 +1285,7 @@ export async function checkInApplication(checkInToken: string) {
     return { error: "Invalid QR code. No application found." };
   }
 
-  const authErr = await requireChapterAdminAction(application.chapter_id as string);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   // Resolve the acting admin SERVER-SIDE. The check-in screen is a client
@@ -1350,7 +1343,7 @@ export async function searchApplicationsForCheckIn(
   chapterId: string,
   query: string
 ) {
-  const adminErr = await requireChapterAdminAction(chapterId);
+  const adminErr = await requireAdminAction();
   if (adminErr) return { error: adminErr };
   const adminClient = createAdminClient();
 
@@ -1392,7 +1385,7 @@ export async function checkInApplicationById(applicationId: string) {
     return { error: "Application not found." };
   }
 
-  const authErr = await requireChapterAdminAction(application.chapter_id as string);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   // Resolve the acting admin server-side (see checkInApplication): never trust a

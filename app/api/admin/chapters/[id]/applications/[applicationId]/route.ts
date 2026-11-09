@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireChapterAdminApi } from "@/lib/admin-auth";
+import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { toApplication, toApplicationNote } from "@/lib/queries/mappers";
 import { QUERY_LIMITS } from "@/lib/config/limits";
@@ -9,7 +9,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string; applicationId: string }> }
 ) {
   const { id, applicationId } = await params;
-  const denied = await requireChapterAdminApi(id);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const adminClient = createAdminClient();

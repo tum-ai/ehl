@@ -13,8 +13,7 @@ import type { CertificateVariant } from "@/lib/certificate-token";
 import { isValidBackgroundAspect } from "@/lib/certificates/layout";
 
 // Custom certificate background designs for one chapter (certificates v2,
-// Stage 1). GLOBAL admin only: designs are chapter settings, which local
-// chapter admins cannot edit (requireAdmin admits only role "admin").
+// Stage 1). Admin only.
 
 function parseVariant(value: unknown): CertificateVariant | null {
   return value === "participation" || value === "achievement" ? value : null;

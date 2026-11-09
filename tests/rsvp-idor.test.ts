@@ -1,17 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
-// The admin RSVP send is scoped to one chapter. A local (chapter) admin must not
-// be able to mail a chapter they do not administer. Mirrors
-// tests/bulk-actions-idor.test.ts: the guard has to run BEFORE any database
-// work, so a rejected caller cannot even learn whether the chapter exists.
+// The admin RSVP send is admin-only. Mirrors tests/bulk-actions-idor.test.ts:
+// the guard has to run BEFORE any database work, so a rejected caller cannot
+// even learn whether the chapter exists.
 // (Reading the answers goes through the applications API route, which is
-// guarded by requireChapterAdminApi before any query.)
+// guarded by requireAdmin before any query.)
 
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   checkRateLimit: vi.fn(),
   headers: vi.fn(),
-  requireChapterAdminAction: vi.fn(),
+  requireAdminAction: vi.fn(),
   getActingUserId: vi.fn(),
   logEvent: vi.fn(),
   sendEmail: vi.fn(),
@@ -26,7 +25,7 @@ vi.mock("@/lib/ratelimit", () => ({
 }));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
 vi.mock("@/lib/admin-auth", () => ({
-  requireChapterAdminAction: mocks.requireChapterAdminAction,
+  requireAdminAction: mocks.requireAdminAction,
   getActingUserId: mocks.getActingUserId,
 }));
 vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
@@ -35,7 +34,7 @@ vi.mock("@/lib/emails/render", () => ({ renderRsvpRequestEmail: mocks.renderRsvp
 
 import { sendRsvpEmails } from "@/lib/actions/rsvp";
 
-const DENIED = "Forbidden: you do not administer this chapter.";
+const DENIED = "Admin access required.";
 
 function makeDb() {
   const builder: Record<string, unknown> = {
@@ -57,8 +56,8 @@ beforeEach(() => {
 });
 
 describe("RSVP admin authorization", () => {
-  it("refuses to send for a chapter the caller does not administer", async () => {
-    mocks.requireChapterAdminAction.mockResolvedValue(DENIED);
+  it("refuses a non-admin caller before any database work", async () => {
+    mocks.requireAdminAction.mockResolvedValue(DENIED);
     const db = makeDb();
     mocks.createAdminClient.mockReturnValue(db);
 
@@ -69,17 +68,8 @@ describe("RSVP admin authorization", () => {
     expect(mocks.sendEmail).not.toHaveBeenCalled();
   });
 
-  it("guards on the chapter the caller actually named", async () => {
-    mocks.requireChapterAdminAction.mockResolvedValue(DENIED);
-    mocks.createAdminClient.mockReturnValue(makeDb());
-
-    await sendRsvpEmails("chapter-x");
-
-    expect(mocks.requireChapterAdminAction).toHaveBeenCalledWith("chapter-x");
-  });
-
-  it("proceeds for an authorized chapter admin", async () => {
-    mocks.requireChapterAdminAction.mockResolvedValue(null);
+  it("proceeds for an admin", async () => {
+    mocks.requireAdminAction.mockResolvedValue(null);
     mocks.createAdminClient.mockReturnValue(makeDb());
 
     const result = await sendRsvpEmails("chapter-1");

@@ -2,16 +2,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { NextResponse } from "next/server";
 
 // The chapter-wide code-review status overview powers the admin page poller. It
-// is chapter-scoped (local admins can view their own chapter) and returns both
+// is admin-only and returns both
 // per-submission status rows and an aggregated summary. These tests pin the
 // guard and the summary shape.
 
 const mocks = vi.hoisted(() => ({
-  requireChapterAdminApi: vi.fn(),
+  requireAdmin: vi.fn(),
   createAdminClient: vi.fn(),
 }));
 
-vi.mock("@/lib/admin-auth", () => ({ requireChapterAdminApi: mocks.requireChapterAdminApi }));
+vi.mock("@/lib/admin-auth", () => ({ requireAdmin: mocks.requireAdmin }));
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
 
 import { GET } from "@/app/api/admin/chapters/[id]/code-reviews/route";
@@ -103,18 +103,18 @@ beforeEach(() => {
 describe("GET /api/admin/chapters/[id]/code-reviews", () => {
   it("short-circuits with the guard response when access is denied", async () => {
     const denied = NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    mocks.requireChapterAdminApi.mockResolvedValue(denied);
+    mocks.requireAdmin.mockResolvedValue(denied);
 
     const res = await GET(new Request("http://t/"), paramsFor(CHAPTER));
 
     expect(res.status).toBe(403);
-    expect(mocks.requireChapterAdminApi).toHaveBeenCalledWith(CHAPTER);
+    expect(mocks.requireAdmin).toHaveBeenCalledWith();
     // No data is computed once denied.
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
   });
 
   it("returns per-submission rows and an aggregated summary", async () => {
-    mocks.requireChapterAdminApi.mockResolvedValue(null);
+    mocks.requireAdmin.mockResolvedValue(null);
     mocks.createAdminClient.mockReturnValue(
       fakeAdminClient({
         challengeIds: ["c1"],
@@ -143,7 +143,7 @@ describe("GET /api/admin/chapters/[id]/code-reviews", () => {
   });
 
   it("returns an empty summary for a chapter with no challenges", async () => {
-    mocks.requireChapterAdminApi.mockResolvedValue(null);
+    mocks.requireAdmin.mockResolvedValue(null);
     mocks.createAdminClient.mockReturnValue(
       fakeAdminClient({ challengeIds: [], submissionIds: [], reviews: [] })
     );
@@ -163,7 +163,7 @@ describe("GET /api/admin/chapters/[id]/code-reviews", () => {
     // subset is all completed, but a queued review exists outside the subset.
     // The summary must still report inFlight=true so polling doesn't stop and
     // Queue All doesn't requeue the running one.
-    mocks.requireChapterAdminApi.mockResolvedValue(null);
+    mocks.requireAdmin.mockResolvedValue(null);
     mocks.createAdminClient.mockReturnValue(
       fakeAdminClient({
         challengeIds: ["c1"],
@@ -195,7 +195,7 @@ describe("GET /api/admin/chapters/[id]/code-reviews", () => {
   });
 
   it("surfaces a failed last dispatch as workerHealth.dispatch_failed", async () => {
-    mocks.requireChapterAdminApi.mockResolvedValue(null);
+    mocks.requireAdmin.mockResolvedValue(null);
     mocks.createAdminClient.mockReturnValue(
       fakeAdminClient({
         challengeIds: ["c1"],

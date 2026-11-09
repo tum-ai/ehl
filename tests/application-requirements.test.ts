@@ -30,7 +30,6 @@ vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminCli
 vi.mock("@/lib/supabase/server", () => ({ createClient: vi.fn() }));
 vi.mock("@/lib/admin-auth", () => ({
   requireAdminAction: vi.fn(),
-  requireChapterAdminAction: vi.fn(),
   getActingUserId: vi.fn(),
 }));
 vi.mock("@/lib/email", () => ({ sendEmail: vi.fn() }));

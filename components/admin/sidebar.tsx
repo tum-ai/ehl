@@ -22,24 +22,6 @@ const globalNavItems: NavItem[] = [
   { href: "/admin/settings", label: "Settings", icon: "cog" },
 ];
 
-// Local (chapter) admins see a reduced nav scoped to their one chapter.
-function chapterAdminNavItems(chapterId: string): NavItem[] {
-  return [
-    { href: `/admin/chapters/${chapterId}`, label: "Chapter", icon: "calendar" },
-    {
-      href: `/admin/chapters/${chapterId}/applications`,
-      label: "Screening",
-      icon: "shield",
-    },
-    {
-      href: `/admin/chapters/${chapterId}/members`,
-      label: "Teams",
-      icon: "users",
-    },
-    { href: "/admin/check-in", label: "Check-in", icon: "qr" },
-  ];
-}
-
 const icons: Record<string, React.ReactNode> = {
   grid: (
     <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -177,13 +159,7 @@ function SidebarContent({
   );
 }
 
-export function AdminSidebar({
-  role,
-  chapterId,
-}: {
-  role?: string;
-  chapterId?: string | null;
-}) {
+export function AdminSidebar() {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -192,13 +168,8 @@ export function AdminSidebar({
     setMobileOpen(false);
   }, [pathname]);
 
-  const isChapterAdmin = role === "chapter_admin" && !!chapterId;
-  const navItems = isChapterAdmin
-    ? chapterAdminNavItems(chapterId as string)
-    : globalNavItems;
-  const homeHref = isChapterAdmin
-    ? `/admin/chapters/${chapterId}`
-    : "/admin";
+  const navItems = globalNavItems;
+  const homeHref = "/admin";
 
   return (
     <>

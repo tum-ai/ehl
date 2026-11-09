@@ -12,7 +12,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 //   - a recipient the budget skipped is NOT stamped, so a retry reaches them.
 
 const mocks = vi.hoisted(() => ({
-  requireChapterAdminAction: vi.fn(),
   requireAdminAction: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
@@ -27,7 +26,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/admin-auth", () => ({
-  requireChapterAdminAction: mocks.requireChapterAdminAction,
   requireAdminAction: mocks.requireAdminAction,
   getActingUserId: vi.fn(),
 }));
@@ -98,7 +96,7 @@ function makeDb(rows: unknown[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.requireChapterAdminAction.mockResolvedValue(null);
+  mocks.requireAdminAction.mockResolvedValue(null);
   mocks.getChapterCommunications.mockResolvedValue({
     acceptanceEmailSubject: null,
     acceptanceEmailMessage: null,
@@ -213,8 +211,8 @@ describe("sendAcceptanceEmails", () => {
     expect((result as { error?: string }).error).toContain("a1@example.com");
   });
 
-  it("refuses a chapter the caller does not administer, before sending", async () => {
-    mocks.requireChapterAdminAction.mockResolvedValue("Forbidden");
+  it("refuses a non-admin caller, before sending", async () => {
+    mocks.requireAdminAction.mockResolvedValue("Forbidden");
     const rows = [application("a0")];
     const { db } = makeDb(rows);
     mocks.createAdminClient.mockReturnValue(db);

@@ -8,7 +8,7 @@ import { BLOCK_ACTION, summarizeBlocks, type BlockSummary } from "@/lib/submissi
  * Reads the append-only event_log (no new table): submitProject records every
  * refused attempt there, and `event_log` is already indexed on both `action` and
  * `created_at`. Admin client because event_log is admin-only; the CALLER must
- * have passed requireChapterAdminApi / requireAdmin first.
+ * have passed requireAdmin first.
  */
 export async function getSubmissionBlocks(
   chapterId: string,

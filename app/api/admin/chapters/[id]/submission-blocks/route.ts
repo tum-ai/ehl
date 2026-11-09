@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireChapterAdminApi } from "@/lib/admin-auth";
+import { requireAdmin } from "@/lib/admin-auth";
 import { getSubmissionBlocks } from "@/lib/queries/submission-blocks";
 
 // Live during a submission window, so never serve a cached answer: a stale
@@ -14,7 +14,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const denied = await requireChapterAdminApi(id);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   // Clamp rather than trust: the window reaches a timestamp filter.
