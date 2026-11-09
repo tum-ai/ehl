@@ -79,7 +79,8 @@ jobs:
   # ─── E2E lifecycle test ───────────────────────────────────
   e2e:
     name: E2E Lifecycle
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 cannot install browsers on ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
     # 20 min headroom for install + `supabase start` (Docker pull/boot) +
     # Playwright browser + the full lifecycle suite. Email goes through a fake
     # transport (EMAIL_FAKE_TRANSPORT below), so there is no real-SMTP latency.
@@ -182,7 +183,8 @@ jobs:
   # rendering & routing regressions; promote to a required check once stable.
   cross-browser:
     name: Cross-browser smoke (Firefox + WebKit)
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.59 cannot install browsers on ubuntu-latest (26.04).
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs: checks
     continue-on-error: true
