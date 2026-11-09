@@ -235,8 +235,18 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
   { prefix: "00043", label: "reconcile_photo_album_url", sql: column("chapters", "photo_album_url") },
   { prefix: "00044", label: "submissions_read_team_members", sql: policy("submissions", "Team members read own submissions") },
   { prefix: "00045", label: "chapter_admin_role", sql: enumValue("user_role", "chapter_admin") },
-  { prefix: "00046", label: "chapter_admins", sql: table("chapter_admins") },
-  { prefix: "00047", label: "chapter_admins_unique_user", sql: constraint("chapter_admins", "chapter_admins_user_id_unique") },
+  // 00046 created chapter_admins and 00047 its unique constraint; 00074 removes
+  // the local admin feature and drops the table, so neither artifact exists on
+  // a fully-migrated DB. 00074's probe (table absent) covers the net state.
+  // 00045's enum value is deliberately kept, so its probe stays valid.
+  { prefix: "00046", label: "chapter_admins", unverifiable: {
+     reason: "chapter_admins is dropped by 00074 (local admin feature removed)",
+     coveredBy: "00074",
+   } },
+  { prefix: "00047", label: "chapter_admins_unique_user", unverifiable: {
+     reason: "its constraint goes with the chapter_admins table, dropped by 00074",
+     coveredBy: "00074",
+   } },
   { prefix: "00048", label: "cron_lock", sql: fn("try_acquire_cron_lock") },
   { prefix: "00049", label: "application_cancel_and_notes", sql: table("application_notes") },
   { prefix: "00050", label: "delete_chapter_cascade", sql: fn("delete_chapter_cascade") },
@@ -509,6 +519,16 @@ export const MIGRATION_CHECKS: MigrationCheck[] = [
          select 1 from pg_constraint
          where conrelid = 'public.certificate_sends'::regclass and contype = 'p'
        )
+     ) as present`,
+  },
+  {
+    // Local (chapter) admin feature removed: the table is gone and no profile
+    // still holds the role (the enum value itself is kept on purpose).
+    prefix: "00074",
+    label: "remove_chapter_admins",
+    sql: `select (
+       to_regclass('public.chapter_admins') is null
+       and not exists (select 1 from public.profiles where role = 'chapter_admin')
      ) as present`,
   },
 ];
