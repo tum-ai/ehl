@@ -205,7 +205,7 @@ Available to participants who are checked in at an event.
   ever and overstate the headcount. Their row is kept, so the record that they were
   asked survives and a later send cannot re-mail them.
 - Roles: anyone holding the emailed link can answer it; sending and viewing are available
-  to global admins and to that chapter's local admins.
+  to admins.
 
 ### Grand Finale invite (`/finale/<token>`)
 - The top league teams do not apply for the Finale through the public form. A global
@@ -252,7 +252,7 @@ Available to participants who are checked in at an event.
 - Fills no-show spots at the event: a walk-in scans a per-chapter walk-in QR, fills the
   normal application form on their phone AND creates an EHL account in one step, and
   becomes an auto-accepted full league participant (application status `accepted`).
-- Admin/chapter-admin side: `/admin/chapters/<id>/walk-in` shows a large printable QR and
+- Admin side: `/admin/chapters/<id>/walk-in` shows a large printable QR and
   copyable link, plus a "Rotate token" action that invalidates previously printed QRs.
 - The walk-in token is an unguessable per-chapter UUID stored in the admin-only
   `chapter_walk_in` table (never on the public `chapters` row). The walk-in page resolves
@@ -270,8 +270,8 @@ Available to participants who are checked in at an event.
   existing password is untouched. A visitor who is already signed in skips the password.
 - After registering, the walk-in sees their personal check-in QR and is checked in via the
   existing `/admin/check-in` flow (unchanged). They form or join a team later in the event hub.
-- Roles: anyone with the link can register a walk-in; the admin page is available to global
-  and chapter admins of that chapter.
+- Roles: anyone with the link can register a walk-in; the admin page is available to
+  admins.
 
 ### Partner Showcase (`/showcase/<token>`)
 - A read-only, token-gated page an admin shares with a match's sponsors. It shows, for that
@@ -299,7 +299,7 @@ Available to participants who are checked in at an event.
   batch fails mid-run the user is told how many ZIPs they already got. A single request over
   the per-ZIP cap (`LIMIT_SHOWCASE_PHOTO_ZIP`, default 150) is refused loudly (413), never
   silently truncated.
-- Admin/chapter-admin side: `/admin/chapters/<id>/showcase` shows the copyable link, a
+- Admin side: `/admin/chapters/<id>/showcase` shows the copyable link, a
   "Rotate link" action, an enable toggle (off by default: an unshared showcase 404s), a
   "Show CVs" toggle (off by default), an optional expiry date, and live counters (visible /
   hidden-due-to-consent / participants / CVs available) so the operator sees exactly what a
@@ -337,8 +337,8 @@ Available to participants who are checked in at an event.
   keyed by application id (Drive file ids stay server-side). It re-checks the token, the
   `show_cvs` toggle, chapter ownership, and consent before streaming, with `no-store` +
   `noindex` + `no-referrer` headers and per-IP rate limiting.
-- Roles: anyone with the link can view the showcase; the admin page is available to global
-  and chapter admins of that chapter.
+- Roles: anyone with the link can view the showcase; the admin page is available to
+  admins.
 
 ### Challenge Selection
 - After check-in, teams browse available challenges
@@ -492,7 +492,7 @@ Automated code quality assessment using multiple LLM agents.
 The admin code-reviews page (`/admin/chapters/<id>/code-reviews`) shows a live view of pipeline progress:
 - **Summary counts by status:** pending / queued / processing / completed / failed, plus total cost, aggregated across the chapter's submissions.
 - **Per submission:** current status badge, the pipeline `progress` string (e.g. "Running coordinator..."), cost, and the failure error message when failed.
-- **Auto-refresh:** while any review is queued or processing, the page polls a single lightweight chapter-scoped endpoint (`/api/admin/chapters/<id>/code-reviews`, chapter-admin scoped) every few seconds and STOPS once nothing is in flight. Truncation beyond the query limit shows a `LimitBanner`.
+- **Auto-refresh:** while any review is queued or processing, the page polls a single lightweight chapter-scoped endpoint (`/api/admin/chapters/<id>/code-reviews`) every few seconds and STOPS once nothing is in flight. Truncation beyond the query limit shows a `LimitBanner`.
 
 ### Report Cards
 - Visual score display per submission
@@ -506,27 +506,8 @@ The admin code-reviews page (`/admin/chapters/<id>/code-reviews`) shows a live v
 
 Accessible at `/admin`. Light theme. Requires Google OAuth with email on allowlist.
 
-There are two kinds of admin:
-- **Global admins** — email on the `admin_emails` allowlist. Full access to every
-  chapter and all global tooling.
-- **Local (chapter) admins** — invited per-chapter by a global admin. Scoped to a
-  single chapter; see the section below.
-
-### Local Admins (`/admin/chapters/<id>/admins`)
-- A global admin invites a person by name + email on a chapter's "Local Admins" page.
-  Any email domain works, including external partners (e.g. `@iterate.com`) — no
-  change to `ADMIN_EMAIL_DOMAIN` is needed.
-- The invitee logs in at `/admin/login` with Google OAuth (the account is
-  pre-provisioned at invite time so the first login works) and lands directly on
-  their chapter.
-- A local admin sees a reduced sidebar (Chapter, Screening, Teams, Check-in) and is
-  confined to that one chapter: application screening, the chapter's teams &
-  participants, submissions, and check-in.
-- They **can**: score applications (screening), view the CVs of applicants in their
-  own chapter, and check participants in.
-- They **cannot**: see other chapters or any global admin view, edit chapter
-  settings, change status, manage challenges/jury/partners, publish scores, or delete
-  anything. Inviting/removing local admins is a global-admin action.
+Admins are the emails on the `admin_emails` allowlist, with full access to every
+chapter and all tooling. There is no per-chapter admin role.
 
 ### Chapter Management (`/admin/chapters`)
 - Create new chapters (matches)
@@ -551,8 +532,8 @@ There are two kinds of admin:
 - Screener scoring per application
 - Bulk accept/reject/waitlist
 - Send branded acceptance/rejection emails
-- View CVs (proxied from Google Drive via the service account; chapter-scoped, so a
-  local admin sees only CVs of applicants in their own chapter)
+- View CVs (proxied from Google Drive via the service account; only files that are the
+  CV of an application are served)
 - Cross-chapter screening signals per applicant: prior screening scores from other
   chapters, past participations (checked in elsewhere), and a No-Show warning (checked
   in at a previous event but their team submitted nothing). No-shows are only counted
@@ -563,8 +544,8 @@ There are two kinds of admin:
   with a visible "cancelled" status, requires a reason, and can optionally send a
   branded cancellation email. Allowed even after the acceptance email was sent.
   Cancellation is terminal: there is no reversal back to accepted (once the
-  acceptance email is out, the person has already been told they are out). Global
-  and chapter admins. Cancelling also removes the person from any challenge
+  acceptance email is out, the person has already been told they are out). Admins.
+  Cancelling also removes the person from any challenge
   registration rosters in that chapter, so a cancelled attendee no longer counts
   toward their team.
 - Admin notes history per application (append-only): the cancellation is recorded
@@ -572,7 +553,7 @@ There are two kinds of admin:
   immutable `event_log`.
 
 ### Communications (`/admin/chapters/<id>/communications`)
-Global and chapter admins. Three tools for talking to a chapter's participants:
+Admins. Three tools for talking to a chapter's participants:
 - **Bulk sends are concurrent and time-budgeted.** Acceptance, rejection and RSVP
   emails all run through `lib/bulk-send.ts`: 3 at a time (matching the SMTP pool in
   `lib/email.ts`) under a 45s wall-clock budget, well inside the function timeout. One
@@ -643,7 +624,6 @@ Global and chapter admins. Three tools for talking to a chapter's participants:
 - List every submission across all chapters (match, challenge, team, project, updated)
 - Also shows teams that registered for a challenge but never submitted ("No submission")
 - Click through to the full submission detail (`/admin/submissions/<id>`): description, tech stack, links/repo/fork, embedded files (pitch deck preview), and the AI code review
-- Global admins see all submissions; chapter admins see only their own chapter's
 - **Snapshot status column**: whether each submission's repository was forked into the
   EHL snapshot org. A submission with a repo but no fork shows "Not snapshotted"
 - **Blocked submission attempts** (chapter page, while status is `submissions_open` or

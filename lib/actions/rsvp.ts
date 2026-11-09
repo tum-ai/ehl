@@ -2,7 +2,7 @@
 
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { requireChapterAdminAction, getActingUserId } from "@/lib/admin-auth";
+import { requireAdminAction, getActingUserId } from "@/lib/admin-auth";
 import { sendEmail } from "@/lib/email";
 import { renderRsvpRequestEmail } from "@/lib/emails/render";
 import { formatDateRange } from "@/lib/utils";
@@ -235,7 +235,7 @@ export async function sendRsvpEmails(chapterId: string): Promise<
   | { error: string }
   | { success: true; sent: number; remaining: number; failed: string[] }
 > {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   const adminClient = createAdminClient();

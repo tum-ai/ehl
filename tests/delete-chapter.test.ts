@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 
 describe("deleteChapter", () => {
-  it("rejects a caller who is not a global admin (chapter admins cannot delete)", async () => {
+  it("rejects a caller who is not an admin", async () => {
     mocks.requireAdminAction.mockResolvedValue("Admin access required.");
     const res = await deleteChapter(CHAPTER);
     expect(res).toEqual({ error: "Admin access required." });

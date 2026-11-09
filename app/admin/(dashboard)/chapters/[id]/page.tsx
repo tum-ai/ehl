@@ -8,8 +8,7 @@ import Link from "next/link";
 import { ChapterEditWrapper } from "./chapter-edit-wrapper";
 import { DeleteChapterButton } from "./delete-chapter-button";
 import type { ChapterStatus } from "@/lib/types";
-import { requireChapterAdminPage } from "@/lib/admin-auth";
-import { getSession } from "@/lib/actions/auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -17,11 +16,7 @@ interface PageProps {
 
 export default async function AdminChapterEditPage({ params }: PageProps) {
   const { id } = await params;
-  // Global admins pass for any chapter; local admins only for their own.
-  await requireChapterAdminPage(id);
-
-  const session = await getSession();
-  const isGlobalAdmin = session?.profile?.role === "admin";
+  await requireAdminPage();
 
   const chapter = await getChapterByIdAdmin(id);
 
@@ -36,9 +31,6 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
   // is noise that trains an operator to ignore the panel.
   const showBlockers = ["submissions_open", "pitching"].includes(chapter.status);
 
-  // The "Manage" links a local (chapter) admin may use: screening, members,
-  // submissions/code-reviews, and the public page. Edit/status/scores/jury/
-  // partners/challenges remain global-admin only.
   const manageCard = (
     <Card>
       <h2 className="ad-heading mb-4 text-lg">Manage</h2>
@@ -87,87 +79,62 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
           <span>Partner Showcase</span>
           <span className="ad-text-muted">&rarr;</span>
         </Link>
-        {isGlobalAdmin && (
-          <Link
-            href={`/admin/chapters/${chapter.id}/photos`}
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Photos</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
-        {isGlobalAdmin && (
-          <Link
-            href={`/admin/chapters/${chapter.id}/challenges`}
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Challenges</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
-        {isGlobalAdmin && (
-          <Link
-            href={`/admin/chapters/${chapter.id}/pitch-order`}
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Pitch Order</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
-        {isGlobalAdmin && (
-          <Link
-            href={`/admin/chapters/${chapter.id}/code-reviews`}
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Code Reviews</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
-        {isGlobalAdmin && (
-          <Link
-            href={`/admin/chapters/${chapter.id}/scores`}
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Manage Scores</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
-        {isGlobalAdmin && (
-          <Link
-            href={`/admin/chapters/${chapter.id}/certificates`}
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Certificate Designs</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
-        {isGlobalAdmin && (
-          <Link
-            href={`/admin/chapters/${chapter.id}/admins`}
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Local Admins</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
-        {isGlobalAdmin && (
-          <Link
-            href="/admin/jury"
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Jury Management</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
-        {isGlobalAdmin && (
-          <Link
-            href="/admin/partners"
-            className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
-          >
-            <span>Partners</span>
-            <span className="ad-text-muted">&rarr;</span>
-          </Link>
-        )}
+        <Link
+          href={`/admin/chapters/${chapter.id}/photos`}
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Photos</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
+        <Link
+          href={`/admin/chapters/${chapter.id}/challenges`}
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Challenges</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
+        <Link
+          href={`/admin/chapters/${chapter.id}/pitch-order`}
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Pitch Order</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
+        <Link
+          href={`/admin/chapters/${chapter.id}/code-reviews`}
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Code Reviews</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
+        <Link
+          href={`/admin/chapters/${chapter.id}/scores`}
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Manage Scores</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
+        <Link
+          href={`/admin/chapters/${chapter.id}/certificates`}
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Certificate Designs</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
+        <Link
+          href="/admin/jury"
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Jury Management</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
+        <Link
+          href="/admin/partners"
+          className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
+        >
+          <span>Partners</span>
+          <span className="ad-text-muted">&rarr;</span>
+        </Link>
         <Link
           href={`/matches/${chapter.slug}`}
           className="flex items-center justify-between rounded-lg border ad-border px-4 py-3 transition-colors ad-bg-card-hover"
@@ -182,14 +149,12 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
   return (
     <div>
       <div className="mb-8">
-        {isGlobalAdmin && (
-          <Link
-            href="/admin/chapters"
-            className="text-sm ad-text-muted hover:ad-text-secondary transition-colors"
-          >
-            &larr; Back to chapters
-          </Link>
-        )}
+        <Link
+          href="/admin/chapters"
+          className="text-sm ad-text-muted hover:ad-text-secondary transition-colors"
+        >
+          &larr; Back to chapters
+        </Link>
       </div>
 
       <div className="flex items-start justify-between">
@@ -226,40 +191,31 @@ export default async function AdminChapterEditPage({ params }: PageProps) {
         </div>
       )}
 
-      {/* Global admins get the editable status/details controls; local admins
-          get a read-only overview with their permitted Manage links. */}
-      {isGlobalAdmin ? (
-        <ChapterEditWrapper
-          chapterId={chapter.id}
-          initialStatus={chapter.status as ChapterStatus}
-          initialData={{
-            name: chapter.name,
-            city: chapter.city,
-            country: chapter.country,
-            description: chapter.description,
-            date: chapter.date,
-            dateEnd: chapter.dateEnd,
-            heroImageUrl: chapter.heroImageUrl,
-            photoAlbumUrl: chapter.photoAlbumUrl,
-            challengeRegistrationEnabled: chapter.challengeRegistrationEnabled,
-            requireCv: chapter.requireCv,
-            requireMotivation: chapter.requireMotivation,
-            applicationDeadline: chapter.applicationDeadline,
-            challengeSelectionDeadline: chapter.challengeSelectionDeadline,
-            submissionDeadline: chapter.submissionDeadline,
-          }}
-        >
-          {manageCard}
-        </ChapterEditWrapper>
-      ) : (
-        <div className="mt-8">{manageCard}</div>
-      )}
+      <ChapterEditWrapper
+        chapterId={chapter.id}
+        initialStatus={chapter.status as ChapterStatus}
+        initialData={{
+          name: chapter.name,
+          city: chapter.city,
+          country: chapter.country,
+          description: chapter.description,
+          date: chapter.date,
+          dateEnd: chapter.dateEnd,
+          heroImageUrl: chapter.heroImageUrl,
+          photoAlbumUrl: chapter.photoAlbumUrl,
+          challengeRegistrationEnabled: chapter.challengeRegistrationEnabled,
+          requireCv: chapter.requireCv,
+          requireMotivation: chapter.requireMotivation,
+          applicationDeadline: chapter.applicationDeadline,
+          challengeSelectionDeadline: chapter.challengeSelectionDeadline,
+          submissionDeadline: chapter.submissionDeadline,
+        }}
+      >
+        {manageCard}
+      </ChapterEditWrapper>
 
-      {/* Destructive delete: global admins only (chapter admins must never
-          delete, per CLAUDE.md). */}
-      {isGlobalAdmin && (
-        <DeleteChapterButton chapterId={chapter.id} chapterName={chapter.name} />
-      )}
+      {/* Destructive delete. */}
+      <DeleteChapterButton chapterId={chapter.id} chapterName={chapter.name} />
     </div>
   );
 }

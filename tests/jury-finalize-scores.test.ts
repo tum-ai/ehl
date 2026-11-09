@@ -8,7 +8,6 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // twice). We assert both.
 const mocks = vi.hoisted(() => ({
   requireAdminAction: vi.fn(),
-  requireChapterAdminAction: vi.fn(),
   getActingUserId: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),

@@ -50,21 +50,15 @@ app/
 | Role | Auth Method | Login Page | Guard |
 |------|-------------|------------|-------|
 | Admin | Google OAuth only | `/admin/login` | `requireAdmin()` checks email allowlist |
-| Local (chapter) admin | Google OAuth only | `/admin/login` | `chapter_admins` table check (scoped to one chapter) |
 | Jury | Email magic link only | `/jury/login` | `jury_assignments` table check |
 | Participant | Email + password | `/login`, `/register` | Supabase session + RLS |
 
 Admin access: `admin_emails` DB table + `ADMIN_FALLBACK_EMAILS` env var.
 
-Local (chapter) admins: invited per-chapter by a global admin (`inviteChapterAdmin`,
-profile role `chapter_admin` + a `chapter_admins` row). They log in via Google OAuth
-like global admins (the `/auth/callback` `/admin` branch recognizes them by their
-`chapter_admins` row, so no `ADMIN_EMAIL_DOMAIN` change is needed for external
-partners). They are confined — by middleware plus page/action/API guards
-(`requireChapterAdminPage/Action/Api`, `requireGlobalAdminPage`) — to a single
-chapter: screening, that chapter's teams/submissions, and check-in. They can score
-applications and check people in, but cannot see other chapters or any global admin
-view, nor edit chapter settings, publish scores, or delete.
+There is no per-chapter admin role: the local (chapter) admin feature was removed in
+migration 00074, which dropped `chapter_admins`. The `chapter_admin` value is still in
+the `user_role` enum (Postgres cannot drop an enum value without rebuilding the type)
+but no profile holds it and no code may use it.
 
 ### Data Flow
 - **Read queries**: `lib/queries/` (split by domain: chapters, teams, challenges, submissions, jury, profiles)
@@ -94,7 +88,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
 
 ## Database
 
-71 migration files (through 00073) in `supabase/migrations/`. Key tables:
+72 migration files (through 00074) in `supabase/migrations/`. Key tables:
 - `profiles` (users; a trigger on `auth.users` auto-creates a profile for every
   account so no code path can leave an auth user profileless, migration 00055;
   `github_username`, migration 00066, is the bare GitHub handle used to add jury
@@ -161,7 +155,7 @@ Defined in `lib/scoring.ts`. Placement points: 1st=8, 2nd=7, 3rd=6, 4th-5th=4, p
   designs, one row per chapter+variant; images live in the PRIVATE
   `certificate-backgrounds` storage bucket; a SEPARATE table, never on the
   publicly-readable `chapters` row)
-- `admin_emails`, `chapter_admins` (local/chapter admins), `app_settings`, `admin_audit_log`
+- `admin_emails`, `app_settings`, `admin_audit_log`
 - `leaderboard` (Postgres VIEW, not a table)
 
 RLS is enabled on all tables. Admin operations use `createAdminClient()` which bypasses RLS.

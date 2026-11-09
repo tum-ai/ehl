@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import QRCode from "qrcode";
-import { requireChapterAdminPage } from "@/lib/admin-auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 import { getChapterByIdAdmin } from "@/lib/queries";
 import { getOrCreateWalkInToken } from "@/lib/actions/walk-in";
 import { getSiteUrl } from "@/lib/utils";
@@ -12,7 +12,7 @@ export default async function AdminChapterWalkInPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireChapterAdminPage(id);
+  await requireAdminPage();
 
   const chapter = await getChapterByIdAdmin(id);
   if (!chapter) notFound();

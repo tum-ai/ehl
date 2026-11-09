@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireChapterAdminApi } from "@/lib/admin-auth";
+import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { QUERY_LIMITS } from "@/lib/config/limits";
 import {
@@ -15,15 +15,14 @@ import type { CodeReviewStatus } from "@/lib/types";
  * Replaces the old N+1 polling (one /api/admin/code-reviews/[submissionId] fetch
  * per submission) with a single query, so the auto-refresh stays cheap even with
  * ~100 submissions. Returns per-submission status + progress + cost + error, plus
- * an aggregated summary (counts by status). Chapter-scoped so local admins can use
- * it on their own chapter.
+ * an aggregated summary (counts by status).
  */
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: chapterId } = await params;
-  const denied = await requireChapterAdminApi(chapterId);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const adminClient = createAdminClient();

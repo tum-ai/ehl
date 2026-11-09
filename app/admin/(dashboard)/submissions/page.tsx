@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { LimitBanner } from "@/components/admin/limit-banner";
-import { requireGlobalAdminPage } from "@/lib/admin-auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 import {
   getAllSubmissions,
   getAllChallengeRegistrations,
@@ -19,13 +19,9 @@ import type { Challenge, Chapter } from "@/lib/types";
  * Global-admin view of every submission across all chapters. Also surfaces teams
  * that REGISTERED for a challenge but never submitted ("No submission"), so admins
  * can see who is missing an entry.
- *
- * Global admins ONLY: RLS does not grant chapter_admins read access to the
- * submissions table, so the view is not functional for them; we gate it to global
- * admins rather than show a misleadingly empty page.
  */
 export default async function AdminSubmissionsPage() {
-  await requireGlobalAdminPage();
+  await requireAdminPage();
 
   const [
     { submissions, limit: subLimit, limited: subLimited },

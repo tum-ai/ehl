@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { requireGlobalAdminPage } from "@/lib/admin-auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 import {
   getSubmissionById,
   getChallengeById,
@@ -24,8 +24,7 @@ interface PageProps {
 export default async function AdminSubmissionDetailPage({ params }: PageProps) {
   const { id: submissionId } = await params;
 
-  // Global admins only (RLS does not grant chapter_admins read on submissions).
-  await requireGlobalAdminPage();
+  await requireAdminPage();
 
   const submission = await getSubmissionById(submissionId);
   if (!submission) notFound();

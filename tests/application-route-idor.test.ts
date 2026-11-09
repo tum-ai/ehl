@@ -3,18 +3,17 @@ import { NextResponse } from "next/server";
 
 // Call-site IDOR tests for chapter-scoped API routes.
 //
-// The guard functions are correct in isolation (tested in chapter-admin-guards.test.ts).
 // These tests verify that the *routes themselves* enforce chapter scope on every DB
 // query — i.e. that passing a valid guard for chapter A does not leak data from
 // chapter B when a cross-chapter ID is supplied.
 
 const mocks = vi.hoisted(() => ({
-  requireChapterAdminApi: vi.fn(),
+  requireAdmin: vi.fn(),
   createAdminClient: vi.fn(),
 }));
 
 vi.mock("@/lib/admin-auth", () => ({
-  requireChapterAdminApi: mocks.requireChapterAdminApi,
+  requireAdmin: mocks.requireAdmin,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: mocks.createAdminClient,
@@ -62,7 +61,7 @@ function makeDb(rows: Record<string, unknown>) {
 beforeEach(() => {
   vi.clearAllMocks();
   // Guard passes — simulates a chapter-A admin who is authorized for CHAPTER_A.
-  mocks.requireChapterAdminApi.mockResolvedValue(null);
+  mocks.requireAdmin.mockResolvedValue(null);
 });
 
 // ─── Single application route ────────────────────────────────────────────────

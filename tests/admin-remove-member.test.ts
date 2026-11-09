@@ -43,8 +43,7 @@ const TEAM = "team-1";
 const PRESIDENT = "user-president";
 const ADMIN = "caller-admin";
 
-// Minimal chainable Supabase mock mirroring the harness in
-// chapter-admins-actions.test.ts: `responder(state)` returns the result for a
+// Minimal chainable Supabase mock: `responder(state)` returns the result for a
 // given table/op, and every terminal call is recorded in `calls`.
 function makeAdminClient(opts: {
   responder: (s: {

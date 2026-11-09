@@ -18,7 +18,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   createServerClient: vi.fn(),
-  requireChapterAdminAction: vi.fn(),
+  requireAdminAction: vi.fn(),
   getSession: vi.fn(),
   verifyTurnstileToken: vi.fn(),
   checkRateLimit: vi.fn(),
@@ -29,7 +29,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/admin", () => ({ createAdminClient: mocks.createAdminClient }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createServerClient }));
 vi.mock("@/lib/admin-auth", () => ({
-  requireChapterAdminAction: mocks.requireChapterAdminAction,
+  requireAdminAction: mocks.requireAdminAction,
 }));
 vi.mock("@/lib/actions/auth", () => ({ getSession: mocks.getSession }));
 vi.mock("@/lib/turnstile", () => ({ verifyTurnstileToken: mocks.verifyTurnstileToken }));
@@ -152,7 +152,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.verifyTurnstileToken.mockResolvedValue(true);
   mocks.checkRateLimit.mockResolvedValue({ limited: false });
-  mocks.requireChapterAdminAction.mockResolvedValue(null);
+  mocks.requireAdminAction.mockResolvedValue(null);
   mocks.getSession.mockResolvedValue({ profile: { id: "admin-1" } });
   mocks.createServerClient.mockResolvedValue({
     auth: { signInWithPassword: vi.fn().mockResolvedValue({ error: null }) },
@@ -786,7 +786,7 @@ describe("submitWalkInApplication: existing-account mode", () => {
 
 describe("rotateWalkInToken", () => {
   it("rejects an unauthorized caller and writes nothing", async () => {
-    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
+    mocks.requireAdminAction.mockResolvedValue("Admin access required.");
     const result = await rotateWalkInToken(CHAPTER_ID);
     expect(result).toEqual({ error: "Admin access required." });
     expect(mocks.createAdminClient).not.toHaveBeenCalled();

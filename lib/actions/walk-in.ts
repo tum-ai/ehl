@@ -3,7 +3,7 @@
 import { headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
-import { requireChapterAdminAction } from "@/lib/admin-auth";
+import { requireAdminAction } from "@/lib/admin-auth";
 import { getSession } from "@/lib/actions/auth";
 import { verifyTurnstileToken } from "@/lib/turnstile";
 import {
@@ -388,11 +388,11 @@ export async function submitWalkInApplication(
 
 // ─── Admin: rotate a chapter's walk-in token ─────────────────
 //
-// Invalidates any previously printed QR. Guarded to the chapter's admins.
+// Invalidates any previously printed QR. Admin only.
 export async function rotateWalkInToken(
   chapterId: string
 ): Promise<{ error: string } | { token: string }> {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   const session = await getSession();
@@ -434,12 +434,11 @@ export async function rotateWalkInToken(
 // ─── Admin: get-or-create a chapter's walk-in token ──────────
 //
 // Used by the admin walk-in page to display the current QR. Lazily creates the
-// row (with a fresh uuid via the column default) on first view. Guarded to the
-// chapter's admins.
+// row (with a fresh uuid via the column default) on first view. Admin only.
 export async function getOrCreateWalkInToken(
   chapterId: string
 ): Promise<{ error: string } | { token: string }> {
-  const authErr = await requireChapterAdminAction(chapterId);
+  const authErr = await requireAdminAction();
   if (authErr) return { error: authErr };
 
   const adminClient = createAdminClient();

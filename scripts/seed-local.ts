@@ -12,7 +12,7 @@
  *   1. Create the fixed-UUID seed auth.users (profiles FK to auth.users).
  *   2. Clear event_log (append-only trigger disabled around the wipe).
  *   3. Run supabase/seed.sql with the profiles role triggers disabled (the seed
- *      inserts admin/jury/chapter_admin profiles, which prevent_role_on_insert
+ *      inserts admin/jury profiles, which prevent_role_on_insert
  *      blocks for non-service_role callers; psql connects as postgres with no
  *      request.jwt.claims, so the trigger must be disabled around the seed).
  *
@@ -68,7 +68,7 @@ const DB_URL = getLocalDbUrl();
 function parseSeedUsers(): { id: string; email: string; name: string }[] {
   const seed = readFileSync(SEED_PATH, "utf-8");
   const re =
-    /'([abc]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',\s*'([^']*)',\s*'([^']*@(?:example|partner)\.com)'/g;
+    /'([abc]?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',\s*'([^']*)',\s*'([^']*@example\.com)'/g;
   const seen = new Map<string, { id: string; email: string; name: string }>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(seed)) !== null) {

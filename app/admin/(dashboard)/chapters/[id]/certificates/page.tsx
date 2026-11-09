@@ -1,18 +1,17 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { requireGlobalAdminPage } from "@/lib/admin-auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 import { getChapterByIdAdmin } from "@/lib/queries";
 import { CertificateDesignsManager } from "@/components/admin/certificate-designs-manager";
 
-// Custom certificate background designs. GLOBAL admin only: certificate
-// designs are chapter settings, which local chapter admins cannot edit.
+// Custom certificate background designs.
 export default async function AdminChapterCertificatesPage({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireGlobalAdminPage();
+  await requireAdminPage();
 
   const chapter = await getChapterByIdAdmin(id);
   if (!chapter) notFound();

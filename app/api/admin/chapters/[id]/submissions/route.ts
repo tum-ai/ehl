@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { requireChapterAdminApi } from "@/lib/admin-auth";
+import { requireAdmin } from "@/lib/admin-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export async function GET(
@@ -7,7 +7,7 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: chapterId } = await params;
-  const denied = await requireChapterAdminApi(chapterId);
+  const denied = await requireAdmin();
   if (denied) return denied;
 
   const { searchParams } = new URL(request.url);

@@ -5,11 +5,11 @@ import { toChallenge, toSubmission } from "@/lib/queries/mappers";
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(), getSubmissionById: vi.fn(), getChallengeById: vi.fn(), getChapterBySlug: vi.fn(),
   resolveJuryAssignment: vi.fn(), getTeams: vi.fn(), getCodeReviewForSubmissionAuthenticated: vi.fn(),
-  getSubmissionsForChallengeAuthenticated: vi.fn(), getPitchOrder: vi.fn(), requireGlobalAdminPage: vi.fn(),
+  getSubmissionsForChallengeAuthenticated: vi.fn(), getPitchOrder: vi.fn(), requireAdminPage: vi.fn(),
 }));
 vi.mock("@/lib/actions/auth", () => ({ getSession: mocks.getSession }));
 vi.mock("@/lib/queries", () => mocks);
-vi.mock("@/lib/admin-auth", () => ({ requireGlobalAdminPage: mocks.requireGlobalAdminPage }));
+vi.mock("@/lib/admin-auth", () => ({ requireAdminPage: mocks.requireAdminPage }));
 vi.mock("@/lib/gdrive", () => ({ ensureFileLinkReadable: vi.fn() }));
 vi.mock("@/components/admin/snapshot-retry", () => ({ SnapshotRetry: () => null }));
 vi.mock("@/components/code-review/report-card", () => ({ ReportCard: () => null }));

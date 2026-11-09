@@ -1,28 +1,16 @@
-import { redirect } from "next/navigation";
 import { AdminSidebar } from "@/components/admin/sidebar";
-import { getSession } from "@/lib/actions/auth";
-import { getAdminChapterId } from "@/lib/chapter-admin";
+import { requireAdminPage } from "@/lib/admin-auth";
 
 export default async function AdminDashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // Admit global admins and local (chapter) admins; page-level guards confine
-  // local admins to their single chapter.
-  const session = await getSession();
-  const role = session?.profile?.role;
-
-  if (!session || (role !== "admin" && role !== "chapter_admin")) {
-    redirect("/admin/login");
-  }
-
-  const chapterId =
-    role === "chapter_admin" ? await getAdminChapterId(session.user.id) : null;
+  await requireAdminPage();
 
   return (
     <div className="flex min-h-screen">
-      <AdminSidebar role={role} chapterId={chapterId} />
+      <AdminSidebar />
       {/* min-w-0: a flex item defaults to min-width:auto, so <main> could not
           shrink below its widest child and pushed the whole PAGE sideways
           instead of letting the table's own overflow-x container scroll. That

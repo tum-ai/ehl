@@ -48,7 +48,7 @@ export default function AdminCheckInPage() {
   const checkInChapters = chapters.filter((ch) => CHECK_IN_STATUSES.has(ch.status));
 
   useEffect(() => {
-    // Load chapters (role-scoped: local admins only get their own chapter)
+    // Load chapters
     fetch("/api/admin/check-in/chapters")
       .then((r) => r.json())
       .then((all: Chapter[]) => setChapters(Array.isArray(all) ? all : []))

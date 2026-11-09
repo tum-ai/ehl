@@ -12,7 +12,7 @@ const mocks = vi.hoisted(() => ({
   createAdminClient: vi.fn(),
   checkRateLimit: vi.fn(),
   headers: vi.fn(),
-  requireChapterAdminAction: vi.fn(),
+  requireAdminAction: vi.fn(),
   getSession: vi.fn(),
   logEvent: vi.fn(),
 }));
@@ -23,7 +23,7 @@ vi.mock("@/lib/ratelimit", () => ({
   showcaseLimiter: { prefix: "rl:showcase" },
 }));
 vi.mock("next/headers", () => ({ headers: mocks.headers }));
-vi.mock("@/lib/admin-auth", () => ({ requireChapterAdminAction: mocks.requireChapterAdminAction }));
+vi.mock("@/lib/admin-auth", () => ({ requireAdminAction: mocks.requireAdminAction }));
 vi.mock("@/lib/actions/auth", () => ({ getSession: mocks.getSession }));
 vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
 

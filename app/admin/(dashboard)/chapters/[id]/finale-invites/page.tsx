@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { requireGlobalAdminPage } from "@/lib/admin-auth";
+import { requireAdminPage } from "@/lib/admin-auth";
 import { getChapterByIdAdmin } from "@/lib/queries";
 import { getFinaleInviteBoard } from "@/lib/actions/finale-invites";
 import { FinaleInvitesClient } from "./finale-invites-client";
@@ -16,7 +16,7 @@ export default async function AdminFinaleInvitesPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireGlobalAdminPage();
+  await requireAdminPage();
 
   const chapter = await getChapterByIdAdmin(id);
   if (!chapter) notFound();

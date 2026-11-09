@@ -2,18 +2,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // Call-site IDOR tests for bulk application server actions.
 //
-// Guard functions are tested in isolation in chapter-admin-guards.test.ts.
 // These tests verify that the bulk actions reject mixed-chapter arrays even
-// when the guard passes (i.e. at least one application belongs to the caller's
-// chapter), and that the single-chapter invite enforcement works.
+// when the admin guard passes.
 
 const mocks = vi.hoisted(() => ({
-  requireChapterAdminAction: vi.fn(),
   requireAdminAction: vi.fn(),
   createAdminClient: vi.fn(),
   createClient: vi.fn(),
   getSession: vi.fn(),
-  isAdminEmail: vi.fn(),
   logEvent: vi.fn(),
   sendEmail: vi.fn(),
   renderApplicationAcceptedEmail: vi.fn(),
@@ -22,7 +18,6 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/admin-auth", () => ({
-  requireChapterAdminAction: mocks.requireChapterAdminAction,
   requireAdminAction: mocks.requireAdminAction,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
@@ -30,7 +25,6 @@ vi.mock("@/lib/supabase/admin", () => ({
 }));
 vi.mock("@/lib/supabase/server", () => ({ createClient: mocks.createClient }));
 vi.mock("@/lib/actions/auth", () => ({ getSession: mocks.getSession }));
-vi.mock("@/lib/admin-allowlist", () => ({ isAdminEmail: mocks.isAdminEmail }));
 vi.mock("@/lib/event-log", () => ({ logEvent: mocks.logEvent }));
 vi.mock("@/lib/email", () => ({ sendEmail: mocks.sendEmail }));
 vi.mock("@/lib/emails/render", () => ({
@@ -44,7 +38,6 @@ import {
   sendAcceptanceEmails,
   sendRejectionEmails,
 } from "@/lib/actions/applications";
-import { inviteChapterAdmin } from "@/lib/actions/chapter-admins";
 
 const CHAPTER_A = "chapter-a";
 const CHAPTER_B = "chapter-b";
@@ -78,10 +71,8 @@ function makeDb(rows: unknown[]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  // By default guard passes — simulates a chapter-A admin.
-  mocks.requireChapterAdminAction.mockResolvedValue(null);
+  // By default the admin guard passes.
   mocks.requireAdminAction.mockResolvedValue(null);
-  mocks.isAdminEmail.mockResolvedValue(false);
   // Audit actor: bulkUpdateApplicationStatus resolves the acting admin via
   // getSession() so its audit row records who did it.
   mocks.getSession.mockResolvedValue({
@@ -93,7 +84,7 @@ beforeEach(() => {
 // ─── bulkUpdateApplicationStatus ─────────────────────────────────────────────
 
 describe("bulkUpdateApplicationStatus", () => {
-  it("rejects a mixed-chapter array even when the first row belongs to the caller's chapter", async () => {
+  it("rejects a mixed-chapter array even when the first row belongs to the chapter", async () => {
     const apps = [
       { id: "app-a1", chapter_id: CHAPTER_A, acceptance_email_sent_at: null, rejection_email_sent_at: null },
       { id: "app-b1", chapter_id: CHAPTER_B, acceptance_email_sent_at: null, rejection_email_sent_at: null },
@@ -178,81 +169,5 @@ describe("sendRejectionEmails", () => {
 
     expect(result.error).toMatch(/same chapter/i);
     expect(mocks.sendEmail).not.toHaveBeenCalled();
-  });
-});
-
-// ─── inviteChapterAdmin — single-chapter enforcement ─────────────────────────
-
-describe("inviteChapterAdmin — second-chapter rejection", () => {
-  it("rejects an invite when the person is already a local admin of a different chapter", async () => {
-    // DB: chapter exists, profile exists, chapter_admins has one row for CHAPTER_B
-    let tableCall = "";
-    const client = {
-      from(table: string) {
-        tableCall = table;
-        const builder = {
-          select: () => builder,
-          upsert: () => builder,
-          insert: (_p: unknown) => Promise.resolve({ error: null }),
-          eq: () => builder,
-          in: () => builder,
-          order: () => builder,
-          limit: () => builder,
-          single: () => {
-            if (table === "chapters") return Promise.resolve({ data: { id: CHAPTER_A }, error: null });
-            return Promise.resolve({ data: null, error: null });
-          },
-          maybeSingle: () => {
-            if (table === "profiles") return Promise.resolve({ data: { id: "user-1" }, error: null });
-            // chapter_admins: this person already admins CHAPTER_B
-            if (table === "chapter_admins") return Promise.resolve({ data: { chapter_id: CHAPTER_B }, error: null });
-            return Promise.resolve({ data: null, error: null });
-          },
-        };
-        return builder;
-      },
-      auth: { admin: { createUser: vi.fn(), generateLink: vi.fn() } },
-    };
-    mocks.createAdminClient.mockReturnValue(client);
-    mocks.createClient.mockResolvedValue({
-      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "admin-1" } } }) },
-    });
-
-    const result = await inviteChapterAdmin("partner@external.com", "Partner", CHAPTER_A);
-
-    expect(result.error).toMatch(/already a local admin for another chapter/i);
-  });
-
-  it("rejects an invite when the person is already a local admin of the same chapter", async () => {
-    const client = {
-      from(table: string) {
-        const builder = {
-          select: () => builder,
-          upsert: () => builder,
-          eq: () => builder,
-          order: () => builder,
-          limit: () => builder,
-          single: () => {
-            if (table === "chapters") return Promise.resolve({ data: { id: CHAPTER_A }, error: null });
-            return Promise.resolve({ data: null, error: null });
-          },
-          maybeSingle: () => {
-            if (table === "profiles") return Promise.resolve({ data: { id: "user-1" }, error: null });
-            if (table === "chapter_admins") return Promise.resolve({ data: { chapter_id: CHAPTER_A }, error: null });
-            return Promise.resolve({ data: null, error: null });
-          },
-        };
-        return builder;
-      },
-      auth: { admin: { createUser: vi.fn(), generateLink: vi.fn() } },
-    };
-    mocks.createAdminClient.mockReturnValue(client);
-    mocks.createClient.mockResolvedValue({
-      auth: { getUser: vi.fn().mockResolvedValue({ data: { user: { id: "admin-1" } } }) },
-    });
-
-    const result = await inviteChapterAdmin("partner@external.com", "Partner", CHAPTER_A);
-
-    expect(result.error).toMatch(/already a local admin for this chapter/i);
   });
 });

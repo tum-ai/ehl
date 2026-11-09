@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // the event_log, and that cancellation is terminal (updateApplicationStatus
 // cannot reactivate a cancelled applicant).
 const mocks = vi.hoisted(() => ({
-  requireChapterAdminAction: vi.fn(),
+  requireAdminAction: vi.fn(),
   createAdminClient: vi.fn(),
   getSession: vi.fn(),
   logEvent: vi.fn(),
@@ -18,8 +18,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/admin-auth", () => ({
-  requireAdminAction: vi.fn(),
-  requireChapterAdminAction: mocks.requireChapterAdminAction,
+  requireAdminAction: mocks.requireAdminAction,
 }));
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: mocks.createAdminClient,
@@ -58,7 +57,7 @@ const APP_ID = "app-1";
 const CHAPTER = "chapter-a";
 const ADMIN = { id: "admin-1", email: "admin@tum-ai.com" };
 
-// Minimal chainable Supabase mock mirroring chapter-admins-actions.test.ts.
+// Minimal chainable Supabase mock.
 function makeAdminClient(opts: {
   responder: (s: {
     table: string;
@@ -106,7 +105,7 @@ function makeAdminClient(opts: {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.requireChapterAdminAction.mockResolvedValue(null); // authorized by default
+  mocks.requireAdminAction.mockResolvedValue(null); // authorized by default
   // getSession returns both user and profile; the acting admin id (used for audit
   // attribution + cancelled_by/author_id) now comes from session.user.id.
   mocks.getSession.mockResolvedValue({ user: { id: ADMIN.id }, profile: ADMIN });
@@ -119,8 +118,8 @@ describe("cancelApplication", () => {
     expect(mocks.createAdminClient).not.toHaveBeenCalled();
   });
 
-  it("rejects a caller who is not an admin for the chapter", async () => {
-    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
+  it("rejects a non-admin caller", async () => {
+    mocks.requireAdminAction.mockResolvedValue("Admin access required.");
     mocks.createAdminClient.mockReturnValue(
       makeAdminClient({
         calls: [],
@@ -139,7 +138,7 @@ describe("cancelApplication", () => {
     // Guard rejects (unauthorized). Whether the application row exists or not,
     // the caller must get the generic auth error, never "Application not found",
     // so the action is not an existence oracle.
-    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
+    mocks.requireAdminAction.mockResolvedValue("Admin access required.");
 
     // Existing row.
     mocks.createAdminClient.mockReturnValue(
@@ -484,8 +483,8 @@ describe("addApplicationNote", () => {
     );
   });
 
-  it("rejects a caller who is not an admin for the chapter", async () => {
-    mocks.requireChapterAdminAction.mockResolvedValue("Admin access required.");
+  it("rejects a non-admin caller", async () => {
+    mocks.requireAdminAction.mockResolvedValue("Admin access required.");
     mocks.createAdminClient.mockReturnValue(
       makeAdminClient({
         calls: [],
