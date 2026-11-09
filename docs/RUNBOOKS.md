@@ -178,7 +178,7 @@ jury links go out.
 ### Watching for stuck teams while submissions are open
 
 A refused submission writes no row, so it leaves no trace except an `event_log`
-entry. The chapter admin page shows those live while the chapter is
+entry. The admin chapter page shows those live while the chapter is
 `submissions_open` or `pitching`, in the **Blocked submission attempts** panel
 (last 60 minutes, polled every 20s, counted by reason and by distinct teams).
 
