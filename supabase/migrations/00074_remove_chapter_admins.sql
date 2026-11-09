@@ -8,7 +8,8 @@
 -- enum value without rebuilding the type that profiles.role uses. After this
 -- migration no profile holds it and no code references it.
 --
--- The table is dropped WITHOUT cascade on purpose: if anything else still
+-- The table is dropped WITHOUT cascade on purpose (if exists only so a retry
+-- after an ambiguous Management API response is safe): if anything else still
 -- depended on it, this migration must fail loudly instead of silently taking
 -- that object with it.
 
@@ -20,7 +21,7 @@ drop policy if exists "Chapter admin reads own chapter_partner_showcase" on chap
 drop policy if exists "Chapter admin reads own application_rsvps" on application_rsvps;
 drop policy if exists "Chapter admin reads own finale_invites" on finale_invites;
 
-drop table chapter_admins;
+drop table if exists chapter_admins;
 
 -- profiles_prevent_role_change (00030) rejects role changes unless the caller
 -- is the service role. A migration has no JWT, so claim service_role here.

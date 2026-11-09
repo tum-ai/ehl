@@ -11,8 +11,10 @@ import { join, relative } from "node:path";
 const ROOT = join(__dirname, "..");
 const SCAN_DIRS = ["app", "lib", "components", "scripts", "tests", "e2e", "supabase"];
 const SOURCE_FILE = /\.(ts|tsx|js|mjs|sql)$/;
+// Identifiers, plus prose ("chapter admin", "chapter-admin", "local (chapter)
+// admin") so a stale comment or UI string is caught too.
 const LEFTOVER =
-  /\bchapter_admins?\b|requireChapterAdmin(Page|Action|Api)|requireGlobalAdminPage|getAdminChapterId|inviteChapterAdmin/;
+  /\bchapter_admins?\b|requireChapterAdmin(Page|Action|Api)|requireGlobalAdminPage|getAdminChapterId|inviteChapterAdmin|\bchapter[ -]admins?\b|local \(chapter\) admin/i;
 
 function listFiles(dir: string): string[] {
   const out: string[] = [];
